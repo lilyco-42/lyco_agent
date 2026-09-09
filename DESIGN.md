@@ -198,6 +198,10 @@
       包里没有 install/commit/build 数据, 模型无论怎么训都不会命中。
       结论: 环境奖励 GRPO 的数据配方 = 意图平衡 + 知识包内容对齐。
       这把训练数据要覆盖产品能力从原则变成了可测量的机制
+- [x] **知识包扩展 + 环境通道打通**（2026-09-10）：生成 dev_ops 教学视频
+      (install/build/commit/push) → lycore learn 学习 → 5 单元中 4 intent 正确
+      (发现并修复 detect_intent 3 个 bug: 映射键笔误/github 子串抢先匹配/
+      word_after 词边界)。环境奖励通道对新意图打开, v3 的 0 分类别现在有梯度
 - [ ] lycore 后续: 多并发 / VNN CNN 训练版（CloudStudio） / 世界知识扩容
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

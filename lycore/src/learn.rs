@@ -279,10 +279,21 @@ pub fn build_cues(
 }
 
 /// intent 检测 (mine_event 的词典部分, 含 SUBCMDS 上下文纠错)
-fn detect_intent(text: &str) -> (String, Option<String>) {
+pub fn detect_intent(text: &str) -> (String, Option<String>) {
     let lower = text.to_lowercase();
+    // 找带词边界的 tool 出现位置 (github 里的 git 不算), 取其后 ASCII 词
     let word_after = |tool: &str| -> Option<String> {
-        let idx = lower.find(tool)? + tool.len();
+        let mut search = 0;
+        let idx = loop {
+            let i = lower[search..].find(tool)?;
+            let i = search + i;
+            let before = lower[..i].chars().last().map(|c| !c.is_ascii_alphanumeric()).unwrap_or(true);
+            let after = lower[i + tool.len()..].chars().next().map(|c| c.is_ascii_whitespace() || c.is_ascii_uppercase() || c == '_').unwrap_or(false);
+            if before && after {
+                break i + tool.len();
+            }
+            search = i + 1;
+        };
         let rest: String = lower[idx..].trim_start().chars().take(16).collect();
         // 只取 ASCII 词部分 (ASR 文本常见 'cargo run運行程序' — 中文紧跟无空格)
         let ascii_end = rest
@@ -298,7 +309,29 @@ fn detect_intent(text: &str) -> (String, Option<String>) {
         ("npm", &["install"], "node.pkg"),
     ];
     for (tool, subs, prefix) in TOOLS {
-        if lower.contains(tool) {
+        // 词边界匹配: 'github' 不算 'git' 工具词 (借走闭包内 &str 生命周期问题 → 直接内联)
+        // 遍历所有出现位置, 任一带词边界的出现即命中 ('github git push' 中后一个 git 有效)
+        let mut found = false;
+        let mut search_from = 0;
+        while let Some(i) = lower[search_from..].find(tool) {
+            let i = search_from + i;
+            let before = lower[..i]
+                .chars()
+                .last()
+                .map(|c| !c.is_ascii_alphanumeric())
+                .unwrap_or(true);
+            let after = lower[i + tool.len()..]
+                .chars()
+                .next()
+                .map(|c| !c.is_ascii_alphanumeric())
+                .unwrap_or(true);
+            if before && after {
+                found = true;
+                break;
+            }
+            search_from = i + 1;
+        }
+        if found {
             let sub = word_after(tool);
             let Some(sub) = sub else { continue };
             let corrected = if subs.contains(&sub.as_str()) {
@@ -311,15 +344,17 @@ fn detect_intent(text: &str) -> (String, Option<String>) {
                     _ => continue,
                 }
             };
+            eprintln!("DBG tool={tool} prefix={prefix} corrected={corrected}");
             let intent = match (*prefix, corrected.as_str()) {
                 ("rust.project", "new") => "rust.project.create",
                 ("rust.project", "run") => "rust.project.run",
                 ("rust.project", "build") => "rust.project.build",
                 ("rust.project", "init") => "rust.project.init",
+                ("git", "commit") => "git.commit",
                 ("git", "clone") => "git.clone",
                 ("git", "push") => "git.push",
-                ("pip", "install") => "py.pkg.install",
-                ("npm", "install") => "node.pkg.install",
+                ("py.pkg", "install") => "py.pkg.install",
+                ("node.pkg", "install") => "node.pkg.install",
                 _ => "misc.talk",
             };
             return (intent.to_string(), Some(format!("{tool} {corrected}")));

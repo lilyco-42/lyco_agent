@@ -56,6 +56,16 @@ impl ToolResult {
             error: Some(msg.to_string()),
         }
     }
+    fn with_conf(mut self, conf: f64) -> Self {
+        self.clip = Some(format!("conf={conf:.2}"));
+        self
+    }
+    fn with_learning_queue(mut self, queue: Vec<String>, _experts: Vec<crate::vnn::ExpertScore>) -> Self {
+        if !queue.is_empty() {
+            self.strong = Some(queue);
+        }
+        self
+    }
 }
 
 /// 模型 tool_call 解析 (宽松两级: <tool_call> 包裹 → 裸 JSON name 字段)
@@ -166,16 +176,30 @@ impl Executor {
                 }
             }
             "vnn_identify" => {
-                // VNN Rust 版未实现 (Python 原型 vnn_proto 需 opencv/CNN)
-                // 诚实降级路径: 不伪装成功
-                let _ = self.queue.push(
-                    arguments
-                        .get("image")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(""),
-                    "vnn_identify: Rust VNN 未实现",
-                );
-                ToolResult::err(name, "VNN 不可用 (Rust 版未实现), 入学习队列")
+                // VNN Rust 版 (crate::vnn): 特征激活式识图, ffmpeg rawvideo 管道
+                let image = arguments
+                    .get("image")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let ffmpeg = std::env::var("LYV_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
+                match crate::vnn::identify(&ffmpeg, Path::new(image)) {
+                    Ok((verdict, conf, experts, learning_queue)) => ToolResult {
+                        ok: true,
+                        tool: name.to_string(),
+                        answer: Some(verdict),
+                        command: None,
+                        clip: None,
+                        keyframe: None,
+                        strong: None,
+                        error: None,
+                    }
+                    .with_conf(conf)
+                    .with_learning_queue(learning_queue, experts),
+                    Err(e) => {
+                        let _ = self.queue.push(image, "vnn_identify: 执行失败");
+                        ToolResult::err(name, &format!("VNN 失败 ({e}), 入学习队列"))
+                    }
+                }
             }
             other => ToolResult::err(other, "未知工具"),
         }

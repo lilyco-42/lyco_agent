@@ -74,15 +74,26 @@ impl ModelBackend for LlamaCppBackend {
             .as_str()
             .unwrap_or("")
             .to_string();
-        // tool_call 可能落在 tool_calls 字段 (server 端解析) — 拼回文本格式给 parse_call
+        // tool_call 可能落在 tool_calls 字段 (server 端解析) — 拼回文本格式给 parse_call。
+        // 注意: server 的 content 有时已含模板输出的 <tool_call> 文本 → 此时不再拼接 (防双重)
         let mut text = text;
         if let Some(calls) = v["choices"][0]["message"]["tool_calls"].as_array() {
-            for c in calls {
-                let name = c["function"]["name"].as_str().unwrap_or("");
-                let args = &c["function"]["arguments"];
-                text.push_str(&format!(
-                    "\n<tool_call>\n{{\"name\": \"{name}\", \"arguments\": {args}}}\n</tool_call>"
-                ));
+            if !text.contains("<tool_call>") {
+                for c in calls {
+                    let name = c["function"]["name"].as_str().unwrap_or("");
+                    // arguments 可能是字符串 (未解析 JSON) — 规范化为 JSON 对象字面量
+                    let args_val = match c["function"]["arguments"] {
+                        serde_json::Value::String(ref s) => {
+                            serde_json::from_str::<serde_json::Value>(s)
+                                .unwrap_or(serde_json::json!({}))
+                        }
+                        ref v => v.clone(),
+                    };
+                    text.push_str(&format!(
+                        "\n<tool_call>\n{}\n</tool_call>",
+                        serde_json::json!({"name": name, "arguments": args_val})
+                    ));
+                }
             }
         }
         Ok(text)

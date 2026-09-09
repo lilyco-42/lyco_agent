@@ -183,7 +183,12 @@
       修复 LlamaCppBackend 双重 tool_call 序列化（--jinja content 已含文本时不再拼接；
       arguments 字符串先解析为 JSON 消除 unicode 双重转义）。
       **端侧形态定稿: lycore.exe + llama-server.exe + 484MB GGUF + 知识包目录**
-- [ ] lycore 后续: τ²-Bench 评测 / 多并发 / VNN CNN 训练版（CloudStudio）
+- [x] 评测体系 v2（2026-09-10，`tools/lyco_bench_v2.py`）：D1a 命中率 100% /
+      D1b 意图正确 83% / D3 诚实降级 100% / D4 泛化 87.5%（同义3/3 错别字1/1
+      英文2/2 口语化1/2）。两个已知缺口保留为 A1 配置化的量化证据：
+      ①'如何初始化项目'→cd.hello（词典无'初始化'）②'我想写个Rust程序第一步干啥'
+      误判 run（口语化意图歧义）—— 两者都将由 A1 领域配置 + GRPO 数据解决
+- [ ] lycore 后续: 多并发 / VNN CNN 训练版（CloudStudio） / A1 领域配置化
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

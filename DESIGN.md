@@ -167,7 +167,23 @@
       llama-server 加载后 agent 全链路复测通过（CALL→RESULT→FINAL）。
       Q4 模型已回传本地 `models/qwen3_lyco_grpo_q4km.gguf` —— 手机端形态达标
       （0.6B Q4 ≈ 484MB + llama.cpp Android 可跑）
-- [ ] lycore 后续: τ²-Bench 评测 / ASR 端侧化 / 多并发
+- [x] lycore 原子单元 11: 端侧 ASR 学习路径（2026-09-10，`learn::asr_local`）——
+      ffmpeg 提 16kHz wav → whisper.cpp (base 模型 141MB, LYV_WHISPER_BIN/MODEL
+      可覆盖) → Cue → build_cues。`lycore learn --video` 无 SRT 即走此路径。
+      端到端实测：无字幕视频 → 3 单元 intent 全对（含 word_after ASCII 截断修复）
+      → ask 全命中。**"给视频就学会"完全端侧化, 与 SRT 路径共用 build_cues 核心**
+- [x] lycore 原子单元 12: VNN Rust 版（2026-09-10，`src/vnn.rs`）——
+      ffmpeg rawvideo 管道取 64x64 灰度（无 OpenCV）→ edge/dark/Sobel 方向直方图
+      特征 → top-k 神经元激活（标定同 Python）→ 专家打分。executor 的
+      vnn_identify 从"诚实降级"升级为"真实打分"，失败仍诚实入队。
+      真实帧测试：terminal 激活 0.88、verdict"终端/命令行界面"。
+      **端侧级联 OCR→VNN 双实现（Py+Rust）全部就位**
+- [x] **本地全栈部署验证**（2026-09-10，Windows）：Q4 GGUF (484MB) + llama.cpp
+      Win-x64 + lycore CLI 全本机跑通 agent loop（ask --llama），2 轮收束带证据。
+      修复 LlamaCppBackend 双重 tool_call 序列化（--jinja content 已含文本时不再拼接；
+      arguments 字符串先解析为 JSON 消除 unicode 双重转义）。
+      **端侧形态定稿: lycore.exe + llama-server.exe + 484MB GGUF + 知识包目录**
+- [ ] lycore 后续: τ²-Bench 评测 / 多并发 / VNN CNN 训练版（CloudStudio）
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

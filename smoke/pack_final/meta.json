@@ -1,0 +1,7 @@
+{
+ "format": "LYV 0.1",
+ "video": "demo_tts4.mp4",
+ "duration": 20.0,
+ "asr_src": "whisper-tiny@cloudstudio",
+ "units": 4
+}

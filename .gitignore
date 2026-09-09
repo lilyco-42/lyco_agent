@@ -1,0 +1,27 @@
+# Rust
+lycore/target/
+target/
+
+# Python
+__pycache__/
+*.pyc
+
+# 训练产物 (大文件, 按需入库)
+models/*.tar
+
+# 冒烟测试中间产物 (保留 pack 与最终视频作演示)
+smoke/pack_tts*/
+smoke/pack_tts2/
+smoke/audio20*.wav
+smoke/mix20.wav
+smoke/m1.wav
+smoke/e2_16k.wav
+smoke/extracted.wav
+smoke/t*.wav
+smoke/p[1-4].mp4
+smoke/dbg*
+smoke/t_out*
+
+# OS
+.DS_Store
+Thumbs.db

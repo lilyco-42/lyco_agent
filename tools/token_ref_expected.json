@@ -1,0 +1,65 @@
+{
+ "首先 cargo new hello_world 建立项目": [
+  "cargo",
+  "new",
+  "hello_world",
+  "首先",
+  "先 ",
+  " 建",
+  "建立",
+  "立项",
+  "项目"
+ ],
+ "cargo run": [
+  "cargo",
+  "run"
+ ],
+ "进入项目目录": [
+  "进入",
+  "入项",
+  "项目",
+  "目目",
+  "目录"
+ ],
+ "hello world 123": [
+  "hello",
+  "world"
+ ],
+ "": [],
+ "!!! ###": [],
+ "最后, Cargo Run 运行程序输出 Hello World。": [
+  "cargo",
+  "run",
+  "hello",
+  "world",
+  "最后",
+  "后 ",
+  " 运",
+  "运行",
+  "行程",
+  "程序",
+  "序输",
+  "输出",
+  "出 "
+ ],
+ "PS D:\\demo> cargo new demo": [
+  "ps",
+  "d",
+  "demo",
+  "cargo",
+  "new",
+  "demo"
+ ],
+ "然后 cd hello_world 进入项目目录": [
+  "cd",
+  "hello_world",
+  "然后",
+  "后 ",
+  " 进",
+  "进入",
+  "入项",
+  "项目",
+  "目目",
+  "目录"
+ ]
+}

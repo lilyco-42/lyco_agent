@@ -133,26 +133,45 @@ fn cmd_learn(args: &[String]) -> i32 {
         eprintln!("缺少 --video <mp4>");
         return 2;
     };
-    let Some(srt) = flag(args, "--srt") else {
-        eprintln!("缺少 --srt <srt>");
-        return 2;
-    };
     let Some(pack) = flag(args, "--pack") else {
         eprintln!("缺少 --pack <out_dir>");
         return 2;
     };
     let ffmpeg = flag(args, "--ffmpeg").unwrap_or_else(|| "ffmpeg".into());
-    let srt_content = match std::fs::read_to_string(&srt) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("读 SRT 失败: {e}");
-            return 1;
+    let lang = flag(args, "--lang").unwrap_or_else(|| "zh".into());
+    let ocr = lycore::verify::Ocr::new();
+
+    // 字幕来源: --srt 指定 → 用现成字幕; 否则端侧 whisper.cpp ASR
+    let cues = if let Some(srt) = flag(args, "--srt") {
+        match std::fs::read_to_string(&srt) {
+            Ok(s) => lycore::learn::parse_srt(&s),
+            Err(e) => {
+                eprintln!("读 SRT 失败: {e}");
+                return 1;
+            }
+        }
+    } else {
+        match lycore::learn::asr_local(
+            std::path::Path::new(&video), &ffmpeg, &lang,
+        ) {
+            Ok(segs) => segs
+                .into_iter()
+                .map(|(t0, t1, text)| lycore::learn::Cue { t0, t1, text })
+                .collect(),
+            Err(e) => {
+                eprintln!("端侧 ASR 失败: {e}");
+                return 1;
+            }
         }
     };
-    let ocr = lycore::verify::Ocr::new();
-    match lycore::learn::build(
+    if cues.is_empty() {
+        eprintln!("字幕/ASR 无有效内容");
+        return 1;
+    }
+
+    match lycore::learn::build_cues(
         std::path::Path::new(&video),
-        &srt_content,
+        &cues,
         std::path::Path::new(&pack),
         &ffmpeg,
         &ocr,

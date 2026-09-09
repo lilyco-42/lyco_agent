@@ -9,7 +9,7 @@
 
 use crate::tokens::tokens as tokenize;
 use rusqlite::Connection;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// SRT 条目
 #[derive(Debug, Clone)]
@@ -101,6 +101,71 @@ fn extract_frame(ffmpeg: &str, video: &Path, at: f64, out: &Path) -> std::io::Re
     }
 }
 
+/// 端侧 ASR: ffmpeg 提取 16kHz wav → whisper-cli (whisper.cpp) 转写。
+/// 返回 (t0, t1, text) 列表。whisper 二进制/模型可用环境变量覆盖:
+///   LYV_WHISPER_BIN (默认 whisper-cli), LYV_WHISPER_MODEL (默认 ggml-base.bin)
+pub fn asr_local(
+    video: &Path,
+    ffmpeg: &str,
+    lang: &str,
+) -> anyhow::Result<Vec<(f64, f64, String)>> {
+    use std::io::Write;
+    let work = tempfile_dir()?;
+    std::fs::create_dir_all(&work)?;
+    let wav = work.join("lyv_audio.wav");
+    let status = std::process::Command::new(ffmpeg)
+        .args([
+            "-y", "-v", "error", "-i", &video.to_string_lossy(),
+            "-vn", "-ar", "16000", "-ac", "1",
+            &wav.to_string_lossy(),
+        ])
+        .status()?;
+    anyhow::ensure!(status.success(), "ffmpeg 音频提取失败");
+
+    let bin = std::env::var("LYV_WHISPER_BIN").unwrap_or_else(|_| "whisper-cli".into());
+    let model = std::env::var("LYV_WHISPER_MODEL")
+        .unwrap_or_else(|_| "ggml-base.bin".into());
+    let out_base = work.join("lyv_asr");
+    let output = std::process::Command::new(&bin)
+        .args([
+            "-m", &model,
+            "-f", &wav.to_string_lossy(),
+            "-l", lang,
+            "-oj", "-of", &out_base.to_string_lossy(),
+        ])
+        .output()?;
+    anyhow::ensure!(output.status.success(), "whisper-cli 失败: {}", String::from_utf8_lossy(&output.stderr));
+
+    let json_path = out_base.with_extension("json");
+    let raw = std::fs::read_to_string(&json_path)?;
+    let v: serde_json::Value = serde_json::from_str(&raw)?;
+    let mut segs = Vec::new();
+    if let Some(items) = v["transcription"].as_array() {
+        for item in items {
+            let t0 = ms_to_sec(item["offsets"]["from"].as_u64().unwrap_or(0));
+            let t1 = ms_to_sec(item["offsets"]["to"].as_u64().unwrap_or(0));
+            let text = item["text"].as_str().unwrap_or("").trim().to_string();
+            if !text.is_empty() {
+                segs.push((t0, t1, text));
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&work);
+    Ok(segs)
+}
+
+fn ms_to_sec(ms: u64) -> f64 {
+    ms as f64 / 1000.0
+}
+
+fn tempfile_dir() -> std::io::Result<PathBuf> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    Ok(std::env::temp_dir().join(format!("lyv_asr_{stamp}")))
+}
+
 /// 构建知识包 (SRT 驱动): video + srt → pack 目录
 /// 帧质量评分: OCR 词命中数 (与 Python 冒烟一致的简化评分, sharpness 留给训练侧)
 pub fn build(
@@ -113,7 +178,18 @@ pub fn build(
 ) -> anyhow::Result<usize> {
     let cues = parse_srt(srt);
     anyhow::ensure!(!cues.is_empty(), "SRT 无有效字幕");
+    build_cues(video, &cues, pack_dir, ffmpeg, ocr, ocr_lang)
+}
 
+/// Cue 列表驱动的构建核心 (SRT 或 ASR 来源都汇到这里)
+pub fn build_cues(
+    video: &Path,
+    cues: &[Cue],
+    pack_dir: &Path,
+    ffmpeg: &str,
+    ocr: &crate::verify::Ocr,
+    ocr_lang: &str,
+) -> anyhow::Result<usize> {
     for d in ["frames", "ocr", "knowledge", "index"] {
         std::fs::create_dir_all(pack_dir.join(d))?;
     }
@@ -208,7 +284,11 @@ fn detect_intent(text: &str) -> (String, Option<String>) {
     let word_after = |tool: &str| -> Option<String> {
         let idx = lower.find(tool)? + tool.len();
         let rest: String = lower[idx..].trim_start().chars().take(16).collect();
-        rest.split_whitespace().next().map(|s| s.trim_matches(|c: char| !c.is_ascii_alphanumeric() && !c.is_ascii_punctuation()).to_string())
+        // 只取 ASCII 词部分 (ASR 文本常见 'cargo run運行程序' — 中文紧跟无空格)
+        let ascii_end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+            .unwrap_or(rest.len());
+        Some(rest[..ascii_end].to_lowercase())
     };
     // (工具, [子命令集], intent 前缀)
     const TOOLS: &[(&str, &[&str], &str)] = &[

@@ -157,6 +157,12 @@
       GET /queue、POST /harvest。tiny_http 单线程，端侧足够。全端点实测通过，
       NO_HIT 自动入队 + harvest 采集 2 任务闭环。
       ⚠️ Git Bash curl 发 UTF-8 body 会坏（用 Python client/PowerShell 测试）
+- [x] **GGUF 部署链打通**（2026-09-10，CloudStudio）：GRPO 模型 (transformers)
+      → convert_hf_to_gguf.py → F16 GGUF → llama-server (--jinja, OpenAI 兼容)
+      → HTTP agent loop 真实执行 lyv 检索并收束回答。模型输出:
+      "[1] CALL lyv_knowledge{query:怎么新建rust项目} → [1] RESULT 切片3.0-10.0s
+      → [2] FINAL 好的!您可以在3.0到10.0秒之间创建项目" ——
+      训练产物→生产部署的最后一公里完成, 部署栈 = llama-server + lycore + 知识包
 - [ ] lycore 后续: τ²-Bench 评测 / ASR 端侧化 / 多并发
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

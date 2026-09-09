@@ -188,4 +188,9 @@ impl Executor {
     pub fn pack_dir(&self) -> &Path {
         &self.pack_dir
     }
+
+    /// 只读检索 (serve 模式用): 直接拿 Evidence, 不走 tool_call 包装
+    pub fn pack_lookup(&self, query: &str) -> Option<crate::Evidence> {
+        self.pack.lookup(query).ok().flatten()
+    }
 }

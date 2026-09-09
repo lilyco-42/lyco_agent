@@ -152,7 +152,12 @@
       → intent 检测（SUBCMDS 上下文纠错 no→new 同 Python）→ sqlite/FTS 索引
       （schema 与 Python build 一致）。CLI `lycore learn` 端到端实测：4/4 单元
       intent 正确，自学的包 ask 检索全命中。**端侧自主学习链路打通**
-- [ ] lycore 后续: serve 模式（HTTP server 常驻）/ τ²-Bench 评测 / ASR 端侧化
+- [x] lycore 原子单元 10: serve 常驻模式（2026-09-10，`src/serve.rs`）——
+      HTTP API: POST /ask（llama 有→agent loop / 无→纯检索+队列）、GET /health、
+      GET /queue、POST /harvest。tiny_http 单线程，端侧足够。全端点实测通过，
+      NO_HIT 自动入队 + harvest 采集 2 任务闭环。
+      ⚠️ Git Bash curl 发 UTF-8 body 会坏（用 Python client/PowerShell 测试）
+- [ ] lycore 后续: τ²-Bench 评测 / ASR 端侧化 / 多并发
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

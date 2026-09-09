@@ -13,6 +13,7 @@ pub mod lernen;
 pub mod llamacpp;
 pub mod learn;
 pub mod pack;
+pub mod serve;
 pub mod tokens;
 pub mod verify;
 

@@ -22,6 +22,7 @@ fn main() {
         "learn" => cmd_learn(&args[1..]),
         "harvest" => cmd_harvest(&args[1..]),
         "doctor" => cmd_doctor(&args[1..]),
+        "serve" => cmd_serve(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -166,6 +167,29 @@ fn cmd_learn(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+fn cmd_serve(args: &[String]) -> i32 {
+    let Some(pack) = flag(args, "--pack") else {
+        eprintln!("缺少 --pack <dir>");
+        return 2;
+    };
+    let port = flag(args, "--port")
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8666);
+    let llama = flag(args, "--llama");
+    let model = flag(args, "--model").unwrap_or_else(|| "qwen3-0.6b".into());
+    let cfg = lycore::serve::ServeConfig {
+        pack_dir: PathBuf::from(pack),
+        port,
+        llama_url: llama,
+        llama_model: model,
+    };
+    if let Err(e) = lycore::serve::serve(cfg) {
+        eprintln!("serve 失败: {e}");
+        return 1;
+    }
+    0
 }
 
 fn cmd_harvest(args: &[String]) -> i32 {

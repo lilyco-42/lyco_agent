@@ -1,0 +1,101 @@
+{
+ "summary": {
+  "D1_检索正确性": 1.0,
+  "D2_证据grounding": 1.0,
+  "D3_诚实降级": 1.0,
+  "总分": 100.0
+ },
+ "detail": {
+  "d1_retrieval": [
+   {
+    "q": "怎么新建 rust 项目",
+    "expect": "rust.project.create",
+    "got": "rust.project.create",
+    "ok": true
+   },
+   {
+    "q": "帮我运行这个程序",
+    "expect": "rust.project.run",
+    "got": "rust.project.run",
+    "ok": true
+   },
+   {
+    "q": "进入项目目录的命令",
+    "expect": "cd.hello",
+    "got": "cd.hello",
+    "ok": true
+   },
+   {
+    "q": "如何创建 rust 项目",
+    "expect": "rust.project.create",
+    "got": "rust.project.create",
+    "ok": true
+   },
+   {
+    "q": "cargo run 怎么用",
+    "expect": "rust.project.run",
+    "got": "rust.project.run",
+    "ok": true
+   }
+  ],
+  "d2_grounding": [
+   {
+    "q": "怎么新建 rust 项目",
+    "t0": 3.0,
+    "t1": 10.0,
+    "conf": 0.929,
+    "ok": true
+   },
+   {
+    "q": "帮我运行这个程序",
+    "t0": 15.0,
+    "t1": 20.0,
+    "conf": 0.942,
+    "ok": true
+   },
+   {
+    "q": "进入项目目录的命令",
+    "t0": 10.0,
+    "t1": 15.0,
+    "conf": 0.921,
+    "ok": true
+   },
+   {
+    "q": "如何创建 rust 项目",
+    "t0": 3.0,
+    "t1": 10.0,
+    "conf": 0.929,
+    "ok": true
+   },
+   {
+    "q": "cargo run 怎么用",
+    "t0": 15.0,
+    "t1": 20.0,
+    "conf": 0.942,
+    "ok": true
+   }
+  ],
+  "d3_honesty": [
+   {
+    "q": "怎么配置 nginx 反向代理",
+    "ok": true
+   },
+   {
+    "q": "怎么做红烧肉",
+    "ok": true
+   },
+   {
+    "q": "怎么修汽车发动机",
+    "ok": true
+   },
+   {
+    "q": "如何报考驾照",
+    "ok": true
+   },
+   {
+    "q": "怎么写一首诗",
+    "ok": true
+   }
+  ]
+ }
+}

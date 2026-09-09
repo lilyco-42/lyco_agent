@@ -163,6 +163,10 @@
       "[1] CALL lyv_knowledge{query:怎么新建rust项目} → [1] RESULT 切片3.0-10.0s
       → [2] FINAL 好的!您可以在3.0到10.0秒之间创建项目" ——
       训练产物→生产部署的最后一公里完成, 部署栈 = llama-server + lycore + 知识包
+- [x] **Q4 量化版**（2026-09-10）：llama-quantize Q4_K_M，1.5GB→**484MB**（÷3.1），
+      llama-server 加载后 agent 全链路复测通过（CALL→RESULT→FINAL）。
+      Q4 模型已回传本地 `models/qwen3_lyco_grpo_q4km.gguf` —— 手机端形态达标
+      （0.6B Q4 ≈ 484MB + llama.cpp Android 可跑）
 - [ ] lycore 后续: τ²-Bench 评测 / ASR 端侧化 / 多并发
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

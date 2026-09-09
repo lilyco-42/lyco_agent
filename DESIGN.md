@@ -188,7 +188,12 @@
       英文2/2 口语化1/2）。两个已知缺口保留为 A1 配置化的量化证据：
       ①'如何初始化项目'→cd.hello（词典无'初始化'）②'我想写个Rust程序第一步干啥'
       误判 run（口语化意图歧义）—— 两者都将由 A1 领域配置 + GRPO 数据解决
-- [ ] lycore 后续: 多并发 / VNN CNN 训练版（CloudStudio） / A1 领域配置化
+- [x] **A1 领域配置化落地**（2026-09-10，`pack.rs` + `rules.json`）：领域词典
+      从代码抽出为知识包自带 rules.json（left/right 词对 + intent），Pack::open
+      自动加载，缺省回退内置词典。验收（bench v2）：D1b 意图正确率 83%→100%，
+      三维总分 94.4→100。换领域 = 换知识包目录（含 rules.json），零代码改动。
+      剩余口语化 1 例（'写个Rust程序第一步干啥'）属于泛化/训练侧问题，非词典缺口
+- [ ] lycore 后续: 多并发 / VNN CNN 训练版（CloudStudio） / 世界知识扩容
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

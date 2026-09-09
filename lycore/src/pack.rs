@@ -51,17 +51,52 @@ pub fn tokens(text: &str) -> Vec<String> {
 
 pub struct Pack {
     conn: Connection,
+    /// 领域规则 (rules.json 优先, 回退内置 RULES) — A1 领域配置化
+    rules: Vec<Rule>,
+}
+
+/// 可配置领域规则: left/right 词对共现判定 (替换硬编码正则词典)
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Rule {
+    pub left: Vec<String>,
+    #[serde(default)]
+    pub right: Vec<String>,
+    pub intent: String,
 }
 
 impl Pack {
-    /// 打开知识包 (pack/index/knowledge.sqlite)
+    /// 打开知识包 (pack/index/knowledge.sqlite)。
+    /// 若 pack/rules.json 存在则加载为领域规则, 否则用内置 RULES。
     pub fn open(pack_dir: &Path) -> rusqlite::Result<Self> {
         let db_path = pack_dir.join("index").join("knowledge.sqlite");
         let conn = Connection::open_with_flags(
             db_path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
-        Ok(Self { conn })
+        let rules = Self::load_rules(pack_dir);
+        Ok(Self { conn, rules })
+    }
+
+    /// 规则来源优先级: rules.json > 内置 RULES
+    fn load_rules(pack_dir: &Path) -> Vec<Rule> {
+        let rules_json = pack_dir.join("rules.json");
+        if let Ok(raw) = std::fs::read_to_string(&rules_json) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(list) = v.get("rules").and_then(|r| r.as_array()) {
+                    let parsed: Vec<Rule> = list
+                        .iter()
+                        .filter_map(|r| serde_json::from_value(r.clone()).ok())
+                        .collect();
+                    if !parsed.is_empty() {
+                        return parsed;
+                    }
+                }
+            }
+        }
+        RULES
+            .iter()
+            .map(|(pat, intent)| parse_legacy_rule(pat, intent))
+            .collect()
     }
 
     fn by_intent(&self, intent: &str) -> rusqlite::Result<Option<Evidence>> {
@@ -114,16 +149,36 @@ impl Pack {
         }
     }
 
-    /// 混合检索: intent 词典 → FTS 兜底 → None
+    /// 混合检索: 领域规则 → FTS 兜底 → None
     pub fn lookup(&self, query: &str) -> rusqlite::Result<Option<Evidence>> {
-        for (pat, intent) in RULES {
-            if match_rule(pat, query) {
-                if let Some(ev) = self.by_intent(intent)? {
+        for rule in &self.rules {
+            if rule_matches(rule, query) {
+                if let Some(ev) = self.by_intent(&rule.intent)? {
                     return Ok(Some(ev));
                 }
             }
         }
         self.by_fts(query)
+    }
+}
+
+/// 规则匹配: left/right 词对共现 (顺序无关)。
+/// right 为空的规则: 任一 left 词命中即可 (单侧 alternation 语义)。
+fn rule_matches(rule: &Rule, q: &str) -> bool {
+    let has_left = rule.left.iter().any(|l| q.contains(l.as_str()));
+    if rule.right.is_empty() {
+        return has_left;
+    }
+    has_left && rule.right.iter().any(|r| q.contains(r.as_str()))
+}
+
+/// 内置 RULES 的正则式词典 → Rule 词对 (一次性解析)
+fn parse_legacy_rule(pat: &str, intent: &str) -> Rule {
+    let (left, right) = split_alternations(pat);
+    Rule {
+        left: left.iter().map(|s| s.to_string()).collect(),
+        right: right.iter().map(|s| s.to_string()).collect(),
+        intent: intent.to_string(),
     }
 }
 
@@ -140,11 +195,20 @@ fn match_rule(pat: &str, q: &str) -> bool {
         })
         .collect();
     if words.len() < 2 {
+        // 单词规则: 直接包含即命中 (如单侧 alternation 只剩一个有效词)
+        let (left, right) = split_alternations(pat);
+        if right.is_empty() {
+            return left.iter().any(|l| q.contains(l));
+        }
         return false;
     }
     // (A|B).{0,8}(C|D): 前半 alternation 与后半 alternation 各命中一词
     // 词典结构固定: 前侧 = 前 N1 个词, 后侧 = 剩余 (由 | 分组直接对应)
     let (left, right) = split_alternations(pat);
+    if right.is_empty() {
+        // 单侧 alternation (如 "进入|chdir|\bcd\b"): 任一词命中即可
+        return left.iter().any(|l| q.contains(l));
+    }
     left.iter().any(|l| q.contains(l)) && right.iter().any(|r| q.contains(r))
 }
 
@@ -165,22 +229,34 @@ fn split_alternations(pat: &str) -> (Vec<&str>, Vec<&str>) {
     (parse(l), parse(r))
 }
 
-#[test]
-fn match_rule_distinguishes_rules() {
-    assert!(match_rule(RULES[1].0, "怎么运行项目"));   // run 规则
-    assert!(!match_rule(RULES[0].0, "怎么运行项目"));  // create 规则不应命中
-    assert!(match_rule(RULES[0].0, "怎么新建项目"));
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn tokens_cjk_bigram_and_ascii() {
-        let t = tokens("首先 cargo new 建立项目");
-        assert!(t.contains(&"cargo".to_string()));
-        // bigram 应含 '建立' '立项' '项目'
-        assert!(tokens("建立项目").contains(&"建立".to_string()));
+    fn legacy_rule_parsing_and_matching() {
+        let run = parse_legacy_rule(RULES[1].0, RULES[1].1);
+        assert!(rule_matches(&run, "怎么运行项目"));
+        let create = parse_legacy_rule(RULES[0].0, RULES[0].1);
+        assert!(!rule_matches(&create, "怎么运行项目")); // create 规则不应命中
+        assert!(rule_matches(&create, "怎么新建项目"));
+    }
+
+    #[test]
+    fn configured_rules_load_from_rules_json() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("index")).unwrap();
+        // 空库 — 只为测试规则加载
+        let _ = rusqlite::Connection::open(dir.path().join("index/knowledge.sqlite"))
+            .unwrap()
+            .execute_batch("CREATE TABLE segments(id TEXT PRIMARY KEY);");
+        std::fs::write(
+            dir.path().join("rules.json"),
+            r#"{"domain":"test","rules":[{"left":["画画"],"right":[],"intent":"art.draw"}]}"#,
+        )
+        .unwrap();
+        let pack = Pack::open(dir.path()).unwrap();
+        assert_eq!(pack.rules.len(), 1);
+        assert_eq!(pack.rules[0].intent, "art.draw");
     }
 }

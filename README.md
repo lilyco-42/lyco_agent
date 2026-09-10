@@ -39,9 +39,13 @@ lyco 的回答带**时间戳切片 + 关键帧截图 + OCR 量化验证**——�
 
 | 部署档 | 模型 | 体积 | 职责 |
 |---|---|---|---|
-| PC/服务器 | **Qwen3.8-27B** (Q4, 原生 VLM) | ~16GB | FC 决策 + 原生图像/视频识图（OSWorld 84.3） |
-| 端侧 | Qwen3-0.6B GRPO 专训 | 484MB | tool_call 决策（FC 100%） |
+| GPU 服务器 (双 A10+/48GB) | Qwen3.8-27B AWQ (原生 VLM) | 15.6GB | FC 决策 + 原生图像/视频识图（OSWorld 84.3）—— 权重已就位 |
+| A10 单卡 (24GB) | Qwen3-8B AWQ | 5.7GB | FC 决策 + 知识库问答 —— 权重已就位远端 |
+| 端侧 (无 GPU/AMD iGPU) | Qwen3-0.6B GRPO 专训 (CPU llama.cpp) | 484MB | tool_call 决策（FC 100%） |
 | 端侧 | Qwen3-0.6B rewrite 专训 | 484MB | 口语化查询改写（64%, 迭代中） |
+
+> 注意: CloudStudio 平台收割所有非 kernel 长驻进程（实测 setsid sleep 也不活），
+> 常驻推理需 GPU 服务器/推理云/本机——CloudStudio 只适合会话内任务（训练/评测）
 
 lycore 的 ModelBackend trait 按任务路由到不同后端，每能力独立训练独立替换。
 

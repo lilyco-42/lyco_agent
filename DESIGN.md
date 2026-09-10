@@ -225,7 +225,11 @@
       rewrite 后端挂了不阻塞主链（降级直入队列）。双模型本机实测
       （FC:8081 + RW:8082 双 llama-server）全链路通过。
       **端侧部署形态定稿: 每任务一个 484MB Q4 模型 + lycore 路由器**
-- [ ] lycore 后续: 多并发 / VNN CNN 训练版（CloudStudio） / 世界知识扩容
+- [x] **serve 多并发**（2026-09-10，`serve.rs`）：4 worker 线程池（tiny_http
+      Arc 共享官方模式），rusqlite Connection 非 Sync → 每 worker 线程独立
+      Executor。40 并发负载测试通过（30 retrieval + 10 queue，秒级）。
+      队列 append 并发安全（OpenOptions append 模式）
+- [ ] lycore 后续: VNN CNN 训练版（CloudStudio） / 世界知识扩容 / 多机部署
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

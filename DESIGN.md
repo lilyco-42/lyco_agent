@@ -268,6 +268,11 @@
       vLLM 路线在 CloudStudio 容器双重不可行（进程收割 + triton JIT）。
       **部署定论**: CloudStudio=训练/评测专用; 常驻推理=本机/GPU 云;
       llama.cpp CPU 路线已在 0.6B 验证, 8B CPU 也可行(慢)
+- [x] **rewrite v4 模型口语歧义修复验证 — 部分有效**（2026-09-11）：
+      bench v2 残留 case 用 rewrite v4 模型改写后经 transformers 推理测试:
+      '程序怎么让他动起来' PASS (改写→run 正确), 但 '我想写个Rust程序第一步干啥'
+      仍 FAIL (改写退化成回显问题)。GRPO 改写需更多轮次/更大模型。
+      检索兜底保持: 词典误判 run 但 FTS 召回的证据是真实的, 用户可自行判断
 - [ ] lycore 后续: VNN CNN 训练版（CloudStudio） / 世界知识扩容 / 多机部署
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

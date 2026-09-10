@@ -61,12 +61,14 @@ def build_pack(tool, entries, pack_dir):
         (pack / d).mkdir(parents=True, exist_ok=True)
 
     db = sqlite3.connect(pack / "index" / "knowledge.sqlite")
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS segments(id TEXT PRIMARY KEY, t0 REAL DEFAULT 0,"
-        " t1 REAL DEFAULT 0, text TEXT, intent TEXT, command TEXT, frame TEXT,"
-        " ocr TEXT, ocr_conf REAL DEFAULT 1.0, strong TEXT, weak TEXT);"
-        "CREATE VIRTUAL TABLE IF NOT EXISTS seg_fts USING fts5(id, text, entities,"
-        " intent, strong);"
+    db.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS segments(id TEXT PRIMARY KEY, t0 REAL DEFAULT 0,
+         t1 REAL DEFAULT 0, text TEXT, intent TEXT, command TEXT, frame TEXT,
+         ocr TEXT, ocr_conf REAL DEFAULT 1.0, strong TEXT, weak TEXT);
+        CREATE VIRTUAL TABLE IF NOT EXISTS seg_fts USING fts5(id, text, entities,
+         intent, strong);
+        """
     )
     # 清掉同工具旧条目 (幂等)
     for row in db.execute("SELECT id FROM segments WHERE intent LIKE ?", (f"{tool}.%",)):
@@ -92,8 +94,8 @@ def build_pack(tool, entries, pack_dir):
         intent = f"{tool}.{e['sub']}" if e["sub"] else f"{tool}.main"
         command = f"{tool} {e['sub']}" if e["sub"] else tool
         # strong = 子命令名 + 描述里的 ASCII 词
-        strong = seg(command)
-        text = seg(f"{command} : {e['desc']} : 用法见帮助")
+        strong = " ".join(seg(command))
+        text = " ".join(seg(f"{command} : {e['desc']} : 用法见帮助"))
         db.execute(
             "INSERT OR REPLACE INTO segments VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (uid, 0.0, 0.0, text, intent, command, "", e["help_text"][:200], 1.0,
@@ -104,7 +106,7 @@ def build_pack(tool, entries, pack_dir):
              " ".join(seg(command)), intent, " ".join(strong)))
 
     # help_text 全文也入 FTS (第二表, 检索详情)
-    db.execute_batch(
+    db.executescript(
         "CREATE VIRTUAL TABLE IF NOT EXISTS help_fts USING fts5(intent, content);")
     for e in entries:
         intent = f"{tool}.{e['sub']}" if e["sub"] else f"{tool}.main"
@@ -119,6 +121,21 @@ def build_pack(tool, entries, pack_dir):
         json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
 
+# 通用 zh→en 意图映射 (跨语言检索桥, 领域词典可由 rules.json 扩展)
+ZH_INTENT_MAP = {
+    "查看": ["show", "log", "list", "display"], "看": ["show", "log"],
+    "历史": ["log", "history", "evolog"], "记录": ["log", "history"],
+    "创建": ["new", "create", "init"], "新建": ["new", "create", "init"],
+    "推送": ["push"], "拉取": ["pull", "fetch"], "克隆": ["clone"],
+    "提交": ["commit", "describe"], "修改": ["edit", "describe", "diff"],
+    "删除": ["abandon", "delete", "remove"], "安装": ["install"],
+    "比较": ["diff"], "差异": ["diff"], "合并": ["merge", "rebase"],
+    "配置": ["config"], "文件": ["file"], "书签": ["bookmark"],
+    "分支": ["bookmark", "branch"], "冲突": ["conflict", "resolve"],
+    "撤销": ["undo", "abandon", "restore"], "回滚": ["undo", "restore"],
+}
+
+
 def lookup_help(pack_dir, query, tool=None):
     """查帮助: FTS 命中 intent → 返回该子命令完整 help_text"""
     db = sqlite3.connect(Path(pack_dir) / "index" / "knowledge.sqlite")
@@ -129,7 +146,12 @@ def lookup_help(pack_dir, query, tool=None):
     if not rows:
         return None
     best, best_score = None, -1
-    qwords = set(re.findall(r"[a-z0-9_\-]+|[一-鿿]", query.lower()))
+    query_lower = query.lower()
+    qwords = set(re.findall(r"[a-z0-9_\-]+|[一-鿿]", query_lower))
+    # 跨语言扩展: 中文意图词 → 英文同义词
+    for zh, ens in ZH_INTENT_MAP.items():
+        if zh in query_lower:
+            qwords.update(ens)
     for row in rows:
         intent = row["intent"]
         h = db.execute("SELECT content FROM help_fts WHERE intent=?", (intent,)).fetchone()
@@ -141,6 +163,9 @@ def lookup_help(pack_dir, query, tool=None):
         sub = intent.split(".")[-1] if "." in intent else ""
         if sub and sub in query.lower():
             score += 5
+        # main 条目的 help_text 是全命令清单, 天然包含所有子命令词 → 惩罚避免吞掉所有查询
+        if intent.endswith(".main"):
+            score = int(score * 0.4)
         if score > best_score:
             best_score, best = score, (intent, h["content"])
     db.close()

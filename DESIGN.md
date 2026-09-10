@@ -262,6 +262,12 @@
       **结论**: CloudStudio 只适合「会话内完成」的任务（训练/评测/批处理）,
       常驻推理服务需自建服务器或推理云（vLLM on GPU 实例 / Runpod / 本机）。
       Qwen3.8-27B AWQ 权重已就位远端磁盘, 服务器就绪即可部署
+- [x] **vLLM 8B AWQ 会话内测试 — triton JIT 环境缺陷确认**（2026-09-11）：
+      vLLM 启动 8B AWQ 在 EngineCore 初始化时触发 triton JIT 编译崩溃
+      (AttributeError: NoneType.start — triton 无法在容器内定位 kernel 源码)。
+      vLLM 路线在 CloudStudio 容器双重不可行（进程收割 + triton JIT）。
+      **部署定论**: CloudStudio=训练/评测专用; 常驻推理=本机/GPU 云;
+      llama.cpp CPU 路线已在 0.6B 验证, 8B CPU 也可行(慢)
 - [ ] lycore 后续: VNN CNN 训练版（CloudStudio） / 世界知识扩容 / 多机部署
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

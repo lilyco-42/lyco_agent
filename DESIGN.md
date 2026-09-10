@@ -202,6 +202,11 @@
       (install/build/commit/push) → lycore learn 学习 → 5 单元中 4 intent 正确
       (发现并修复 detect_intent 3 个 bug: 映射键笔误/github 子串抢先匹配/
       word_after 词边界)。环境奖励通道对新意图打开, v3 的 0 分类别现在有梯度
+- [x] **飞轮第二圈完成**（2026-09-10，rewrite GRPO v4）：合并知识包
+      （pack_final + pack_devops = 9 单元 8 意图）上重训改写 —— 新意图类别
+      从 v3 的全 0 到可命中（git.push 3/4, build 2/3, py.pkg 2/2）,
+      总改写命中 64% (16/25, 环境奖励判定)。「知识包扩展→环境通道→模型能力」
+      因果链闭环确认。模型 qwen3_lyco_rewrite_v4.tar 留档
 - [ ] lycore 后续: 多并发 / VNN CNN 训练版（CloudStudio） / 世界知识扩容
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

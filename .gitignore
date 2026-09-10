@@ -6,8 +6,11 @@ target/
 __pycache__/
 *.pyc
 
-# 训练产物 (大文件, 按需入库)
-models/*.tar
+# 训练产物 (大文件, 不入库 —— 走 Release / 对象存储分发)
+# 注意: 只写 models/*.tar 会漏掉 .gguf 量化模型(单文件 462M×2), 必须整目录忽略
+models/
+*.gguf
+pack_merged.tar.gz
 
 # 冒烟测试中间产物 (保留 pack 与最终视频作演示)
 smoke/pack_tts*/

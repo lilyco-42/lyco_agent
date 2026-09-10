@@ -220,6 +220,11 @@
       **结论：0.6B 容量不足以多任务共训，能力=专训模型×路由。**
       架构定案：lycore 按任务路由到不同后端（每任务一个 484MB Q4 模型）。
       若未来要单模型：需更大底座（≥1.7B）或任务间不冲突的数据设计
+- [x] **分工模型运行时接线**（2026-09-10，`serve.rs`）：/ask 三级路由
+      直查 → rewrite 专训后端二跳（route=retrieval-rewritten）→ 学习队列；
+      rewrite 后端挂了不阻塞主链（降级直入队列）。双模型本机实测
+      （FC:8081 + RW:8082 双 llama-server）全链路通过。
+      **端侧部署形态定稿: 每任务一个 484MB Q4 模型 + lycore 路由器**
 - [ ] lycore 后续: 多并发 / VNN CNN 训练版（CloudStudio） / 世界知识扩容
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

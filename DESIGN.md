@@ -234,6 +234,15 @@
       Arc 共享官方模式），rusqlite Connection 非 Sync → 每 worker 线程独立
       Executor。40 并发负载测试通过（30 retrieval + 10 queue，秒级）。
       队列 append 并发安全（OpenOptions append 模式）
+- [x] **Qwen3.8-27B 部署实测**（2026-09-10）：16.4GB UD-Q4_K_M GGUF 下载完成
+      (aria2 90 秒, vs python urlretrieve 单线程失败), b10883 工具链加载成功
+      (16GB RAM 加载 ~90s)。两个平台级发现：
+      ① CloudStudio jupyter 收割非 kernel 长驻进程 (systemd/cron/at 均不可用,
+      Popen setsid 也被周期性收割 —— server 加载完~90s 即死)
+      ② Qwen3.8 peg-native 输出格式与 --jinja 的 tools 解析冲突 (HTTP 500:
+      "does not match the expected peg-native format")
+      **结论: Qwen3.8-27B 需 vLLM/SGLang 部署 (官方推荐栈) 或 llama.cpp 修复
+      peg-native 解析; A10 24GB 可跑 Q4+8K ctx。模型+工具链已就位远端**
 - [ ] lycore 后续: VNN CNN 训练版（CloudStudio） / 世界知识扩容 / 多机部署
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

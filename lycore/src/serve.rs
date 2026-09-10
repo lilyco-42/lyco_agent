@@ -83,19 +83,51 @@ pub struct ServeConfig {
 
 pub fn serve(cfg: ServeConfig) -> anyhow::Result<()> {
     let addr = format!("127.0.0.1:{}", cfg.port);
-    let server = tiny_http::Server::http(&addr).map_err(anyhow::Error::msg)?;
-    let executor = Executor::open(&cfg.pack_dir)?;
-    let queue = LearningQueue::open(&cfg.pack_dir);
+    let server = std::sync::Arc::new(tiny_http::Server::http(&addr).map_err(anyhow::Error::msg)?);
+    let queue = std::sync::Arc::new(LearningQueue::open(&cfg.pack_dir));
     let served = Arc::new(AtomicUsize::new(0));
+    let cfg = Arc::new(cfg);
     println!("[lycore] serving on http://{addr}  pack={}", cfg.pack_dir.display());
-    println!("[lycore] mode: {}",
-             if cfg.llama_url.is_some() { "agent+llama" } else { "retrieval-only" });
+    println!("[lycore] mode: {}  workers: {}",
+             if cfg.llama_url.is_some() { "agent+llama" } else { "retrieval-only" },
+             WORKERS);
 
+    // 多并发: worker 线程池共享 Arc<Server> (tiny_http 官方多线程模式)
+    let mut handles = Vec::new();
+    for w in 0..WORKERS {
+        let server = server.clone();
+        let queue = queue.clone();
+        let served = served.clone();
+        let cfg = cfg.clone();
+        // rusqlite Connection 非 Sync → 每 worker 在线程内独立开 Executor
+        let pack_dir = cfg.pack_dir.clone();
+        handles.push(std::thread::spawn(move || worker_loop(w, server, queue, served, cfg, pack_dir)));
+    }
+    for h in handles {
+        let _ = h.join();
+    }
+    Ok(())
+}
+
+const WORKERS: usize = 4;
+
+fn worker_loop(
+    id: usize,
+    server: Arc<tiny_http::Server>,
+    queue: Arc<LearningQueue>,
+    served: Arc<AtomicUsize>,
+    cfg: Arc<ServeConfig>,
+    pack_dir: PathBuf,
+) {
     loop {
+        let executor = match Executor::open(Path::new(pack_dir.as_os_str())) {
+            Ok(e) => e,
+            Err(e) => { eprintln!("[lycore:w{id}] executor open fail: {e}"); return; }
+        };
         let mut request = match server.recv() {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[lycore] recv error: {e}");
+                eprintln!("[lycore:w{id}] recv error: {e}");
                 continue;
             }
         };

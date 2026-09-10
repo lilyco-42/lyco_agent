@@ -133,7 +133,32 @@ ZH_INTENT_MAP = {
     "配置": ["config"], "文件": ["file"], "书签": ["bookmark"],
     "分支": ["bookmark", "branch"], "冲突": ["conflict", "resolve"],
     "撤销": ["undo", "abandon", "restore"], "回滚": ["undo", "restore"],
+    "路径": ["path", "output", "input"], "输出": ["output"], "输入": ["input"],
+    "格式": ["format"], "质量": ["quality"], "宽度": ["width"],
+    "高度": ["height"], "预览": ["dry-run", "preview"], "压缩": ["compress"],
+    "大小": ["size", "resize"], "尺寸": ["resize", "width"],
 }
+
+
+def index_lilyco(schema_exe, pack_dir):
+    """lilyco 框架应用: <app> --schema 输出结构化 JSON, 直接入库 (免解析)"""
+    out = run([schema_exe, "--schema"])
+    if out.returncode != 0 or not out.stdout.strip().startswith("{"):
+        return {"error": f"{schema_exe} --schema 失败"}
+    schema = json.loads(out.stdout)
+    name = schema["name"].lower()
+    about = schema.get("about", "")
+    entries = [{"sub": None, "desc": about, "help_text": json.dumps(schema, ensure_ascii=False)}]
+    for arg in schema.get("args", []):
+        aname = arg["name"]
+        aabout = arg.get("about", "")
+        req = "必填" if arg.get("required") else "可选"
+        entries.append({
+            "sub": aname, "desc": f"参数 {aname} ({req}): {aabout}",
+            "help_text": json.dumps(arg, ensure_ascii=False),
+        })
+    build_pack(name, entries, pack_dir)
+    return {"tool": name, "args": len(schema.get("args", [])), "entries": len(entries)}
 
 
 def lookup_help(pack_dir, query, tool=None):
@@ -173,6 +198,10 @@ def lookup_help(pack_dir, query, tool=None):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--lilyco":
+        r = index_lilyco(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "smoke/lilyco_pack")
+        print(json.dumps(r, ensure_ascii=False))
+        sys.exit(0)
     ap_tool = sys.argv[1] if len(sys.argv) > 1 else "jj"
     pack = sys.argv[2] if len(sys.argv) > 2 else "smoke/jj_pack"
     result = index_cli(ap_tool, pack)

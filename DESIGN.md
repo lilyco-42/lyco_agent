@@ -213,6 +213,13 @@
       tool_call 决策用 grpo_q4km (FC 100%)，改写用 rewrite_v4_q4km (64%)，
       lycore 的 ModelBackend trait 天然支持每任务独立后端配置。
       多任务混合训练（合并数据重训/RLHF 类）列为未来实验项
+- [x] **v5 混合任务实验：分工模型架构定案**（2026-09-10，`tools/mixed_grpo_v5.py`）：
+      400 步混合 GRPO（tool_call 118 条 + 改写 150 条，类型分发奖励）→
+      双能力复测：FC 3/5（基线 100%，**掉 7 成**），改写 5/10（基线 70%）——
+      两种能力都不到各自专训水平。判定系统输出「维持分工模型」。
+      **结论：0.6B 容量不足以多任务共训，能力=专训模型×路由。**
+      架构定案：lycore 按任务路由到不同后端（每任务一个 484MB Q4 模型）。
+      若未来要单模型：需更大底座（≥1.7B）或任务间不冲突的数据设计
 - [ ] lycore 后续: 多并发 / VNN CNN 训练版（CloudStudio） / 世界知识扩容
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

@@ -1,0 +1,1 @@
+{"query":"怎么配置 nginx","expected_tool":"lyv_knowledge","frequency":1,"first_seen":1789060147,"last_seen":1789060147,"reward_hint":"调用 lyv_knowledge 且知识包应包含该操作 (+1)"}

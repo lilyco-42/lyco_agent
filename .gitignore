@@ -28,3 +28,4 @@ smoke/t_out*
 # OS
 .DS_Store
 Thumbs.db
+smoke/demo_pack/

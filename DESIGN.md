@@ -243,6 +243,10 @@
       "does not match the expected peg-native format")
       **结论: Qwen3.8-27B 需 vLLM/SGLang 部署 (官方推荐栈) 或 llama.cpp 修复
       peg-native 解析; A10 24GB 可跑 Q4+8K ctx。模型+工具链已就位远端**
+- [x] **27B OOM 最终确认**（2026-09-11）：vLLM AWQ + enforce-eager + 1024ctx +
+      expandable_segments 依然 CUDA OOM —— expandable_segments 映射失败。
+      **A10 24GB 确定装不下 27B AWQ**（AWQ 15.6GB 权重 + vLLM 运行时开销 > 24GB）。
+      Qwen3.8-27B 需 48GB+ GPU。A10 单卡最佳档：Qwen3-8B AWQ (6GB 权重) 或 0.6B 专训
 - [x] **vLLM AWQ 部署尝试 — 最终判定**（2026-09-10）：vLLM 安装成功，AWQ-INT4
       权重 15.6GB 下载完成（绕过 xet CAS 401 用 curl 直下 5 分片），但
       **A10 24GB 装不下 27B AWQ**（权重+模型图+activation+KV > 24GB，2048 ctx 仍 OOM）。

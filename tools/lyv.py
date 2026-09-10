@@ -348,7 +348,8 @@ def lookup(pack, q):
     result = {"retrieval": how, "intent": hit["intent"], "command": hit["command"],
               "t0": u["t0"], "t1": u["t1"], "frame": u["frame"], "frame_t": u["frame_t"],
               "text": u["text"], "strong": u["strong"], "weak": u["weak"][:6],
-              "prereq": u["prereq"], "ocr_conf": u["ocr_conf"]}
+              "prereq": u.get("prereq", []), "ocr_conf": u["ocr_conf"],
+              "id": u["id"]}
     db.close()
     return result
 

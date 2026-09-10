@@ -88,8 +88,13 @@
 - [x] 世界知识语料原型（2026-09-10）：`tools/gen_world_corpus.py`（L1 常识/L2 生活推理/
       L3 自我认知三层，答案语义一致性审计）→ 合并 2519 行语料 → A10 上 15000 步
       candle CUDA 训练完成，`model/world_base.json`（6.9MB）已回传本地。
-      ⚠️ 已知问题：embed64/4层 + block16 容量不足，生成仍混入 Rust 语料 token——
-      需扩容模型 + 域标签条件生成（Rust 实现阶段处理）
+      ⚠️ **v2 重训结论（2026-09-10 收束）**：语料扩容（109→147 行世界知识，
+      合并 2557 行）+ 重训后依然混入 Rust 语料 token（dense 与 BitNet 双确认）。
+      **最终判定：0.5M 参数容量装不下知识，与语料无关。**
+      架构定案：「像普通人类」的世界知识由 Qwen3-0.6B 底座承担（预训练白嫖 +
+      GRPO 专项），TinyGPT 定位为 BitNet/MoE/学习机制的实验平台，不再投入
+      世界知识训练。训练数据模板与审计方法保留（tools/gen_world_corpus.py）
+      —— 未来若扩容 TinyGPT（≥1.7B）可直接复用
 - [x] VNN 激活式打分原型（2026-09-10，`tools/vnn_proto.py`）：特征提取（亮度直方图+
       边缘密度+Sobel 梯度直方图）→ 特征神经元库 top-k 激活（terminal/gui/nature/
       animal/human_face/document）→ 激活的语义专家各自打分 → 未训练专家诚实输出

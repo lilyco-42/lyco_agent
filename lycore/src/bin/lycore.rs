@@ -203,6 +203,8 @@ fn cmd_serve(args: &[String]) -> i32 {
         port,
         llama_url: llama,
         llama_model: model,
+        rewrite_url: flag(args, "--rewrite").or_else(|| flag(args, "--llama").map(|_| format!("http://127.0.0.1:8082"))),
+        rewrite_model: flag(args, "--rewrite-model").unwrap_or_else(|| "qwen3-rewrite".into()),
     };
     if let Err(e) = lycore::serve::serve(cfg) {
         eprintln!("serve 失败: {e}");

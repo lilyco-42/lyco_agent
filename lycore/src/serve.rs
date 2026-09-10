@@ -40,26 +40,45 @@ fn handle_ask(
             Err(e) => (500, json!({"error": e.to_string()})),
         }
     } else {
-        let hit = executor.pack_lookup(question);
-        // 纯检索
-        if let Some(ev) = hit {
-            (200, json!({"route": "retrieval",
-                         "intent": ev.intent, "text": ev.text,
-                         "t0": ev.t0, "t1": ev.t1,
-                         "keyframe": ev.frame}))
-        } else {
-            let _ = queue.push(question, "NO_HIT: 知识库没有这个操作");
-            (200, json!({"route": "learning_queue",
-                         "answer": "抱歉，我还没学会这个操作，已加入学习队列。"}))
+        // 第一跳: 直查
+        if let Some(ev) = executor.pack_lookup(question) {
+            return (200, json!({"route": "retrieval",
+                                "intent": ev.intent, "text": ev.text,
+                                "t0": ev.t0, "t1": ev.t1,
+                                "keyframe": ev.frame}));
         }
+        // 第二跳: rewrite 专训后端改写 → 二次检索 (分工模型: 改写走独立后端)
+        if let Some(rurl) = &cfg.rewrite_url {
+            let mut backend = LlamaCppBackend::new(rurl, &cfg.rewrite_model);
+            match crate::rewrite::lookup_with_rewrite(executor, &mut backend, question) {
+                Ok((Some(ev), rewritten)) => {
+                    let route = if rewritten { "retrieval-rewritten" } else { "retrieval" };
+                    return (200, json!({"route": route,
+                                        "intent": ev.intent, "text": ev.text,
+                                        "t0": ev.t0, "t1": ev.t1,
+                                        "keyframe": ev.frame}));
+                }
+                Ok((None, _)) => { /* 落到学习队列 */ }
+                Err(e) => {
+                    eprintln!("[lycore] rewrite 跳失败: {e}"); // 改写后端挂了不阻塞主链
+                }
+            }
+        }
+        let _ = queue.push(question, "NO_HIT: 知识库没有这个操作");
+        (200, json!({"route": "learning_queue",
+                     "answer": "抱歉，我还没学会这个操作，已加入学习队列。"}))
     }
 }
 
 pub struct ServeConfig {
     pub pack_dir: PathBuf,
     pub port: u16,
+    /// tool_call 决策后端 (agent loop 用) — 分工模型: FC 专训
     pub llama_url: Option<String>,
     pub llama_model: String,
+    /// 查询改写后端 (直查失败二跳用) — 分工模型: rewrite 专训
+    pub rewrite_url: Option<String>,
+    pub rewrite_model: String,
 }
 
 pub fn serve(cfg: ServeConfig) -> anyhow::Result<()> {

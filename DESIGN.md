@@ -252,6 +252,12 @@
       - A10 单卡: Qwen3-30B-A3B MoE（3B 激活, Q4 ~18GB）或 8B 稠密 Q4
       - 端侧: 0.6B GRPO 专训模型 (484MB, 已就绪)
       分工模型架构不变, 底座按部署档位选择
+- [x] **CloudStudio 常驻服务不可行 — 平台级定论**（2026-09-11）：实测确认平台
+      收割所有非 kernel 进程（setsid sleep 600 也活不过 kernel 删除周期;
+      systemd/cron/at 均不可用）。llama-server/vLLM 无法在 CloudStudio 常驻。
+      **结论**: CloudStudio 只适合「会话内完成」的任务（训练/评测/批处理）,
+      常驻推理服务需自建服务器或推理云（vLLM on GPU 实例 / Runpod / 本机）。
+      Qwen3.8-27B AWQ 权重已就位远端磁盘, 服务器就绪即可部署
 - [ ] lycore 后续: VNN CNN 训练版（CloudStudio） / 世界知识扩容 / 多机部署
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

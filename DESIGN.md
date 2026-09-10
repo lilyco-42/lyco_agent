@@ -207,6 +207,12 @@
       从 v3 的全 0 到可命中（git.push 3/4, build 2/3, py.pkg 2/2）,
       总改写命中 64% (16/25, 环境奖励判定)。「知识包扩展→环境通道→模型能力」
       因果链闭环确认。模型 qwen3_lyco_rewrite_v4.tar 留档
+- [x] **v4 Q4 部署 + 关键发现：灾难性遗忘**（2026-09-10）：v4 (rewrite 专训)
+      Q4 量化部署后复测——改写能力有了但 **tool_call 决策能力丢失**（顺序 RL 训练
+      相互覆盖）。架构决策：**分工模型** 而非单一多任务模型——
+      tool_call 决策用 grpo_q4km (FC 100%)，改写用 rewrite_v4_q4km (64%)，
+      lycore 的 ModelBackend trait 天然支持每任务独立后端配置。
+      多任务混合训练（合并数据重训/RLHF 类）列为未来实验项
 - [ ] lycore 后续: 多并发 / VNN CNN 训练版（CloudStudio） / 世界知识扩容
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

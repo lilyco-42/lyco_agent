@@ -43,6 +43,10 @@ pub fn digest(queue_path: &Path) -> std::io::Result<Vec<TrainingTask>> {
         let Ok(entry) = serde_json::from_str::<QueueEntry>(line) else {
             continue; // 坏行跳过, 不阻塞 digest
         };
+        // 垃圾过滤: 无意义查询不进训练集 (bench 压测/乱敲键盘产生的)
+        if is_noise(&entry.query) {
+            continue;
+        }
         let (tool, hint) = classify(&entry.reason);
         let key = (entry.query.clone(), tool);
         merged
@@ -63,6 +67,24 @@ pub fn digest(queue_path: &Path) -> std::io::Result<Vec<TrainingTask>> {
     let mut tasks: Vec<TrainingTask> = merged.into_values().collect();
     tasks.sort_by(|a, b| b.frequency.cmp(&a.frequency).then(b.last_seen.cmp(&a.first_seen)));
     Ok(tasks)
+}
+
+/// 噪声查询检测: 乱敲键盘/测试串/重复字符模式
+fn is_noise(query: &str) -> bool {
+    let q = query.trim();
+    if q.chars().count() < 3 {
+        return true;
+    }
+    // 重复字符比例过高 (如 "胡说八道xyz" 的 xyz 模式 — 无信息量的 ASCII 尾巴)
+    let ascii_tail = q.chars().rev().take_while(|c| c.is_ascii_alphanumeric()).count();
+    // 包含常见无意义测试词
+    for noise in ["xyz", "abc", "test123", "asdf", "aaaa"] {
+        if q.to_lowercase().contains(noise) {
+            return true;
+        }
+    }
+    let _ = ascii_tail;
+    false
 }
 
 /// reason → (期望工具, 奖励提示)
@@ -141,7 +163,7 @@ mod tests {
     #[test]
     fn harvest_writes_jsonl() {
         let dir = tempfile::tempdir().unwrap();
-        let q = write_queue(dir.path(), &[r#"{"query":"测试","reason":"NO_HIT","ts":1}"#]);
+        let q = write_queue(dir.path(), &[r#"{"query":"如何配置测试环境","reason":"NO_HIT","ts":1}"#]);
         let out = dir.path().join("training_tasks.jsonl");
         let n = harvest(&q, &out).unwrap();
         assert_eq!(n, 1);

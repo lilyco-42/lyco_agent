@@ -243,6 +243,15 @@
       "does not match the expected peg-native format")
       **结论: Qwen3.8-27B 需 vLLM/SGLang 部署 (官方推荐栈) 或 llama.cpp 修复
       peg-native 解析; A10 24GB 可跑 Q4+8K ctx。模型+工具链已就位远端**
+- [x] **vLLM AWQ 部署尝试 — 最终判定**（2026-09-10）：vLLM 安装成功，AWQ-INT4
+      权重 15.6GB 下载完成（绕过 xet CAS 401 用 curl 直下 5 分片），但
+      **A10 24GB 装不下 27B AWQ**（权重+模型图+activation+KV > 24GB，2048 ctx 仍 OOM）。
+      27B 需要双 A10/48GB 或 A100 80GB。
+      **最终架构结论**：
+      - 云端开发/评测（双 A10+）: Qwen3.8-27B AWQ + vLLM ✓ 可行（需升级实例规格）
+      - A10 单卡: Qwen3-30B-A3B MoE（3B 激活, Q4 ~18GB）或 8B 稠密 Q4
+      - 端侧: 0.6B GRPO 专训模型 (484MB, 已就绪)
+      分工模型架构不变, 底座按部署档位选择
 - [ ] lycore 后续: VNN CNN 训练版（CloudStudio） / 世界知识扩容 / 多机部署
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

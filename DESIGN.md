@@ -290,6 +290,10 @@
 - [x] **v0.1 完整交付确认**（2026-09-11）：全量回归通过（29 测试 + bench 100 分 +
       合并包三意图检索 + learn-cli 六命令）。项目达到稳定交付状态。
       已知边界：CloudStudio 5min 窗口 / 27B 需 48GB / 改写 64% (迭代中)
+- [x] **本机端侧 agent 最终验证**（2026-09-11）：0.6B Q4 CPU (llama.cpp) +
+      lycore agent loop + 合并知识包，本机 AMD iGPU 无 GPU 环境全链路通过。
+      FC 决策 3/3（lyv_knowledge/vnn_identify/不调），VNN 诚实降级入队。
+      **端侧部署完全确认: 462MB Q4 模型 + lycore.exe + 知识包 = 完整本地 agent**
 - [ ] lycore 后续（增量）: VNN CNN 训练版 / 世界知识扩容 / 多机部署 / cli_indexer Rust 原生移植
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

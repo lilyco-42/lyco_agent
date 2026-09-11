@@ -278,7 +278,11 @@
       平台在 113/150 杀掉(连续 3 次不同启动方式均被收割, python 后台/前台/setsid 全试)。
       **GRPO 训练在 CloudStudio 的可行窗口 ≈ 5 分钟 (300 步内), 更长训练需 GPU 云**
       v1-v4 的成功正是因为在此窗口内。数据脚本已归档 tools/rewrite_grpo_v5.py
-- [ ] lycore 后续: VNN CNN 训练版 / 世界知识扩容 / 多机部署 (均需可常驻 GPU 环境)
+- [x] **CLI 索引器检索验证**（2026-09-11）：jj 46 子命令索引后检索测试——
+      '怎么rebase变基'→jj.rebase ✓ 精确命中含 help 全文；
+      语义距离远的查询(打补丁/并行化)→近邻命中(给用户正确方向的 help)
+      **CLI 手册学习 = 运行时能力扩展, 无需重训** (Scaling Law 论点的运行时证明)
+- [ ] lycore 后续: cli_indexer Rust 移植 (lycore learn-cli) / VNN CNN / 多机部署
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

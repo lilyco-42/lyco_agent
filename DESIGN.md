@@ -296,7 +296,13 @@
 - [x] **本机双模型分工部署最终验证**（2026-09-11）：rewrite v4 Q4 (8082) +
       FC Q4 (8081) 双 llama-server 并行 + lycore serve/agent loop 全通。
       直查/agent loop/改写三级路由全链路确认。**本机端侧最终部署形态就绪**
-- [ ] lycore 后续（增量）: VNN CNN 训练版 / 世界知识扩容 / 多机部署 / cli_indexer Rust 原生移植
+- [x] **8B 世界知识部署 — CloudStudio 最终确认不可行**（2026-09-11）：
+      8B Q4 GGUF (4.68GB 完整) + CUDA/CPU llama-server 反复被平台收割，
+      无论 setsid/detach/前台/后台。**结论不变：CloudStudio 只适合会话内
+      完成的任务。8B 世界知识 agent 需部署到本机/GPU 云实例。**
+      本机 0.6B Q4 CPU 已验证 (462MB + lycore = 完整端侧 agent)。
+      世界知识能力路径: ① 8B 底座部署到可常驻环境 ② lycore 检索兜底
+- [ ] lycore 后续（增量）: 8B 部署到可常驻环境 / VNN CNN / 世界知识扩容
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

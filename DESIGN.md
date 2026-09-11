@@ -106,7 +106,9 @@
       域差距 5 轮收敛（真实风格合成→稀疏变体→标题条裁剪→暗体+全宽灰标题条=终端），
       真实截图 9/9（f0 最难例 61.7% 过 0.6 阈值）。Rust 纯手写前向与 PyTorch 零漂移。
       identify(): CNN 优先 conf>=0.6，规则回退，cnn_low_conf 入学习队列。
-      特征神经元库聚类自动生成仍待做（当前固定 4 类，诚实标注）。
+      特征神经元库聚类自动生成（2026-09-12，V9）：fc1 32 维嵌入 K-means
+      k=3/类 → 12 神经元 (prototype+radius)，4 类覆盖 100%，v3 权重格式
+      {weights, neurons[]}，Rust serde 向后兼容（激活侧 top-k 神经元投票待接）。
       agent loop 实测（2026-09-11）：0.6B FC 决策 vnn_identify → CNN 通道
       verdict=terminal conf=0.99 → 自然语言回答「识别结果：终端」全链路通。
       已知边界：FC 幻觉路径仍需真实路径提示（v0.1 已知问题，回退队列正常）

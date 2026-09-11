@@ -35,6 +35,27 @@
 3. 补 node.pkg.install 知识包条目或标准查询词（npm 系当前召回落 misc.talk）。
 4. build/create 边界再加 2-3 组对比样本（「构建出来」≠「新建」）。
 
+## v5 结果（2026-09-11 当日跟进）
+
+v5 = 变体扩充（原 v5 草案）+ 标签对齐（上述 1/2/4）合并，从 v4 底座训 300 步（T4 fp32+AMP，
+9 分钟）。**评测 33/37 = 89%**（v4 同口径修正后 80%，+9pt）。
+
+| intent | v5 |
+|---|---|
+| rust.project.run | 7/7 |
+| git.commit | 4/4 |
+| py.pkg.install | 3/3 |
+| rust.project.create | 8/9 |
+| rust.project.build | 4/5 |
+| cd.hello | 4/5 |
+| git.push | 3/4 |
+
+剩余 4 条 FAIL：build/create 混淆 ×2（「项目怎么构建出来/项目文件怎么生成」）、
+chdir 偶发 ×1、「代码提交到仓库」→git.commit（该条期望 git.push 本身语义可议，
+commit 其实更贴切，v6 应修正样本而非模型）。
+npm 类已按「包无内容」移出训练/评测集，属知识包缺口而非模型问题。
+产物：`/workspace/qwen3_lyco_rewrite_v5`（云端）+ 本地归档 tar。
+
 ## 传输与复现备注
 
 - v4.tar 1.5G：lain42 中继单流仅 0.25MB/s（阿里云出带宽 ~2Mbps 封顶），

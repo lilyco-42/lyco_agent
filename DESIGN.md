@@ -101,7 +101,12 @@
       unknown+needs_training 入学习队列。终端截图 4/4 命中 terminal，风景图反例
       nature 激活最高。级联：OCR 通过→跳过 VNN；失败→才启用
       （真实 CNN 专家在 CloudStudio 训练，替换 v0 规则签名）
-- [ ] VNN 训练版：CNN 骨干 + 特征神经元库由聚类自动生成（CloudStudio）
+- [x] VNN 训练版：CNN 骨干接入（2026-09-11，`lycore/src/vnn_cnn.rs` + CloudStudio A10 训练）：
+      TinyCNN 4 类（terminal/gui_window/nature/document），合成数据+真实截图 fine-tune，
+      域差距 5 轮收敛（真实风格合成→稀疏变体→标题条裁剪→暗体+全宽灰标题条=终端），
+      真实截图 9/9（f0 最难例 61.7% 过 0.6 阈值）。Rust 纯手写前向与 PyTorch 零漂移。
+      identify(): CNN 优先 conf>=0.6，规则回退，cnn_low_conf 入学习队列。
+      特征神经元库聚类自动生成仍待做（当前固定 4 类，诚实标注）
 - [x] Agent 多轮工具执行闭环（2026-09-10，`tools/lyco_agent_loop.py`）：
       模型 tool_call → 真实执行（lyv sqlite 检索 / VNN）→ 结果回填 → 多轮 ≤4 →
       最终回答。A10 实测三场景：HIT（回答带切片时间戳+关键帧）、NO_HIT

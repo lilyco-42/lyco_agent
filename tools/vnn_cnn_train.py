@@ -87,7 +87,8 @@ def main():
     # 导出权重 JSON (lycore 可消费)
     weights = {}
     for name, param in model.named_parameters():
-        weights[name] = param.detach().cpu().tolist()
+        t = param.detach().cpu()
+        weights[name] = {"shape": list(t.shape), "data": t.flatten().tolist()}
     json.dump({"classes": CLASSES, "weights": weights},
               open(OUT, "w"), ensure_ascii=False)
     print("VNN_TRAIN_DONE", flush=True)

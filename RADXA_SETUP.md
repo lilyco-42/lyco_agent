@@ -18,9 +18,9 @@ export LYV_FFMPEG=ffmpeg
 export LYCO_CHROME=chromium
 
 ## 4. 运行 agent loop (0.6B FC + 工具编排)
-# llama.cpp ARM build: 
+# llama.cpp ARM build (板上原生编译 — CloudStudio x86 交叉编译会被节点重启打断, 实测不可靠)
 git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
-cmake -B build -DGGML_NATIVE=ON && cmake --build build -j8 --target llama-server
+cmake -B build -DGGML_NATIVE=ON -DLLAMA_CURL=OFF && cmake --build build -j8 --target llama-server
 ./build/bin/llama-server -m qwen3_lyco_fc_v2_q4km.gguf --port 8081 --jinja -t 8
 
 # lyco agent:

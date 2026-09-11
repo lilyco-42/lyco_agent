@@ -127,13 +127,74 @@ fn expert_score(neuron: &str, activation: f64, feat: &Features) -> ExpertScore {
 }
 
 /// VNN 主入口: 特征 → 激活 → 专家打分 → 汇总
+/// CNN 通道 (v2 训练版) 就位时: 64x64 灰度直接分类, conf≥0.6 用 CNN 判定,
+/// 否则回退规则激活通道 (诚实降级)。
 /// 返回 (verdict, conf, experts, learning_queue)
 pub fn identify(ffmpeg: &str, image: &Path) -> anyhow::Result<(String, f64, Vec<ExpertScore>, Vec<String>)> {
     let feat = extract_features(ffmpeg, image)?;
-    let activated = activate(&feat, 3);
+
+    // ---- CNN 通道 (v2 训练版, 4 类) ----
+    if let Some(wpath) = crate::vnn_cnn::CnnClassifier::resolve() {
+        match crate::vnn_cnn::CnnClassifier::load(&wpath).and_then(|clf| {
+            let mut gray = [0f32; 64 * 64];
+            fill_gray(ffmpeg, image, &mut gray)?;
+            clf.classify(&gray)
+        }) {
+            Ok(probs) => {
+                let (best_cls, best_p) = probs
+                    .iter()
+                    .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                    .map(|(c, p)| (c.clone(), *p))
+                    .unwrap_or_else(|| ("unknown".into(), 0.0));
+                // conf≥0.6 → CNN 直接判定; 低置信 → 入学习队列语义由 executor 处理
+                if best_p >= 0.6 {
+                    let experts: Vec<ExpertScore> = probs
+                        .iter()
+                        .map(|(c, p)| ExpertScore {
+                            neuron: c.clone(),
+                            activation: *p,
+                            verdict: c.clone(),
+                            conf: *p,
+                            needs_training: false,
+                        })
+                        .collect();
+                    let learning_queue: Vec<String> = probs
+                        .iter()
+                        .filter(|(_, p)| *p < 0.05)
+                        .map(|(c, _)| format!("{c}:needs_data"))
+                        .collect();
+                    return Ok((best_cls, best_p, experts, learning_queue));
+                }
+                // 低置信: 落到规则回退, 但带上 CNN 的低置信信息
+                let low = ExpertScore {
+                    neuron: best_cls.clone(),
+                    activation: best_p,
+                    verdict: format!("cnn_low_conf_{best_cls}"),
+                    conf: best_p,
+                    needs_training: true,
+                };
+                let (v, c, experts, q) = rule_identify(&feat)?;
+                let mut experts = experts;
+                experts.insert(0, low);
+                let mut q = q;
+                if best_p < 0.4 {
+                    q.push(format!("cnn_low_conf:{best_cls}:{best_p:.2}"));
+                }
+                return Ok((v, c, experts, q));
+            }
+            Err(_) => {} // CNN 不可用 → 规则回退 (诚实降级)
+        }
+    }
+
+    rule_identify(&feat)
+}
+
+/// 规则通道 (v0 激活式, 原 identify 主体)
+fn rule_identify(feat: &Features) -> anyhow::Result<(String, f64, Vec<ExpertScore>, Vec<String>)> {
+    let activated = activate(feat, 3);
     let experts: Vec<ExpertScore> = activated
         .iter()
-        .map(|(n, w)| expert_score(n, *w, &feat))
+        .map(|(n, w)| expert_score(n, *w, feat))
         .collect();
     let trained_best = experts
         .iter()
@@ -152,6 +213,26 @@ pub fn identify(ffmpeg: &str, image: &Path) -> anyhow::Result<(String, f64, Vec<
         Some(e) => Ok((e.verdict.clone(), e.conf, experts, learning_queue)),
         None => Ok(("unknown".to_string(), 0.0, experts, learning_queue)),
     }
+}
+
+/// ffmpeg 抽 64x64 灰度填充 buffer (与 extract_features 同一滤镜链)
+fn fill_gray(ffmpeg: &str, image: &Path, out: &mut [f32; 64 * 64]) -> anyhow::Result<()> {
+    let output = std::process::Command::new(ffmpeg)
+        .args([
+            "-v", "error",
+            "-i", &image.to_string_lossy(),
+            "-vf", "format=gray,scale=64:64",
+            "-f", "rawvideo",
+            "-pix_fmt", "gray",
+            "-",
+        ])
+        .output()?;
+    anyhow::ensure!(output.status.success(), "ffmpeg 灰度抽取失败");
+    anyhow::ensure!(output.stdout.len() >= out.len(), "raw 帧过小: {}", output.stdout.len());
+    for (i, &b) in output.stdout.iter().take(out.len()).enumerate() {
+        out[i] = b as f32;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

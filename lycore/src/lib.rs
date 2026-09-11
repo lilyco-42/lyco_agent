@@ -18,6 +18,7 @@ pub mod serve;
 pub mod tokens;
 pub mod verify;
 pub mod vnn;
+pub mod vnn_cnn;
 
 /// 检索结果 — 对应 Python lyv.lookup 返回的 dict
 #[derive(Debug, Clone, serde::Serialize)]

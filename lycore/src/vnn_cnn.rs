@@ -75,11 +75,13 @@ impl CnnClassifier {
                 return Some(p);
             }
         }
+        // cwd 变体: 仓库根 (lycore/assets)、crate 根 (assets)、models (历史位置)
         let exe_relative = std::env::current_exe()
             .ok()
             .and_then(|e| e.parent().map(|d| d.join("models/vnn_cnn_v2_weights.json")));
-        let candidates: [Option<PathBuf>; 3] = [
+        let candidates: [Option<PathBuf>; 4] = [
             Some(PathBuf::from("lycore/assets/vnn_cnn_v2_weights.json")),
+            Some(PathBuf::from("assets/vnn_cnn_v2_weights.json")),
             Some(PathBuf::from("models/vnn_cnn_v2_weights.json")),
             exe_relative,
         ];
@@ -184,20 +186,22 @@ mod tests {
 
     #[test]
     fn weights_file_loads_and_classifies() {
-        let path = match CnnClassifier::resolve() {
-            Some(p) => p,
-            None => return, // 权重不在时跳过 (CI 环境诚实降级)
-        };
+        let path = CnnClassifier::resolve().expect("权重应能解析 (已提交 lycore/assets/)");
         let clf = CnnClassifier::load(&path).expect("加载失败");
         assert_eq!(clf.classes.len(), 4);
-        // 全黑 (暗底少亮段) → terminal 概率最高
-        let dark = [10f32; 64 * 64];
-        let probs = clf.classify(&dark).expect("classify 失败");
+        // 暗底 + 稀疏亮行 (真实终端的分布, 训练域内) → terminal 概率最高
+        let mut img = [10f32; 64 * 64];
+        for (y, x0, x1) in [(20usize, 4usize, 40usize), (30, 4, 30), (40, 4, 36)] {
+            for x in x0..x1 {
+                img[y * 64 + x] = 180.0;
+            }
+        }
+        let probs = clf.classify(&img).expect("classify 失败");
         let best = probs
             .iter()
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
             .unwrap();
-        assert_eq!(best.0, "terminal", "全暗底应判 terminal, got {probs:?}");
+        assert_eq!(best.0, "terminal", "暗底亮行应判 terminal, got {probs:?}");
     }
 
     #[test]

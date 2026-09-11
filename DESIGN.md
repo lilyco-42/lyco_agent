@@ -287,7 +287,10 @@
       **lilyco→lyco 生态桥三条通道**: ① --schema→OpenAI tools (已通)
       ② --mcp→MCP server (原生 AI Agent 协议) ③ --gui→Web GUI
       lilyco 生成的工具天然适配 AI Agent 生态, lyco 只需对接一种即可获得全部能力
-- [ ] lycore 后续: cli_indexer Rust 移植 (lycore learn-cli) / VNN CNN / 多机部署
+- [x] **v0.1 完整交付确认**（2026-09-11）：全量回归通过（29 测试 + bench 100 分 +
+      合并包三意图检索 + learn-cli 六命令）。项目达到稳定交付状态。
+      已知边界：CloudStudio 5min 窗口 / 27B 需 48GB / 改写 64% (迭代中)
+- [ ] lycore 后续（增量）: VNN CNN 训练版 / 世界知识扩容 / 多机部署 / cli_indexer Rust 原生移植
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

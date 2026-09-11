@@ -293,6 +293,9 @@
       lycore agent loop + 合并知识包，本机 AMD iGPU 无 GPU 环境全链路通过。
       FC 决策 3/3（lyv_knowledge/vnn_identify/不调），VNN 诚实降级入队。
       **端侧部署完全确认: 462MB Q4 模型 + lycore.exe + 知识包 = 完整本地 agent**
+- [x] **本机双模型分工部署最终验证**（2026-09-11）：rewrite v4 Q4 (8082) +
+      FC Q4 (8081) 双 llama-server 并行 + lycore serve/agent loop 全通。
+      直查/agent loop/改写三级路由全链路确认。**本机端侧最终部署形态就绪**
 - [ ] lycore 后续（增量）: VNN CNN 训练版 / 世界知识扩容 / 多机部署 / cli_indexer Rust 原生移植
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

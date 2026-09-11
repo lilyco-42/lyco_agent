@@ -282,6 +282,11 @@
       '怎么rebase变基'→jj.rebase ✓ 精确命中含 help 全文；
       语义距离远的查询(打补丁/并行化)→近邻命中(给用户正确方向的 help)
       **CLI 手册学习 = 运行时能力扩展, 无需重训** (Scaling Law 论点的运行时证明)
+- [x] **lilyco MCP 通道发现**（2026-09-11）：lilyco 应用自带 --mcp 模式
+      (MCP stdio server, AI Agent 直接调用) + --anthropic-tool + --gui。
+      **lilyco→lyco 生态桥三条通道**: ① --schema→OpenAI tools (已通)
+      ② --mcp→MCP server (原生 AI Agent 协议) ③ --gui→Web GUI
+      lilyco 生成的工具天然适配 AI Agent 生态, lyco 只需对接一种即可获得全部能力
 - [ ] lycore 后续: cli_indexer Rust 移植 (lycore learn-cli) / VNN CNN / 多机部署
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 

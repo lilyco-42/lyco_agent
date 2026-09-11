@@ -16,6 +16,7 @@ pub mod pack;
 pub mod rewrite;
 pub mod serve;
 pub mod tokens;
+pub mod tools_runtime;
 pub mod verify;
 pub mod vnn;
 pub mod vnn_cnn;

@@ -201,6 +201,83 @@ impl Executor {
                     }
                 }
             }
+            "rembg_remove" => {
+                let input = arguments.get("image").and_then(|v| v.as_str()).unwrap_or("");
+                let output = arguments
+                    .get("output")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if input.is_empty() || output.is_empty() {
+                    ToolResult::err(name, "参数需 {\"image\": \"输入图\", \"output\": \"输出png\"}")
+                } else {
+                    let o = crate::tools_runtime::rembg_remove(Path::new(input), Path::new(output));
+                    if o.ok {
+                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                    } else {
+                        let _ = self.queue.push(input, "rembg_remove: 执行失败");
+                        ToolResult::err(name, &o.summary)
+                    }
+                }
+            }
+            "html_gen" => {
+                let prompt = arguments.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let out = arguments.get("output").and_then(|v| v.as_str()).unwrap_or("");
+                if prompt.is_empty() || out.is_empty() {
+                    ToolResult::err(name, "参数需 {\"prompt\": \"页面描述\", \"output\": \"输出.html 路径\"}")
+                } else {
+                    let full = format!("请生成完整单文件 HTML (内联 CSS/JS, 无外部依赖)。需求: {prompt}\n只输出 HTML 代码本身。");
+                    let o = crate::tools_runtime::llm_generate(&full, Some(Path::new(out)));
+                    if o.ok {
+                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                    } else {
+                        let _ = self.queue.push(prompt, "html_gen: LLM 调用失败");
+                        ToolResult::err(name, &o.summary)
+                    }
+                }
+            }
+            "llm_generate" => {
+                let prompt = arguments.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                if prompt.is_empty() {
+                    ToolResult::err(name, "参数需 {\"prompt\": \"...\"}")
+                } else {
+                    let o = crate::tools_runtime::llm_generate(prompt, None);
+                    if o.ok {
+                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                    } else {
+                        ToolResult::err(name, &o.summary)
+                    }
+                }
+            }
+            "html_render_video" => {
+                let html = arguments.get("html").and_then(|v| v.as_str()).unwrap_or("");
+                let out = arguments.get("output").and_then(|v| v.as_str()).unwrap_or("");
+                let secs = arguments.get("seconds").and_then(|v| v.as_u64()).unwrap_or(3).min(30) as u32;
+                if html.is_empty() || out.is_empty() {
+                    ToolResult::err(name, "参数需 {\"html\": \"页面路径\", \"output\": \"输出.mp4\", \"seconds\": 3}")
+                } else {
+                    let chrome = std::env::var("LYCO_CHROME").unwrap_or_else(|_| "chrome".into());
+                    let o = crate::tools_runtime::html_render_video(Path::new(html), Path::new(out), secs, &chrome);
+                    if o.ok {
+                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                    } else {
+                        let _ = self.queue.push(html, "html_render_video: 执行失败");
+                        ToolResult::err(name, &o.summary)
+                    }
+                }
+            }
+            "video_info" => {
+                let video = arguments.get("video").and_then(|v| v.as_str()).unwrap_or("");
+                if video.is_empty() {
+                    ToolResult::err(name, "参数需 {\"video\": \"路径\"}")
+                } else {
+                    let o = crate::tools_runtime::video_info(Path::new(video));
+                    if o.ok {
+                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                    } else {
+                        ToolResult::err(name, &o.summary)
+                    }
+                }
+            }
             other => ToolResult::err(other, "未知工具"),
         }
     }

@@ -20,6 +20,7 @@ fn main() {
     let exit = match cmd {
         "ask" => cmd_ask(&args[1..]),
         "learn" => cmd_learn(&args[1..]),
+        "learn-cli" => cmd_learn_cli(&args[1..]),
         "harvest" => cmd_harvest(&args[1..]),
         "doctor" => cmd_doctor(&args[1..]),
         "serve" => cmd_serve(&args[1..]),
@@ -211,6 +212,49 @@ fn cmd_serve(args: &[String]) -> i32 {
         return 1;
     }
     0
+}
+
+fn cmd_learn_cli(args: &[String]) -> i32 {
+    let Some(tool) = flag(args, "--tool") else {
+        eprintln!("缺少 --tool <name>");
+        return 2;
+    };
+    let Some(pack) = flag(args, "--pack") else {
+        eprintln!("缺少 --pack <dir>");
+        return 2;
+    };
+    let py = flag(args, "--python").unwrap_or_else(|| "python3".into());
+    let indexer = flag(args, "--indexer").unwrap_or_else(|| "tools/cli_indexer.py".into());
+    // indexer 路径相对于当前目录, 直接在 cwd 执行 (不做 current_dir 切换)
+    let indexer_path = std::path::Path::new(&indexer);
+    let script_dir = if indexer_path.is_absolute() {
+        indexer_path.parent().unwrap().to_path_buf()
+    } else {
+        std::env::current_dir().unwrap()
+    };
+    let indexer_abs = if indexer_path.is_absolute() {
+        indexer.clone()
+    } else {
+        script_dir.join(&indexer).to_string_lossy().to_string()
+    };
+    let r = std::process::Command::new(&py)
+        .args([&indexer_abs, &tool, &pack])
+        .current_dir(&script_dir)
+        .status();
+    match r {
+        Ok(s) if s.success() => {
+            println!("CLI 索引完成: {tool} → {pack}");
+            0
+        }
+        Ok(s) => {
+            eprintln!("CLI 索引失败 (exit {})", s);
+            1
+        }
+        Err(e) => {
+            eprintln!("启动失败: {e}");
+            1
+        }
+    }
 }
 
 fn cmd_harvest(args: &[String]) -> i32 {

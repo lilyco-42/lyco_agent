@@ -273,7 +273,12 @@
       '程序怎么让他动起来' PASS (改写→run 正确), 但 '我想写个Rust程序第一步干啥'
       仍 FAIL (改写退化成回显问题)。GRPO 改写需更多轮次/更大模型。
       检索兜底保持: 词典误判 run 但 FTS 召回的证据是真实的, 用户可自行判断
-- [ ] lycore 后续: VNN CNN 训练版（CloudStudio） / 世界知识扩容 / 多机部署
+- [x] **rewrite GRPO v5 分布外扩充 — 平台收割限制确认**（2026-09-11）：
+      v5 数据(混合动词+域名词变化 24 组/160 prompts)启动成功但被 CloudStudio
+      平台在 113/150 杀掉(连续 3 次不同启动方式均被收割, python 后台/前台/setsid 全试)。
+      **GRPO 训练在 CloudStudio 的可行窗口 ≈ 5 分钟 (300 步内), 更长训练需 GPU 云**
+      v1-v4 的成功正是因为在此窗口内。数据脚本已归档 tools/rewrite_grpo_v5.py
+- [ ] lycore 后续: VNN CNN 训练版 / 世界知识扩容 / 多机部署 (均需可常驻 GPU 环境)
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

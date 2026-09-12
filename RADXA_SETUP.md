@@ -6,8 +6,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh    # rust
 pip install "rembg[cpu]" onnxruntime                               # 抠图 CLI
 
 ## 2. lycore 二进制 (二选一)
-# A) 直接用预编译 (推荐): release 附件 lycore-aarch64, glibc 动态链接 (需 GLIBC≥2.39,
+# A) 直接用预编译 (推荐): glibc 动态链接 (需 GLIBC≥2.39,
 #    Ubuntu 24.04 / Debian 13+ 满足; 更旧镜像需走 B 或 musl 静态重编)
+# 下载: https://github.com/lilyco-42/lyco_agent/releases/download/v0.3.0/lycore-aarch64
 chmod +x lycore-aarch64 && mv lycore-aarch64 lycore
 # B) 板上原生编译 (一次性 ~10min, 需 §1 的 rustup):
 # 源码包 (含 lycore 源码 + 演示知识包 + 训练脚本, 从 git HEAD 构建):

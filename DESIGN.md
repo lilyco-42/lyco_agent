@@ -312,7 +312,19 @@
       完成的任务。8B 世界知识 agent 需部署到本机/GPU 云实例。**
       本机 0.6B Q4 CPU 已验证 (462MB + lycore = 完整端侧 agent)。
       世界知识能力路径: ① 8B 底座部署到可常驻环境 ② lycore 检索兜底
-- [ ] lycore 后续（增量）: 8B 部署到可常驻环境 / VNN CNN / 世界知识扩容
+- [x] lyco 后续（增量）: 8B 部署到可常驻环境 / VNN CNN / 世界知识扩容
+      → 8B: Qwen3-8B-AWQ vLLM on A10 (80 tok/s, 公网 preview URL) 已交付
+      → VNN CNN: v0.2/v0.3 训练版 (4 类, 神经元库聚类) 已交付
+- [x] Radxa A7A 工具编排 FC 模型 V2→V3（2026-09-12）:
+      executor 扩 7 工具 (lyv/vnn/rembg/html_gen/html_render_video/llm_generate/video_info),
+      全部进程外调用 (rembg CLI / NIM+OpenRouter API / chromium+ffmpeg / ffprobe), 零重依赖。
+      FC 决策模型 GRPO 迭代: V1 (2 工具 60→100%) → V2 (7 工具, A10 11min, fp 验证 7/8)
+      → V3 (从 V2 续训, 定向修 2 弱点: 闲聊误调 + lyv↔llm 混淆, 困难负例 + 描述消歧, fp 8/8)。
+      ★ 量化 margin 教训: V3 Q4_K_M 端侧 4/7 (量化吃掉决策 margin, video_info 漏调),
+        Q6_K 端侧 5/7 + 真实多轮 agent loop 全通 (抠图/知识查询/html→视频多跳 rounds=3)。
+        单轮 probe 的"漏调"多轮上下文可救回 (模型见 pack 有知识即调 lyv)。
+      交付: lycore-aarch64 (7.9MB, 含 7 工具 schema) + qwen3_lyco_fc_v3_q6k.gguf (495MB)
+        + RADXA_SETUP.md (板上编译 llama.cpp, NIM key 从 cc-switch)。release v0.3.0。
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

@@ -51,7 +51,13 @@ impl<'a> Agent<'a> {
     /// 主循环: 模型↔工具 多轮交互直到收束
     pub fn run(&self, backend: &mut dyn ModelBackend, question: &str) -> anyhow::Result<Turn> {
         let mut messages = vec![
-            Message::new("system", "You are lyco. 操作类问题先用工具查询知识库."),
+            // system prompt 与 GRPO 训练时严格一致 (qwen_grpo_v2.py build_prompt) —
+            // 旧版多出的"操作类问题先用工具查询知识库"是 lyv nudge, 会把"想队名"等
+            // 创作类请求误推向 lyv_knowledge (train/serve skew), 故对齐为中性描述。
+            Message::new(
+                "system",
+                "You are lyco, a helpful assistant running on a Radxa SBC. You can call tools.",
+            ),
             Message::new("user", question),
         ];
         let mut tool_calls = Vec::new();

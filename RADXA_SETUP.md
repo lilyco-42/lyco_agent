@@ -5,9 +5,12 @@ sudo apt install -y build-essential ffmpeg tesseract-clang chromium
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh    # rust
 pip install "rembg[cpu]" onnxruntime                               # 抠图 CLI
 
-## 2. 编译 (板子上, 一次性 ~10min)
-tar xzf lyco_radxa.tar.gz && cd lycore
-cargo build --release        # aarch64 原生编译
+## 2. lycore 二进制 (二选一)
+# A) 直接用预编译 (推荐): release 附件 lycore-aarch64, glibc 动态链接 (需 GLIBC≥2.39,
+#    Ubuntu 24.04 / Debian 13+ 满足; 更旧镜像需走 B 或 musl 静态重编)
+chmod +x lycore-aarch64 && mv lycore-aarch64 lycore
+# B) 板上原生编译 (一次性 ~10min, 需 §1 的 rustup):
+tar xzf lyco_radxa.tar.gz && cd lycore && cargo build --release
 
 ## 3. 环境变量 (.env 或 export)
 export LYCO_LLM_KEY=nvapi-xxxx          # NIM key (cc-switch Nvidia provider)
@@ -21,10 +24,10 @@ export LYCO_CHROME=chromium
 # llama.cpp ARM build (板上原生编译 — CloudStudio x86 交叉编译会被节点重启打断, 实测不可靠)
 git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
 cmake -B build -DGGML_NATIVE=ON -DLLAMA_CURL=OFF && cmake --build build -j8 --target llama-server
-./build/bin/llama-server -m qwen3_lyco_fc_v2_q4km.gguf --port 8081 --jinja -t 8
+./build/bin/llama-server -m qwen3_lyco_fc_v4_q6k.gguf --port 8081 --jinja -t 8
 
-# lyco agent:
-./lycore/target/release/lycore ask --pack ../smoke/pack_merged \
+# lyco agent (路径 A 用 ./lycore, 路径 B 用 ./lycore/target/release/lycore):
+./lycore ask --pack ../smoke/pack_merged \
   --llama http://localhost:8081 "帮我做一个登录页面然后转成视频"
 
 ## 工具链

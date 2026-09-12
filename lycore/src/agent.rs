@@ -56,6 +56,8 @@ impl<'a> Agent<'a> {
         ];
         let mut tool_calls = Vec::new();
         let mut learning_queue_used = false;
+        // 回填复读防护: 记录失败过的工具, 模型重复调用同名失败工具 = 卡死信号, 短路收束
+        let mut failed_tools: Vec<String> = Vec::new();
 
         for round in 1..=self.max_rounds {
             let text = backend.generate(&messages)?;
@@ -79,10 +81,22 @@ impl<'a> Agent<'a> {
                     return Ok(Turn { rounds: round, answer, tool_calls, learning_queue_used });
                 }
                 Some((name, arguments)) => {
+                    // 复读已失败的工具 → 不再空执行, 直接诚实收束 (省轮次, 避免 max_rounds 兜底)
+                    if failed_tools.iter().any(|f| f == &name) {
+                        return Ok(Turn {
+                            rounds: round,
+                            answer: format!(
+                                "抱歉，{name} 工具查不到这个内容，我还没学会，已加入学习队列。"
+                            ),
+                            tool_calls,
+                            learning_queue_used: true,
+                        });
+                    }
                     tool_calls.push(name.clone());
                     let result = self.executor.execute(&name, &arguments);
                     if !result.ok {
                         learning_queue_used = true;
+                        failed_tools.push(name.clone());
                     }
                     log_result(&result);
                     messages.push(Message::new(
@@ -213,5 +227,23 @@ mod tests {
         let turn = agent.run(&mut backend, "怎么运行项目").unwrap();
         assert_eq!(turn.rounds, 2);
         assert!(turn.answer.contains("未在限定轮数内收束"));
+    }
+
+    /// 复读防护: 模型重复调用已失败的同名工具 → 立即诚实收束, 不空耗轮次
+    #[test]
+    #[ignore = "需要真实知识包"]
+    fn repeat_failed_tool_short_circuits() {
+        let ex = executor_on_real_pack();
+        let agent = Agent::new(&ex, 4);
+        // "怎么配置防火墙" 在 pack_final 中 NO_HIT → 第 1 轮失败入 failed_tools,
+        // 第 2 轮模型复读同名工具被短路 (rounds=2, 而非耗尽 max_rounds=4)
+        let repeat = r#"<tool_call>
+{"name": "lyv_knowledge", "arguments": {"query": "怎么配置防火墙"}}
+</tool_call>"#;
+        let mut backend = Scripted::new(vec![repeat, repeat, "不应到达"]);
+        let turn = agent.run(&mut backend, "怎么配置防火墙").unwrap();
+        assert_eq!(turn.rounds, 2, "复读应在第 2 轮收束, 实得 {}", turn.rounds);
+        assert!(turn.learning_queue_used);
+        assert!(turn.answer.contains("还没学会"), "answer={}", turn.answer);
     }
 }

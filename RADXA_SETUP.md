@@ -10,7 +10,9 @@ pip install "rembg[cpu]" onnxruntime                               # 抠图 CLI
 #    Ubuntu 24.04 / Debian 13+ 满足; 更旧镜像需走 B 或 musl 静态重编)
 chmod +x lycore-aarch64 && mv lycore-aarch64 lycore
 # B) 板上原生编译 (一次性 ~10min, 需 §1 的 rustup):
-tar xzf lyco_radxa.tar.gz && cd lycore && cargo build --release
+# 源码包 (含 lycore 源码 + 演示知识包 + 训练脚本, 从 git HEAD 构建):
+# 下载: https://github.com/lilyco-42/lyco_agent/releases/download/v0.3.0/lyco_radxa_src.tar.gz
+tar xzf lyco_radxa_src.tar.gz && cd lycore && cargo build --release
 
 ## 3. 环境变量 (.env 或 export)
 export LYCO_LLM_KEY=nvapi-xxxx          # NIM key (cc-switch Nvidia provider)

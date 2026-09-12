@@ -13,9 +13,15 @@
 use crate::agent::{Message, ModelBackend};
 use serde_json::json;
 
+// 与训练 schema (tools/qwen_grpo_v2.py TOOLS) 严格一致 — 运行时/训练时描述漂移会劣化 FC 决策
 const CHAT_TOOLS: &str = r#"[
-  {"type":"function","function":{"name":"lyv_knowledge","description":"查询视频知识库: 问怎么做某操作, 返回带时间戳的视频切片+关键帧+OCR验证文字","parameters":{"type":"object","properties":{"query":{"type":"string","description":"想学的操作"}},"required":["query"]}}},
-  {"type":"function","function":{"name":"vnn_identify","description":"OCR失败时启用内部识图神经网络对图片打分描述","parameters":{"type":"object","properties":{"image":{"type":"string","description":"图片路径"}},"required":["image"]}}}
+  {"type":"function","function":{"name":"lyv_knowledge","description":"查询视频知识库: 问怎么做某操作, 返回带时间戳的视频切片+关键帧+OCR验证文字","parameters":{"type":"object","properties":{"query":{"type":"string","description":"想学的操作"},"pack":{"type":"string","description":"知识包路径"}},"required":["query"]}}},
+  {"type":"function","function":{"name":"vnn_identify","description":"识别图片内容: 对截图/画面分类 (终端/GUI/自然/文档)","parameters":{"type":"object","properties":{"image":{"type":"string","description":"图片路径"}},"required":["image"]}}},
+  {"type":"function","function":{"name":"html_gen","description":"生成 HTML 页面文件: 给页面需求描述, 调用大模型生成完整单文件 HTML 并保存","parameters":{"type":"object","properties":{"prompt":{"type":"string","description":"页面需求描述"},"output":{"type":"string","description":"输出 html 文件路径"}},"required":["prompt","output"]}}},
+  {"type":"function","function":{"name":"html_render_video","description":"把 HTML 页面转成视频: headless 浏览器逐秒截图后合成 mp4","parameters":{"type":"object","properties":{"html":{"type":"string","description":"输入 html 路径"},"output":{"type":"string","description":"输出 mp4 路径"},"seconds":{"type":"integer","description":"视频秒数"}},"required":["html","output"]}}},
+  {"type":"function","function":{"name":"rembg_remove","description":"抠图: 去除图片背景, 输出透明背景 png","parameters":{"type":"object","properties":{"image":{"type":"string","description":"输入图片路径"},"output":{"type":"string","description":"输出 png 路径"}},"required":["image","output"]}}},
+  {"type":"function","function":{"name":"llm_generate","description":"通用大模型生成: 写文案/回答开放问题/续写, 不落文件","parameters":{"type":"object","properties":{"prompt":{"type":"string","description":"生成需求"}},"required":["prompt"]}}},
+  {"type":"function","function":{"name":"video_info","description":"查看视频信息: 时长/分辨率/帧率","parameters":{"type":"object","properties":{"video":{"type":"string","description":"视频路径"}},"required":["video"]}}}
 ]"#;
 
 pub struct LlamaCppBackend {
@@ -28,6 +34,7 @@ pub struct LlamaCppBackend {
 
 impl LlamaCppBackend {
     pub fn new(base_url: &str, model: &str) -> Self {
+        crate::tools_runtime::install_crypto_provider();
         Self {
             client: reqwest::blocking::Client::new(),
             base_url: base_url.trim_end_matches('/').to_string(),

@@ -53,6 +53,17 @@ fn run_cmd(bin: &str, args: &[&str], _timeout: Duration) -> RunOutcome {
     }
 }
 
+
+/// ring CryptoProvider 安装 (rustls-no-provider 必需, 交叉编译友好)。
+/// 任何 reqwest Client 构造前都需调用 (llamacpp backend / llm_generate)。
+pub fn install_crypto_provider() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 /// 抠图: rembg CLI (pip install rembg; 首次运行自动下载 u2net 权重 ~170MB)
 pub fn rembg_remove(input: &Path, output: &Path) -> RunOutcome {
     if !input.exists() {
@@ -83,6 +94,7 @@ pub fn rembg_remove(input: &Path, output: &Path) -> RunOutcome {
 /// LLM 生成 (OpenAI 兼容 chat/completions, 阻塞非流式)
 /// prompt 给了 out_path 时把回复写入文件 (html_gen 用)
 pub fn llm_generate(prompt: &str, out_path: Option<&Path>) -> RunOutcome {
+    install_crypto_provider();
     let url = std::env::var("LYCO_LLM_URL")
         .unwrap_or_else(|_| "https://integrate.api.nvidia.com/v1/chat/completions".into());
     let key = std::env::var("LYCO_LLM_KEY").unwrap_or_default();

@@ -325,6 +325,15 @@
         单轮 probe 的"漏调"多轮上下文可救回 (模型见 pack 有知识即调 lyv)。
       交付: lycore-aarch64 (7.9MB, 含 7 工具 schema) + qwen3_lyco_fc_v3_q6k.gguf (495MB)
         + RADXA_SETUP.md (板上编译 llama.cpp, NIM key 从 cc-switch)。release v0.3.0。
+- [x] FC V4（2026-09-12, 从 V3 续训）: V3 端侧暴露 overcorrection — 困难闲聊负例双倍权重
+      致短创作请求 ("帮我起个标题") 误路由 lyv。V4 撤 chat 双倍权重 + LLM_Q 扩 16 条短创作
+      (队名/笔名/店名/slogan) + 验证集扩 12 case。fp 11/12, Q6_K 端侧 10/12,
+      核心靶心 ("起标题"/"想队名" 单轮) 修复。多轮 agent loop 下 "cargo build 报错"→lyv HIT
+      (量化漏调被上下文救回, 印证 V3 结论)。
+      ★ 停止重训判断: "怎么做红烧肉"→lyv 是真语言模糊 ("做"字, fp 亦 miss);
+      "想队名" 在完整 agent prompt 下选 lyv + NO_HIT 后复读同工具 = loop 回填行为非模型缺陷。
+      继续重训边际收益极低且每轮引入新 overcorrection → V4 定为最终 FC 模型。
+      交付更新: qwen3_lyco_fc_v4_q6k.gguf (495MB) 替换 release v0.3.0 附件。
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

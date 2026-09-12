@@ -122,5 +122,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" \
+          # tag push 时 Release 尚不存在: 先 create (无资产, 直接发布), 已存在则跳过
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
+            --notes "自动构建: lycore-aarch64 + 源码包 (详见 RADXA_SETUP.md)" \
+            2>/dev/null || echo "release 已存在, 直接上传"
+          gh release upload "$GITHUB_REF_NAME" \
             out/lycore-aarch64 out/lyco_radxa_src.tar.gz --clobber

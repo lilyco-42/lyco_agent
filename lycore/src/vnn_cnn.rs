@@ -20,6 +20,26 @@ struct WeightsFile {
     #[serde(default)]
     version: u32,
     weights: std::collections::BTreeMap<String, TensorData>,
+    /// V9+ 权重带数据驱动神经元库 (fc1 嵌入空间 K-means 原型); v2 无此字段 → 空
+    #[serde(default)]
+    neurons: Vec<NeuronData>,
+}
+
+#[derive(Deserialize, Clone)]
+struct NeuronData {
+    neuron: String,
+    class: String,
+    prototype: Vec<f32>,
+    radius: f32,
+}
+
+/// 单个特征神经元 (嵌入空间原型 + 归属类 + 该类样本到它的最大距离)
+#[derive(Debug, Clone)]
+pub struct Neuron {
+    pub name: String,
+    pub class: String,
+    pub prototype: [f32; 32],
+    pub radius: f32,
 }
 
 #[derive(Deserialize)]
@@ -39,6 +59,8 @@ pub struct CnnClassifier {
     fc2_w: Vec<f32>,   // [4,32]
     fc2_b: Vec<f32>,   // [4]
     classes: Vec<String>,
+    /// 神经元库 (V9 聚类生成); 空 = 权重文件未含 (v2), 投票不可用
+    neurons: Vec<Neuron>,
 }
 
 impl CnnClassifier {
@@ -64,7 +86,75 @@ impl CnnClassifier {
             fc2_w: get("fc2.weight")?,
             fc2_b: get("fc2.bias")?,
             classes: f.classes,
+            // 原型维度非 32 的条目直接丢弃 (宁缺毋滥, 不污染投票)
+            neurons: f
+                .neurons
+                .into_iter()
+                .filter(|n| n.prototype.len() == 32)
+                .map(|n| Neuron {
+                    name: n.neuron,
+                    class: n.class,
+                    prototype: <[f32; 32]>::try_from(n.prototype).unwrap(),
+                    radius: n.radius,
+                })
+                .collect(),
         })
+    }
+
+    /// 神经元库是否可用 (v2 权重无此字段 → false, 调用方跳过投票)
+    pub fn has_neurons(&self) -> bool {
+        !self.neurons.is_empty()
+    }
+
+    /// fc1 32 维嵌入 (神经元库所在的嵌入空间)
+    pub fn embed(&self, img: &[f32; 64 * 64]) -> [f32; 32] {
+        let c1 = conv2d_relu_pool(img, &self.conv1_w, &self.conv1_b, 1, 8, 64, 2);
+        let c2 = conv2d_relu_pool(&c1, &self.conv2_w, &self.conv2_b, 8, 16, 32, 2);
+        let mut h1 = [0f32; 32];
+        for (o, ob) in self.fc1_b.iter().enumerate() {
+            let row = &self.fc1_w[o * 4096..(o + 1) * 4096];
+            let s: f32 = c2.iter().zip(row).map(|(a, b)| a * b).sum::<f32>() + ob;
+            h1[o] = s.max(0.0);
+        }
+        h1
+    }
+
+    /// 特征神经元投票: 取嵌入空间 top_k 最近原型, 按「距离越近票越高」累加到各自归属类。
+    /// 返回按票数降序的 (类, 票数)。无可解释原型命中 → 空 Vec。
+    /// 与 fc2 softmax 互补: fc2 给判定, 本函数给「哪些神经元被激活」的可解释证据。
+    pub fn neuron_vote(&self, emb: &[f32; 32], top_k: usize) -> Vec<(String, f64)> {
+        if self.neurons.is_empty() {
+            return Vec::new();
+        }
+        let mut ds: Vec<(usize, f64)> = self
+            .neurons
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let d: f64 = emb
+                    .iter()
+                    .zip(n.prototype.iter())
+                    .map(|(a, b)| ((*a - *b) as f64).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                (i, d)
+            })
+            .collect();
+        ds.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let mut tally: std::collections::BTreeMap<String, f64> = Default::default();
+        for (i, d) in ds.into_iter().take(top_k) {
+            let n = &self.neurons[i];
+            // 半径内给满票并按接近程度衰减; 半径外仍计薄票 (保持类间可比)
+            let vote = if d <= n.radius as f64 {
+                1.0 - 0.5 * (d / n.radius.max(1e-6) as f64)
+            } else {
+                (n.radius as f64 / d).min(0.5)
+            };
+            *tally.entry(n.class.clone()).or_insert(0.0) += vote;
+        }
+        let mut out: Vec<(String, f64)> = tally.into_iter().collect();
+        out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        out
     }
 
     /// 按 env/默认位置解析权重文件; 不存在 → Ok(None)
@@ -93,18 +183,8 @@ impl CnnClassifier {
 
     /// 单张 64x64 灰度 (0..255) → softmax 概率 (与 CLASSES/classes 对齐)
     pub fn classify(&self, img: &[f32; 64 * 64]) -> anyhow::Result<Vec<(String, f64)>> {
-        // conv1: [8,1,3,3] pad=1 → 64x64 → relu → pool2 → 32x32
-        let c1 = conv2d_relu_pool(img, &self.conv1_w, &self.conv1_b, 1, 8, 64, 2);
-        // conv2: [16,8,3,3] pad=1, in=32x32 → relu → pool2 → 16x16
-        let c2 = conv2d_relu_pool(&c1, &self.conv2_w, &self.conv2_b, 8, 16, 32, 2);
-        // fc1: 4096 → 32 relu (PyTorch Linear 权重是 out×in row-major)
-        let mut h1 = [0f32; 32];
-        for (o, ob) in self.fc1_b.iter().enumerate() {
-            let row = &self.fc1_w[o * 4096..(o + 1) * 4096];
-            let s: f32 = c2.iter().zip(row).map(|(a, b)| a * b).sum::<f32>() + ob;
-            h1[o] = s.max(0.0);
-        }
-        // fc2: 32 → 4 + softmax
+        // fc2: 32 → 4 + softmax (嵌入由 embed() 复用, 与神经元库同一空间)
+        let h1 = self.embed(img);
         let mut logits = [0f64; 4];
         for (o, ob) in self.fc2_b.iter().enumerate() {
             let row = &self.fc2_w[o * 32..(o + 1) * 32];
@@ -202,6 +282,58 @@ mod tests {
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
             .unwrap();
         assert_eq!(best.0, "terminal", "暗底亮行应判 terminal, got {probs:?}");
+    }
+
+    /// v2 权重无 neurons 字段 → has_neurons false, 投票返回空 (向后兼容, 不 panic)
+    #[test]
+    fn v2_weights_have_no_neurons() {
+        use serde_json::json;
+        let arr = |v: f32, n: usize| -> Vec<f32> { vec![v; n] };
+        let doc = json!({
+            "classes": ["terminal", "gui_window", "nature", "document"],
+            "version": 2,
+            "weights": {
+                "conv1.weight": {"shape": [8,1,3,3], "data": arr(0.1f32, 72)},
+                "conv1.bias":   {"shape": [8], "data": arr(0.0f32, 8)},
+                "conv2.weight": {"shape": [16,8,3,3], "data": arr(0.1f32, 1152)},
+                "conv2.bias":   {"shape": [16], "data": arr(0.0f32, 16)},
+                "fc1.weight":   {"shape": [32,4096], "data": arr(0.01f32, 131072)},
+                "fc1.bias":     {"shape": [32], "data": arr(0.0f32, 32)},
+                "fc2.weight":   {"shape": [4,32], "data": arr(0.1f32, 128)},
+                "fc2.bias":     {"shape": [4], "data": arr(0.0f32, 4)}
+            }
+        });
+        let dir = std::env::temp_dir().join("lyco_v2_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let p = dir.join("v2.json");
+        std::fs::write(&p, doc.to_string()).unwrap();
+        let clf = CnnClassifier::load(&p).expect("v2 应能加载");
+        assert!(!clf.has_neurons(), "v2 无神经元库");
+        assert!(clf.neuron_vote(&[0.0f32; 32], 5).is_empty(), "无库投票应为空");
+    }
+
+    /// V9 神经元库接入: v3 权重 (12 原型) → 暗底亮行嵌入投票, terminal 应得票
+    #[test]
+    fn v3_neuron_vote_prefers_terminal() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/vnn_cnn_v3_weights.json");
+        let clf = match CnnClassifier::load(&p) {
+            Ok(c) => c,
+            Err(_) => return, // v3 权重不在则跳过 (非必需资产)
+        };
+        assert!(clf.has_neurons(), "v3 应含神经元库");
+        let mut img = [10f32; 64 * 64];
+        for (y, x0, x1) in [(20usize, 4usize, 40usize), (30, 4, 30), (40, 4, 36)] {
+            for x in x0..x1 {
+                img[y * 64 + x] = 180.0;
+            }
+        }
+        let votes = clf.neuron_vote(&clf.embed(&img), 5);
+        assert!(!votes.is_empty(), "有库应产出投票");
+        assert_eq!(
+            votes[0].0, "terminal",
+            "暗底亮行神经元投票应 terminal 领先, got {votes:?}"
+        );
     }
 
     #[test]

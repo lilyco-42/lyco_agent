@@ -133,14 +133,21 @@ fn expert_score(neuron: &str, activation: f64, feat: &Features) -> ExpertScore {
 pub fn identify(ffmpeg: &str, image: &Path) -> anyhow::Result<(String, f64, Vec<ExpertScore>, Vec<String>)> {
     let feat = extract_features(ffmpeg, image)?;
 
-    // ---- CNN 通道 (v2 训练版, 4 类) ----
+    // ---- CNN 通道 (v2/v3 训练版, 4 类) ----
     if let Some(wpath) = crate::vnn_cnn::CnnClassifier::resolve() {
         match crate::vnn_cnn::CnnClassifier::load(&wpath).and_then(|clf| {
             let mut gray = [0f32; 64 * 64];
             fill_gray(ffmpeg, image, &mut gray)?;
-            clf.classify(&gray)
+            // 一次前向同时拿 fc2 softmax 与 fc1 嵌入 (神经元库投票用)
+            let probs = clf.classify(&gray)?;
+            let votes = if clf.has_neurons() {
+                clf.neuron_vote(&clf.embed(&gray), 5)
+            } else {
+                Vec::new()
+            };
+            Ok((probs, votes))
         }) {
-            Ok(probs) => {
+            Ok((probs, votes)) => {
                 let (best_cls, best_p) = probs
                     .iter()
                     .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
@@ -148,7 +155,8 @@ pub fn identify(ffmpeg: &str, image: &Path) -> anyhow::Result<(String, f64, Vec<
                     .unwrap_or_else(|| ("unknown".into(), 0.0));
                 // conf≥0.6 → CNN 直接判定; 低置信 → 入学习队列语义由 executor 处理
                 if best_p >= 0.6 {
-                    let experts: Vec<ExpertScore> = probs
+                    // experts: fc2 softmax 给判定, 神经元投票 (V9 库) 给可解释证据
+                    let mut experts: Vec<ExpertScore> = probs
                         .iter()
                         .map(|(c, p)| ExpertScore {
                             neuron: c.clone(),
@@ -158,6 +166,15 @@ pub fn identify(ffmpeg: &str, image: &Path) -> anyhow::Result<(String, f64, Vec<
                             needs_training: false,
                         })
                         .collect();
+                    for (cls, votes) in votes.iter().take(3) {
+                        experts.push(ExpertScore {
+                            neuron: format!("neuron_vote:{cls}"),
+                            activation: *votes,
+                            verdict: format!("激活投票 {votes:.2}"),
+                            conf: 0.0,
+                            needs_training: false,
+                        });
+                    }
                     let learning_queue: Vec<String> = probs
                         .iter()
                         .filter(|(_, p)| *p < 0.05)

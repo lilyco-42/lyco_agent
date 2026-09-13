@@ -33,3 +33,11 @@ smoke/demo_pack/
 # ARM 二进制由 CI 构建并挂到 release (releases/latest/download/lycore-aarch64),
 # 不再入库 —— 避免 git 里的 stale 副本被误取 (曾是手工重编 3 次的漂移源)
 dist/
+
+# e2e 测试产物 (agent loop 生成, 非资产)
+smoke/agent_*.html
+smoke/agent_*.mp4
+smoke/f*_v[0-9]*.png
+# 本地交叉编译 hack (CI 用 env 注入链接器, 不依赖 .cargo/config.toml)
+lycore/.cargo/
+lycore/zigcc-linker.sh

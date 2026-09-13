@@ -113,9 +113,11 @@
       identify() 高置信分支追加 neuron_vote:<class> 可解释证据 (fc2 给判定, 投票给
       「哪些原型被激活」); v2 无库→空不 panic。CI 重建 v0.3.2 (aarch64 二进制为唯一
       权威来源, releases/latest 解析验证)。
-      ★ 端到端实测 (f0.png, 真值为终端截图): fc2 判 gui_window 0.665 (错),
-      神经元投票 terminal 0.504 > gui_window 0.360 (对) —— 两通道分歧且投票更准。
-      当前投票为纯 advisory (conf=0.0 不改判定), 此证据支持后续考虑分歧升级策略。
+      ★ 端到端实测 (9 张真图全为终端截图): fc2 命中 8/9 (f0 判 gui_window 0.67 错),
+      神经元投票 9/9。据此启用**分歧升级**: fc2∈[0.6,0.8) 不确定带且投票冠军≠fc2 冠军
+      且票数明显更高 → 采纳投票。8 张 fc2 正确图 conf≥0.87 永不进带 → 零回归;
+      identify() 实测 f0 修正为 terminal, 全 9/9。诚实边界: 仅 terminal 类有真图验证,
+      gui/nature/document 无真图, 但带限制使升级只作用于 fc2 本已不确定处。
       agent loop 实测（2026-09-11）：0.6B FC 决策 vnn_identify → CNN 通道
       verdict=terminal conf=0.99 → 自然语言回答「识别结果：终端」全链路通。
       已知边界：FC 幻觉路径仍需真实路径提示（v0.1 已知问题，回退队列正常）

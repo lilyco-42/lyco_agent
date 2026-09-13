@@ -153,8 +153,23 @@ pub fn identify(ffmpeg: &str, image: &Path) -> anyhow::Result<(String, f64, Vec<
                     .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
                     .map(|(c, p)| (c.clone(), *p))
                     .unwrap_or_else(|| ("unknown".into(), 0.0));
-                // conf≥0.6 → CNN 直接判定; 低置信 → 入学习队列语义由 executor 处理
+                // conf≥0.6 → CNN 判定 (低置信 → 规则回退 + 学习队列, 由 executor 处理)
                 if best_p >= 0.6 {
+                    // 分歧升级 (n=9 实测: 投票 9/9, fc2 8/9, 仅不确定带内分歧):
+                    // fc2 ∈ [0.6,0.8) 且投票冠军 ≠ fc2 冠军且投票票数明显更高 → 采纳投票。
+                    // 8 张 fc2 正确图 conf≥0.87 永不进带 → 零回归风险; 只救 f0 型不确定例。
+                    let (final_cls, final_conf, escalated) = match votes.first() {
+                        Some((vcls, vscore))
+                            if best_p < 0.8
+                                && vcls != &best_cls
+                                && *vscore
+                                    > votes.iter().find(|(c, _)| c == &best_cls).map_or(0.0, |(_, s)| *s)
+                                    + 0.1 =>
+                        {
+                            (vcls.clone(), vscore.max(best_p * 0.9), true)
+                        }
+                        _ => (best_cls.clone(), best_p, false),
+                    };
                     // experts: fc2 softmax 给判定, 神经元投票 (V9 库) 给可解释证据
                     let mut experts: Vec<ExpertScore> = probs
                         .iter()
@@ -170,7 +185,11 @@ pub fn identify(ffmpeg: &str, image: &Path) -> anyhow::Result<(String, f64, Vec<
                         experts.push(ExpertScore {
                             neuron: format!("neuron_vote:{cls}"),
                             activation: *votes,
-                            verdict: format!("激活投票 {votes:.2}"),
+                            verdict: if escalated && cls == &final_cls {
+                                format!("激活投票 {votes:.2} (已采纳)")
+                            } else {
+                                format!("激活投票 {votes:.2}")
+                            },
                             conf: 0.0,
                             needs_training: false,
                         });
@@ -180,7 +199,7 @@ pub fn identify(ffmpeg: &str, image: &Path) -> anyhow::Result<(String, f64, Vec<
                         .filter(|(_, p)| *p < 0.05)
                         .map(|(c, _)| format!("{c}:needs_data"))
                         .collect();
-                    return Ok((best_cls, best_p, experts, learning_queue));
+                    return Ok((final_cls, final_conf, experts, learning_queue));
                 }
                 // 低置信: 落到规则回退, 但带上 CNN 的低置信信息
                 let low = ExpertScore {

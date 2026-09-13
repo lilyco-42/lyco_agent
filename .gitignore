@@ -29,3 +29,7 @@ smoke/t_out*
 .DS_Store
 Thumbs.db
 smoke/demo_pack/
+
+# ARM 二进制由 CI 构建并挂到 release (releases/latest/download/lycore-aarch64),
+# 不再入库 —— 避免 git 里的 stale 副本被误取 (曾是手工重编 3 次的漂移源)
+dist/

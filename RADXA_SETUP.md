@@ -8,11 +8,11 @@ pip install "rembg[cpu]" onnxruntime                               # 抠图 CLI
 ## 2. lycore 二进制 (二选一)
 # A) 直接用预编译 (推荐): glibc 动态链接 (需 GLIBC≥2.39,
 #    Ubuntu 24.04 / Debian 13+ 满足; 更旧镜像需走 B 或 musl 静态重编)
-# 下载: https://github.com/lilyco-42/lyco_agent/releases/download/v0.3.0/lycore-aarch64
+# 下载: https://github.com/lilyco-42/lyco_agent/releases/latest/download/lycore-aarch64
 chmod +x lycore-aarch64 && mv lycore-aarch64 lycore
 # B) 板上原生编译 (一次性 ~10min, 需 §1 的 rustup):
 # 源码包 (含 lycore 源码 + 演示知识包 + 训练脚本, 从 git HEAD 构建):
-# 下载: https://github.com/lilyco-42/lyco_agent/releases/download/v0.3.0/lyco_radxa_src.tar.gz
+# 下载: https://github.com/lilyco-42/lyco_agent/releases/latest/download/lyco_radxa_src.tar.gz
 tar xzf lyco_radxa_src.tar.gz && cd lycore && cargo build --release
 
 ## 3. 环境变量 (.env 或 export)
@@ -24,6 +24,8 @@ export LYV_FFMPEG=ffmpeg
 export LYCO_CHROME=chromium
 
 ## 4. 运行 agent loop (0.6B FC + 工具编排)
+# FC 决策模型 (训练产物, 固定在 v0.3.0 附件; 重训后才更新):
+# 下载: https://github.com/lilyco-42/lyco_agent/releases/download/v0.3.0/qwen3_lyco_fc_v4_q6k.gguf
 # llama.cpp ARM build (板上原生编译 — CloudStudio x86 交叉编译会被节点重启打断, 实测不可靠)
 git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
 cmake -B build -DGGML_NATIVE=ON -DLLAMA_CURL=OFF && cmake --build build -j8 --target llama-server

@@ -1,0 +1,20 @@
+{"query":"帮我看看这张截图","reason":"NO_HIT: 知识库没有这个操作","ts":1789099452}
+{"query":"怎么配置 nginx","reason":"NO_HIT: 知识库没有这个操作","ts":1789099452}
+{"query":"图片路径","reason":"vnn_identify: 执行失败","ts":1789101370}
+{"query":"怎么配置nginx","reason":"NO_HIT: 知识库没有这个操作","ts":1789119223}
+{"query":"image_url","reason":"vnn_identify: 执行失败","ts":1789138914}
+{"query":"一个极简的个人主页, 标题是 Radxa Agent, 有一个渐变色按钮","reason":"html_gen: LLM 调用失败","ts":1789149336}
+{"query":"一个极简的个人主页, 标题是 Radxa Agent, 有一个渐变色按钮","reason":"html_gen: LLM 调用失败","ts":1789149353}
+{"query":"一个极简的个人主页, 标题是 Radxa Agent, 有一个渐变色按钮","reason":"html_gen: LLM 调用失败","ts":1789149459}
+{"query":"../smoke/e2e_page.html","reason":"html_render_video: 执行失败","ts":1789150002}
+{"query":"../smoke/e2e_page.html","reason":"html_render_video: 执行失败","ts":1789150271}
+{"query":"../smoke/e2e_page.html","reason":"html_render_video: 执行失败","ts":1789150908}
+{"query":"起个标题","reason":"NO_HIT: 知识库没有这个操作","ts":1789212935}
+{"query":"队名","reason":"NO_HIT: 知识库没有这个操作","ts":1789214959}
+{"query":"队名","reason":"NO_HIT: 知识库没有这个操作","ts":1789214960}
+{"query":"队名","reason":"NO_HIT: 知识库没有这个操作","ts":1789214962}
+{"query":"队名","reason":"NO_HIT: 知识库没有这个操作","ts":1789214963}
+{"query":"队名","reason":"NO_HIT: 知识库没有这个操作","ts":1789216397}
+{"query":"队名","reason":"NO_HIT: 知识库没有这个操作","ts":1789217598}
+{"query":"队名","reason":"NO_HIT: 知识库没有这个操作","ts":1789217858}
+{"query":"your_image.png","reason":"rembg_remove: 执行失败","ts":1789217868}

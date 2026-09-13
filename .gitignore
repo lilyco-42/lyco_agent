@@ -38,6 +38,13 @@ dist/
 smoke/agent_*.html
 smoke/agent_*.mp4
 smoke/f*_v[0-9]*.png
+
+# 会话调试知识包 (learn 出来的临时 pack, 非资产)
+smoke/jj_pack/
+smoke/lilyco_pack/
+
+# 注: smoke/pack_merged/learning_queue.jsonl 是**真实队列样本**(非忽略) ——
+#     lernen 的 NO_HIT 二次分类回归测试直接引用其中的 "队名"×7 / "起个标题"。
 # 本地交叉编译 hack (CI 用 env 注入链接器, 不依赖 .cargo/config.toml)
 lycore/.cargo/
 lycore/zigcc-linker.sh

@@ -44,10 +44,15 @@ pub fn digest(queue_path: &Path) -> std::io::Result<Vec<TrainingTask>> {
             continue; // 坏行跳过, 不阻塞 digest
         };
         // 垃圾过滤: 无意义查询不进训练集 (bench 压测/乱敲键盘产生的)
-        if is_noise(&entry.query) {
+        //
+        // 创作白名单优先于噪声启发式: is_noise 的 "<3 字符 = 噪声" 是为挡乱敲的
+        // 短 ASCII 串写的, 但中文 2 字是真请求 ("队名" 在真实队列里出现 7 次)。
+        // 放宽阈值会同时放进 2 字中文参数名 ("路径"/"图片"), 故改为: 命中创作
+        // 白名单 (显式信号) 时跳过噪声判据, 其余一律照旧过滤。
+        if !is_creative_request(&entry.query) && is_noise(&entry.query) {
             continue;
         }
-        let Some((tool, hint)) = classify(&entry.reason) else {
+        let Some((tool, hint)) = classify(&entry.query, &entry.reason) else {
             continue; // 工具执行失败等非知识缺口, 不进 FC 训练集
         };
         let key = (entry.query.clone(), tool);
@@ -102,12 +107,67 @@ fn is_noise(query: &str) -> bool {
 /// (html_gen: LLM 调用失败 / vnn_identify: 执行失败 等) 路由已正确、是基础设施故障,
 /// 且 query 存的是工具参数 (路径/prompt), 进 FC 训练集会教出错误路由 (惩罚本已正确
 /// 的工具选择), 故排除。可靠性信号仍在原始队列 jsonl, 供人工/告警消费。
-fn classify(reason: &str) -> Option<(&'static str, &'static str)> {
-    if reason.contains("NO_HIT") {
-        Some(("lyv_knowledge", "调用 lyv_knowledge 且知识包应包含该操作 (+1)"))
-    } else {
-        None
+///
+/// ## NO_HIT 二次分类 (2026-09-14)
+/// 短创作请求 ("队名" / "起个标题") 落进 NO_HIT 后, 若一律标 lyv_knowledge,
+/// 等于把 **FC V4 修掉的 overcorrection 重新喂回训练集** ——
+/// DESIGN.md 明确: 「短创作请求误路由 lyv」正是 V4 定向修复的靶心, 且
+/// 「继续重训边际收益极低, V4 定为最终 FC 模型」。学习闭环若自我对抗,
+/// 每轮回流都会把已修好的错误教回去。
+/// 权威依据: `CHAT_TOOLS` 中 llm_generate 描述 = 「写文案/起标题等纯文字创作」。
+fn classify(query: &str, reason: &str) -> Option<(&'static str, &'static str)> {
+    if !reason.contains("NO_HIT") {
+        return None;
     }
+    if is_creative_request(query) {
+        return Some((
+            "llm_generate",
+            "直接 llm_generate 生成, 不调 lyv_knowledge (短创作请求) (+1)",
+        ));
+    }
+    Some(("lyv_knowledge", "调用 lyv_knowledge 且知识包应包含该操作 (+1)"))
+}
+
+/// 创作型请求检测 (高精度, 宁漏勿错 —— 漏判只是少一条训练数据,
+/// 误判会把真知识查询教成"别去查知识包")。
+///
+/// 已知边界 (诚实记录): 疑问词开头的创作请求 ("怎么起标题") 判为知识查询,
+/// 与 DESIGN 记录的 "怎么做红烧肉"→lyv 属同一类语言模糊, 不靠规则硬分。
+fn is_creative_request(query: &str) -> bool {
+    let q = query.trim();
+    if q.is_empty() {
+        return false;
+    }
+    // 疑问词开头 = 在问"怎么做", 归知识查询
+    for w in [
+        "怎么", "如何", "怎样", "什么", "为什么", "哪里", "哪个", "是否", "能不能", "可以",
+    ] {
+        if q.starts_with(w) {
+            return false;
+        }
+    }
+    // 创作动词
+    for v in [
+        "起个", "起一个", "想个", "想一个", "取个", "取一个", "编个", "来个", "帮我起", "帮我想",
+        "帮我写", "给我起", "给我写", "写一首", "写一段", "写个", "生成一个", "创作一首",
+        "作一首", "拟一个", "slogan",
+    ] {
+        if q.to_lowercase().contains(v) {
+            return true;
+        }
+    }
+    // 创作名词 (仅短请求算 —— 真实队列里 "队名" 单条出现 7 次)
+    if q.chars().count() <= 8 {
+        for n in [
+            "队名", "笔名", "店名", "昵称", "网名", "标题", "文案", "情书", "段子", "歌词",
+            "口号", "简介", "广告语", "藏头诗",
+        ] {
+            if q.contains(n) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// 写出训练任务文件 (CloudStudio 消费格式: 每行一个任务 JSON)
@@ -231,5 +291,45 @@ mod tests {
         let tasks = digest(&q).unwrap();
         assert_eq!(tasks.len(), 1, "2 个污染项应被过滤, 仅剩真实查询");
         assert_eq!(tasks[0].query, "怎么配置 nginx");
+    }
+
+    /// 回归: 短创作请求不得标成 lyv_knowledge —— 否则把 FC V4 修掉的
+    /// overcorrection ("起标题/想队名" 误路由 lyv) 又喂回训练集, 闭环自我对抗。
+    /// 样本取自真实队列 smoke/pack_merged/learning_queue.jsonl ("队名" ×7)。
+    #[test]
+    fn digest_routes_creative_nohit_to_llm_generate() {
+        let dir = tempfile::tempdir().unwrap();
+        let q = write_queue(
+            dir.path(),
+            &[
+                r#"{"query":"队名","reason":"NO_HIT: 知识库没有这个操作","ts":1}"#,
+                r#"{"query":"队名","reason":"NO_HIT: 知识库没有这个操作","ts":2}"#,
+                r#"{"query":"起个标题","reason":"NO_HIT: 知识库没有这个操作","ts":3}"#,
+                r#"{"query":"怎么配置 nginx","reason":"NO_HIT: 知识库没有这个操作","ts":4}"#,
+            ],
+        );
+        let tasks = digest(&q).unwrap();
+        let creative = tasks.iter().find(|t| t.query == "队名").unwrap();
+        assert_eq!(creative.expected_tool, "llm_generate", "短创作应标 llm_generate");
+        assert_eq!(creative.frequency, 2, "重复出现的创作请求 = 强信号, 保留计数");
+        let title = tasks.iter().find(|t| t.query == "起个标题").unwrap();
+        assert_eq!(title.expected_tool, "llm_generate");
+        let know = tasks.iter().find(|t| t.query == "怎么配置 nginx").unwrap();
+        assert_eq!(know.expected_tool, "lyv_knowledge", "真知识查询不误伤");
+    }
+
+    #[test]
+    fn creative_detection_precision() {
+        // 命中
+        assert!(is_creative_request("队名"));
+        assert!(is_creative_request("起个标题"));
+        assert!(is_creative_request("帮我起个队名"));
+        assert!(is_creative_request("想个笔名"));
+        assert!(is_creative_request("写一首诗"));
+        // 不误伤: 疑问词开头的知识查询 (含 DESIGN 记录的 "怎么做X" 语言模糊)
+        assert!(!is_creative_request("怎么配置 nginx"));
+        assert!(!is_creative_request("如何起标题"), "疑问词优先归知识查询 (已知边界)");
+        assert!(!is_creative_request("怎么新建 rust 项目"));
+        assert!(!is_creative_request("帮我看看这张截图"));
     }
 }

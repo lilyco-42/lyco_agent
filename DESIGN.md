@@ -354,6 +354,21 @@
       从 `llamacpp::CHAT_TOOLS` 导出 7 工具 OpenAI schema；三方防漂移守卫
       （schema==期望==executor 分发分支，非 ignored 故 CI 必跑），把本会话反复踩的
       "声明了但执行器不认/默认路径休眠"变成硬失败。
+- [x] **lernen NO_HIT 二次分类 — 闭环自我对抗修复**（2026-09-14）：
+      真实队列 (`smoke/pack_merged/learning_queue.jsonl`) 显示短创作请求
+      ("队名" ×7 / "起个标题") 落进 NO_HIT，而 `classify` 一律标 `lyv_knowledge`
+      —— 这**正是 FC V4 定向修掉的 overcorrection**（"起标题/想队名" 误路由 lyv），
+      回流训练等于把已修好的错误教回去，闭环自我对抗。
+      修：NO_HIT 先过 `is_creative_request`（高精度白名单：创作动词 + ≤8 字创作名词；
+      疑问词开头一律归知识查询），命中 → `llm_generate`，与 `CHAT_TOOLS` 中
+      llm_generate 描述「写文案/起标题等纯文字创作」同源。
+      附带修复：`"队名"` 仅 2 字，被 `is_noise` 的「<3 字符 = 噪声」整条删除，
+      高频信号 (×7) 白白丢失 → 改为**创作白名单优先于噪声启发式**
+      （不放宽阈值，否则会放进 2 字中文参数名 "路径"/"图片"）。
+      真实队列 harvest 验证：5 任务 = 2 创作→llm_generate + 3 知识→lyv_knowledge，
+      工具执行失败类仍全排除。31 测试全绿。
+      已知边界："帮我看看这张截图" 仍标 lyv（实为识图，需 vnn reason 才能分）；
+      "如何起标题" 疑问词优先归知识查询（与 "怎么做红烧肉" 同类语言模糊）。
 - [ ] lyco_chat 侧消费 tools_openai.json —— **前提不成立, 需产品决策, 非接线可解**:
       ① `grep tools_openai lyco_chat/src/` 无命中, 运行时从不加载该文件 (README 称
       "供运行时注入" 但代码里未实现); ② lyco_chat 从内部 TinyGPT `generate_greedy_from`

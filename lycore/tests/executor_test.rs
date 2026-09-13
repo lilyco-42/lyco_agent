@@ -1,6 +1,46 @@
 //! executor 集成测试: 对真实 pack_final 验证工具执行全路径
 use lycore::executor::{parse_call, Executor};
 
+/// 防漂移守卫 (非 ignored, CI 必跑): 权威 schema 的工具集是执行器认识的集合。
+/// 本会话反复踩 "schema 与实现不一致" (CHAT_TOOLS 停在 2 工具、resolve 默认 v2
+/// 使升级休眠), 此测试把这类漂移变成硬失败。新增工具须同时出现在三处:
+/// llamacpp::CHAT_TOOLS、executor::execute 的 match、本期望列表。
+#[test]
+fn chat_tools_matches_executor_dispatch() {
+    let tools = lycore::llamacpp::chat_tools();
+    let names: Vec<&str> = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["function"]["name"].as_str().unwrap())
+        .collect();
+    let expected = [
+        "lyv_knowledge",
+        "vnn_identify",
+        "html_gen",
+        "html_render_video",
+        "rembg_remove",
+        "llm_generate",
+        "video_info",
+    ];
+    assert_eq!(names, expected, "schema 漂移: 导出工具集 ≠ 期望 (与 executor match 对齐)");
+    // 每个工具都得有参数 schema (OpenAI 要求), 且 name 唯一
+    assert_eq!(names.iter().collect::<std::collections::HashSet<_>>().len(), expected.len());
+    for t in tools.as_array().unwrap() {
+        assert!(t["function"]["parameters"]["type"] == "object", "缺 parameters");
+    }
+
+    // 真正的三方一致性: 每个 schema 工具都必须在 executor 的 match 分支里出现。
+    // (读源码而非调 execute(): 空参调用会触发 ffmpeg/sqlite 副作用并污染学习队列)
+    let exec_src = include_str!("../src/executor.rs");
+    for n in expected {
+        assert!(
+            exec_src.contains(&format!("\"{n}\" =>")),
+            "executor.rs 缺少 {n} 分发分支 (schema 声明了但执行器不认)"
+        );
+    }
+}
+
 #[test]
 #[ignore = "需要真实知识包 (smoke/pack_final)"]
 fn hit_path_returns_evidence() {

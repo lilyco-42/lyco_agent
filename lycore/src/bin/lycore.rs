@@ -24,6 +24,7 @@ fn main() {
         "harvest" => cmd_harvest(&args[1..]),
         "doctor" => cmd_doctor(&args[1..]),
         "serve" => cmd_serve(&args[1..]),
+        "tools" => cmd_tools(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -298,6 +299,25 @@ fn cmd_doctor(args: &[String]) -> i32 {
             Ok(()) => println!("  服务健康: ✓"),
             Err(e) => println!("  服务健康: ✗ ({e})"),
         }
+    }
+    0
+}
+
+/// 导出权威工具 schema (OpenAI tools 数组) — 单一真源, 下游 (lyco_chat
+/// tools_openai.json) 从此生成, 杜绝手工维护导致的漂移。
+fn cmd_tools(args: &[String]) -> i32 {
+    let tools = lycore::llamacpp::chat_tools();
+    let n = tools.as_array().map_or(0, |a| a.len());
+    match flag(args, "--out") {
+        Some(out) => {
+            let pretty = serde_json::to_string_pretty(&tools).expect("序列化");
+            if let Err(e) = std::fs::write(&out, pretty) {
+                eprintln!("写入 {out} 失败: {e}");
+                return 1;
+            }
+            println!("{n} 工具已导出 → {out}");
+        }
+        None => println!("{}", serde_json::to_string_pretty(&tools).expect("序列化")),
     }
     0
 }

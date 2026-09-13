@@ -108,7 +108,11 @@
       identify(): CNN 优先 conf>=0.6，规则回退，cnn_low_conf 入学习队列。
       特征神经元库聚类自动生成（2026-09-12，V9）：fc1 32 维嵌入 K-means
       k=3/类 → 12 神经元 (prototype+radius)，4 类覆盖 100%，v3 权重格式
-      {weights, neurons[]}，Rust serde 向后兼容（激活侧 top-k 神经元投票待接）。
+      {weights, neurons[]}，Rust serde 向后兼容。激活侧 top-k 神经元投票已接入
+      (2026-09-13, `vnn_cnn::neuron_vote`): fc1 嵌入取最近原型按距离衰减投票,
+      identify() 高置信分支追加 neuron_vote:<class> 可解释证据 (fc2 给判定, 投票给
+      「哪些原型被激活」); v2 无库→空不 panic。CI 重建 v0.3.2 (aarch64 二进制为唯一
+      权威来源, releases/latest 解析验证)。
       agent loop 实测（2026-09-11）：0.6B FC 决策 vnn_identify → CNN 通道
       verdict=terminal conf=0.99 → 自然语言回答「识别结果：终端」全链路通。
       已知边界：FC 幻觉路径仍需真实路径提示（v0.1 已知问题，回退队列正常）

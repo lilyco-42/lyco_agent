@@ -334,6 +334,13 @@
       "想队名" 在完整 agent prompt 下选 lyv + NO_HIT 后复读同工具 = loop 回填行为非模型缺陷。
       继续重训边际收益极低且每轮引入新 overcorrection → V4 定为最终 FC 模型。
       交付更新: qwen3_lyco_fc_v4_q6k.gguf (495MB) 替换 release v0.3.0 附件。
+      ★ ARM 全链路 qemu-user 实测 (2026-09-13): CI 构建的 releases/latest
+      lycore-aarch64 在 qemu 下跑完整 agent loop — mock OpenAI 端点驱动
+      HTTP(reqwest/rustls)→FC 解析→executor 分发→CNN 推理(vnn_cnn.rs 手写前向,
+      返回 conf=0.67 + needs_data 队列)→工具结果回填→最终回答, lycore_rc=0。
+      这是无实物板条件下对 Radxa 可运行性的最强验证 (此前仅 doctor 级别)。
+      注: v3 权重 (V9) 对 f0 判 gui_window 与其自身日志 8/9 一致; 默认 resolve
+      走 v2 权重 (V8, 真图 9/9)。
 - [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
 
 ## 已知经验（fixture 教训）补充

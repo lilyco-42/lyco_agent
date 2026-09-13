@@ -47,7 +47,9 @@ pub fn digest(queue_path: &Path) -> std::io::Result<Vec<TrainingTask>> {
         if is_noise(&entry.query) {
             continue;
         }
-        let (tool, hint) = classify(&entry.reason);
+        let Some((tool, hint)) = classify(&entry.reason) else {
+            continue; // 工具执行失败等非知识缺口, 不进 FC 训练集
+        };
         let key = (entry.query.clone(), tool);
         merged
             .entry(key)
@@ -95,14 +97,16 @@ fn is_noise(query: &str) -> bool {
     false
 }
 
-/// reason → (期望工具, 奖励提示)
-fn classify(reason: &str) -> (&'static str, &'static str) {
+/// reason → FC 训练任务; 仅 NO_HIT 是知识缺口, 工具执行失败返回 None。
+/// 只有 lyv_knowledge 的 NO_HIT 在 query 字段存的是**用户问句**; 工具执行失败
+/// (html_gen: LLM 调用失败 / vnn_identify: 执行失败 等) 路由已正确、是基础设施故障,
+/// 且 query 存的是工具参数 (路径/prompt), 进 FC 训练集会教出错误路由 (惩罚本已正确
+/// 的工具选择), 故排除。可靠性信号仍在原始队列 jsonl, 供人工/告警消费。
+fn classify(reason: &str) -> Option<(&'static str, &'static str)> {
     if reason.contains("NO_HIT") {
-        ("lyv_knowledge", "调用 lyv_knowledge 且知识包应包含该操作 (+1)")
-    } else if reason.contains("vnn") || reason.contains("VNN") {
-        ("vnn_identify", "识图请求应调用 vnn_identify (+1)")
+        Some(("lyv_knowledge", "调用 lyv_knowledge 且知识包应包含该操作 (+1)"))
     } else {
-        ("lyv_knowledge", "默认知识库查询 (+1)")
+        None
     }
 }
 
@@ -145,6 +149,27 @@ mod tests {
         }
     }
 
+    /// 回归: 只有 NO_HIT 是 FC 训练任务; 工具执行失败 (路由已对, 基础设施故障,
+    /// query 存的是工具参数) 一律排除 —— 否则教出错误路由 (惩罚正确工具选择)
+    #[test]
+    fn digest_excludes_tool_execution_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let q = write_queue(
+            dir.path(),
+            &[
+                r#"{"query":"../smoke/page.html","reason":"html_render_video: 执行失败","ts":1}"#,
+                r#"{"query":"一个极简的个人主页","reason":"html_gen: LLM 调用失败","ts":2}"#,
+                r#"{"query":"图片路径","reason":"vnn_identify: 执行失败","ts":3}"#,
+                r#"{"query":"x.png","reason":"rembg_remove: 执行失败","ts":4}"#,
+                r#"{"query":"怎么配置 nginx","reason":"NO_HIT: 知识库没有这个操作","ts":5}"#,
+            ],
+        );
+        let tasks = digest(&q).unwrap();
+        assert_eq!(tasks.len(), 1, "4 个工具执行失败应全排除, 仅剩 1 个知识缺口");
+        assert_eq!(tasks[0].query, "怎么配置 nginx");
+        assert_eq!(tasks[0].expected_tool, "lyv_knowledge");
+    }
+
     #[test]
     fn digest_dedupes_and_counts() {
         let dir = tempfile::tempdir().unwrap();
@@ -153,17 +178,16 @@ mod tests {
             &[
                 r#"{"query":"怎么配置防火墙","reason":"NO_HIT: 知识库没有这个操作","ts":100}"#,
                 r#"{"query":"怎么配置防火墙","reason":"NO_HIT: 知识库没有这个操作","ts":200}"#,
-                r#"{"query":"帮我识图","reason":"vnn_identify: Rust VNN 未实现","ts":300}"#,
+                r#"{"query":"帮我识图","reason":"vnn_identify: 执行失败","ts":300}"#,
                 "坏行不炸",
             ],
         );
         let tasks = digest(&q).unwrap();
-        assert_eq!(tasks.len(), 2, "去重后 2 个任务");
-        // 频次排序: 防火墙 x2 在前
+        // 仅 NO_HIT 进 FC 训练集; vnn_identify 执行失败 (基础设施故障, 非知识缺口) 排除
+        assert_eq!(tasks.len(), 1, "去重后仅 1 个知识任务");
         assert_eq!(tasks[0].query, "怎么配置防火墙");
         assert_eq!(tasks[0].frequency, 2);
         assert_eq!(tasks[0].expected_tool, "lyv_knowledge");
-        assert_eq!(tasks[1].expected_tool, "vnn_identify");
         assert_eq!(tasks[0].first_seen, 100);
         assert_eq!(tasks[0].last_seen, 200);
     }

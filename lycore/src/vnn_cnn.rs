@@ -1,11 +1,11 @@
 //! vnn_cnn — 训练版 CNN 推理 (纯 Rust, 零依赖)
 //!
-//! 消费 CloudStudio 训练导出的 vnn_cnn_v2_weights.json ({shape, data} 格式):
+//! 消费 CloudStudio 训练导出的 vnn_cnn_v{2,3}_weights.json ({shape, data} 格式):
 //!   2×Conv(3x3,relu)+MaxPool → FC(relu) → FC → softmax
 //! 与 PyTorch TinyCNN 前向数学语义一致 (padding=1, pool=2, 64x64 输入)。
 //!
-//! 模型路径解析: LYCO_VNN_CNN env → exe 同目录 models/vnn_cnn_v2_weights.json
-//! → cwd models/vnn_cnn_v2_weights.json。找不到 → Ok(None), 调用方走规则回退
+//! 模型路径解析: LYCO_VNN_CNN env → 各位置 v3 优先(含神经元库)后 v2。
+//! 找不到 → None, 调用方走规则回退
 //! (诚实降级, 不伪装 CNN 就位)。
 
 use anyhow::Context;
@@ -165,19 +165,27 @@ impl CnnClassifier {
                 return Some(p);
             }
         }
-        // cwd 变体: 仓库根 (lycore/assets)、crate 根 (assets)、models (历史位置)
-        let exe_relative = std::env::current_exe()
-            .ok()
-            .and_then(|e| e.parent().map(|d| d.join("models/vnn_cnn_v2_weights.json")));
-        let candidates: [Option<PathBuf>; 4] = [
-            Some(PathBuf::from("lycore/assets/vnn_cnn_v2_weights.json")),
-            Some(PathBuf::from("assets/vnn_cnn_v2_weights.json")),
-            Some(PathBuf::from("models/vnn_cnn_v2_weights.json")),
-            exe_relative,
+        // 优先 v3 (含 V9 神经元库 → 分歧升级生效), 回退 v2 (fc2-only)。
+        // 每个位置先 v3 后 v2; 两版权重 fc2 在 terminal 类同为 9/9, v3 额外给可解释投票。
+        let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.to_path_buf()));
+        let bases: [Option<PathBuf>; 4] = [
+            Some(PathBuf::from("lycore/assets")),
+            Some(PathBuf::from("assets")),
+            Some(PathBuf::from("models")),
+            exe_dir,
         ];
-        candidates
+        let candidates: Vec<PathBuf> = bases
             .into_iter()
             .flatten()
+            .flat_map(|b| {
+                [
+                    b.join("vnn_cnn_v3_weights.json"),
+                    b.join("vnn_cnn_v2_weights.json"),
+                ]
+            })
+            .collect();
+        candidates
+            .into_iter()
             .find(|p| p.exists())
     }
 

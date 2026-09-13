@@ -350,7 +350,18 @@
       这是无实物板条件下对 Radxa 可运行性的最强验证 (此前仅 doctor 级别)。
       注: v3 权重 (V9) 对 f0 判 gui_window 与其自身日志 8/9 一致; 默认 resolve
       走 v2 权重 (V8, 真图 9/9)。
-- [ ] SkillRegistry 接入 lyco_chat 路由（tools_openai.json 扩展）
+- [x] lyco_agent 侧 schema 单一真源导出（2026-09-13）：`lycore tools [--out f]`
+      从 `llamacpp::CHAT_TOOLS` 导出 7 工具 OpenAI schema；三方防漂移守卫
+      （schema==期望==executor 分发分支，非 ignored 故 CI 必跑），把本会话反复踩的
+      "声明了但执行器不认/默认路径休眠"变成硬失败。
+- [ ] lyco_chat 侧消费 tools_openai.json —— **前提不成立, 需产品决策, 非接线可解**:
+      ① `grep tools_openai lyco_chat/src/` 无命中, 运行时从不加载该文件 (README 称
+      "供运行时注入" 但代码里未实现); ② lyco_chat 从内部 TinyGPT `generate_greedy_from`
+      生成, **无外部模型/OpenAI tool-calling 通路**; ③ 现有 tools_openai.json 含
+      add/ping/imgcompress (lilyco 生态), 与 lyco_agent 7 工具非包含关系 —— 直接覆盖
+      会丢 3 工具并与同源 toolcall_corpus.json (喂 TinyGPT 训练) 失配。
+      真要接需先定: lyco_chat 是否引入外部模型通路, 还是把 7 工具并入 lilyco 生态
+      manifest 走 gen_toolcall_corpus 统一生成。
 
 ## 已知经验（fixture 教训）补充
 

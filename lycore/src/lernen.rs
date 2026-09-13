@@ -69,10 +69,18 @@ pub fn digest(queue_path: &Path) -> std::io::Result<Vec<TrainingTask>> {
     Ok(tasks)
 }
 
-/// 噪声查询检测: 乱敲键盘/测试串/重复字符模式
+/// 噪声查询检测: 乱敲键盘/测试串/重复字符/非自然语言 (路径、schema 占位符)
 fn is_noise(query: &str) -> bool {
     let q = query.trim();
     if q.chars().count() < 3 {
+        return true;
+    }
+    // 自然语言判据 (高精度, 专挡反馈污染): 训练 query 必须含 CJK 字符或 ≥2 词。
+    // e2e 测试/模型幻觉把文件路径 (../smoke/x.html) 和 schema 参数名 (image_url,
+    // your_image.png) 灌进队列 —— 喂 GRPO 等于教模型「一个路径=一个知识查询」。
+    let has_cjk = q.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
+    let words = q.split_whitespace().count();
+    if !has_cjk && words < 2 {
         return true;
     }
     // 重复字符比例过高 (如 "胡说八道xyz" 的 xyz 模式 — 无信息量的 ASCII 尾巴)
@@ -170,5 +178,34 @@ mod tests {
         let content = std::fs::read_to_string(&out).unwrap();
         assert!(content.contains("\"frequency\":1"));
         assert!(content.contains("\"expected_tool\":\"lyv_knowledge\""));
+    }
+
+    /// 回归: 反馈污染过滤 —— 文件路径与 ASCII schema 占位符不得进训练集,
+    /// 真实多词查询保留。诚实边界: 短中文 (<3 字) 与纯中文参数名 (图片路径)
+    /// 无法靠"是否自然语言"区分, 前者由既有 <3 规则挡、后者是已知残留。
+    #[test]
+    fn digest_filters_path_and_placeholder_pollution() {
+        assert!(is_noise("../smoke/e2e_page.html"), "相对路径应过滤");
+        assert!(is_noise("/tmp/x.png"), "绝对路径应过滤");
+        assert!(is_noise("image_url"), "snake_case 占位符应过滤");
+        assert!(is_noise("your_image.png"), "带扩展名占位符应过滤");
+        // 真实查询不误伤
+        assert!(!is_noise("怎么配置 nginx"), "中英混合真查询保留");
+        assert!(!is_noise("build the project"), "多词英文真查询保留");
+        // 已知残留 (记录而非假装解决): 纯中文参数名无法与自然语言区分
+        assert!(!is_noise("图片路径"), "CJK 占位符是已知残留 (需上下文才能判)");
+
+        let dir = tempfile::tempdir().unwrap();
+        let q = write_queue(
+            dir.path(),
+            &[
+                r#"{"query":"../smoke/e2e_page.html","reason":"html_render_video: 失败","ts":1}"#,
+                r#"{"query":"image_url","reason":"vnn_identify: 失败","ts":2}"#,
+                r#"{"query":"怎么配置 nginx","reason":"NO_HIT","ts":3}"#,
+            ],
+        );
+        let tasks = digest(&q).unwrap();
+        assert_eq!(tasks.len(), 1, "2 个污染项应被过滤, 仅剩真实查询");
+        assert_eq!(tasks[0].query, "怎么配置 nginx");
     }
 }

@@ -1,0 +1,18 @@
+{
+  "rules": [
+    {
+      "intent": "adb.misc",
+      "left": [
+        "adb"
+      ],
+      "right": []
+    },
+    {
+      "intent": "connect.misc",
+      "left": [
+        "connect"
+      ],
+      "right": []
+    }
+  ]
+}

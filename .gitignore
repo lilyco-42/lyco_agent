@@ -52,3 +52,6 @@ lycore/zigcc-linker.sh
 # 源素材视频 (138MB, GitHub 硬拒 >100MB; 学习产物 SRT+pack 入库, 视频本身留在本地)
 smoke/adb_scrcpy/adb_scrpy.mp4
 smoke/adb_scrcpy/pack/source.mp4
+
+# ask 探测产生的本地学习队列 (测试残留, 非素材知识)
+smoke/adb_scrcpy/pack/learning_queue.jsonl

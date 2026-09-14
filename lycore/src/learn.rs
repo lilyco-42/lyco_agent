@@ -216,6 +216,42 @@ pub fn build_cues(
         }));
     }
 
+    // 自学习词表 (零硬编码): 从 strong (ASR∩OCR 跨模态互证) 派生领域实体,
+    // 给内置词典未覆盖的 misc.talk 单元重打 {实体}.misc intent; 学习规则与已有
+    // rules.json 合并 (手写领域规则优先), 检索侧 Pack::open 优先加载 rules.json。
+    let learned = learn_vocabulary(&mut units);
+    if !learned.is_empty() {
+        let path = pack_dir.join("rules.json");
+        let mut merged: Vec<serde_json::Value> = Vec::new();
+        let mut intents: std::collections::HashSet<String> = Default::default();
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            if let Some(list) = serde_json::from_str::<serde_json::Value>(&raw)
+                .ok()
+                .and_then(|v| v.get("rules").and_then(|r| r.as_array().cloned()))
+            {
+                for r in list {
+                    if let Some(it) = r.get("intent").and_then(|x| x.as_str()) {
+                        if intents.insert(it.to_string()) {
+                            merged.push(r);
+                        }
+                    }
+                }
+            }
+        }
+        for r in learned {
+            if let Some(it) = r.get("intent").and_then(|x| x.as_str()) {
+                if intents.insert(it.to_string()) {
+                    merged.push(r);
+                }
+            }
+        }
+        if !merged.is_empty() {
+            let doc = serde_json::to_string_pretty(&serde_json::json!({ "rules": merged }))
+                .map_err(|e| anyhow::anyhow!("rules.json 序列化失败: {e}"))?;
+            std::fs::write(&path, doc)?;
+        }
+    }
+
     // segments.jsonl
     let mut jsonl = String::new();
     for u in &units {
@@ -276,6 +312,60 @@ pub fn build_cues(
     });
     std::fs::write(pack_dir.join("meta.json"), serde_json::to_string_pretty(&meta)?)?;
     Ok(units.len())
+}
+
+/// 自学习词表 (零硬编码): 实体从素材自身的 strong token (ASR∩OCR 跨模态互证) 派生。
+/// 1) 候选 = ASCII、≥2 字符、非纯数字、跨 ≥2 段互证 (单段共现易巧合);
+/// 2) 仅重打内置词典未覆盖 (misc.talk) 的单元 → `{实体}.misc`;
+/// 3) 每实体产一条 left-only 规则供检索侧 rules.json。
+/// 平票取字典序小者 (确定性; 工具名通常短于动词, 如 adb < install)。
+pub fn learn_vocabulary(units: &mut [serde_json::Value]) -> Vec<serde_json::Value> {
+    use std::collections::HashMap;
+    let mut freq: HashMap<String, usize> = HashMap::new();
+    for u in units.iter() {
+        let mut seen: std::collections::HashSet<String> = Default::default();
+        let Some(strong) = u["strong"].as_array() else { continue };
+        for s in strong.iter().filter_map(|v| v.as_str()) {
+            let t = s.trim().to_lowercase();
+            if t.len() >= 2 && t.is_ascii() && !t.chars().all(|c| c.is_ascii_digit()) {
+                seen.insert(t);
+            }
+        }
+        for t in seen {
+            *freq.entry(t).or_insert(0) += 1;
+        }
+    }
+    freq.retain(|_, n| *n >= 2);
+    if freq.is_empty() {
+        return Vec::new();
+    }
+    let mut learned: std::collections::HashSet<String> = Default::default();
+    for u in units.iter_mut() {
+        if u["intent"].as_str() != Some("misc.talk") {
+            continue;
+        }
+        let Some(strong) = u["strong"].as_array() else { continue };
+        let mut cands: Vec<(usize, String)> = strong
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_lowercase())
+            .filter(|t| freq.contains_key(t))
+            .map(|t| (freq[&t], t))
+            .collect();
+        cands.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        if let Some((_, entity)) = cands.into_iter().next() {
+            learned.insert(entity.clone());
+            u["intent"] = serde_json::Value::String(format!("{entity}.misc"));
+        }
+    }
+    // 只发实际学到的实体 (cargo 等已被内置词典命中的单元不会进 learned, 避免
+    // 生成 left-only 宽规则去劫持内置 intent 路由)
+    let mut entities: Vec<String> = learned.into_iter().collect();
+    entities.sort();
+    entities
+        .into_iter()
+        .map(|e| serde_json::json!({"left": [e], "right": [], "intent": format!("{e}.misc")}))
+        .collect()
 }
 
 /// intent 检测 (mine_event 的词典部分, 含 SUBCMDS 上下文纠错)
@@ -401,5 +491,51 @@ mod tests {
         let (strong, weak) = mine_event("首先 cargo new 建立项目", "PS> cargo new demo");
         assert!(strong.contains(&"cargo".into()) && strong.contains(&"new".into()));
         assert!(!weak.contains(&"cargo".into()));
+    }
+
+    /// 自学习词表回归: 跨段互证阈值 + 只重打 misc.talk + 只发实际学到的实体
+    #[test]
+    fn learn_vocabulary_derives_from_cross_modal_only() {
+        let mk = |text: &str, intent: &str, strong: &[&str]| -> serde_json::Value {
+            serde_json::json!({
+                "id": "u", "t0": 0.0, "t1": 1.0, "text": text,
+                "intent": intent, "strong": strong, "weak": [],
+            })
+        };
+        let mut units = vec![
+            // adb 跨 2 段互证 → 应学成 adb.misc
+            mk("install adb", "misc.talk", &["adb", "install"]),
+            mk("adb devices", "misc.talk", &["adb"]),
+            // 单段孤词 (仅 1 次) → 不达阈值, 保持 misc.talk
+            mk("hello_world 一下", "misc.talk", &["hello_world"]),
+            // 内置词典已命中 (rust.project.create) → 不得被重打, 也不得发 cargo 规则
+            mk("cargo new demo", "rust.project.create", &["cargo", "new", "demo"]),
+        ];
+        let rules = learn_vocabulary(&mut units);
+
+        assert_eq!(units[0]["intent"], "adb.misc");
+        assert_eq!(units[1]["intent"], "adb.misc");
+        assert_eq!(units[2]["intent"], "misc.talk", "单段孤词不该被学成实体");
+        assert_eq!(
+            units[3]["intent"], "rust.project.create",
+            "内置词典命中的单元不得被重打"
+        );
+
+        let intents: Vec<&str> = rules
+            .iter()
+            .map(|r| r["intent"].as_str().unwrap_or(""))
+            .collect();
+        assert!(
+            intents.contains(&"adb.misc"),
+            "adb 应产出规则, got {intents:?}"
+        );
+        assert!(
+            !intents.contains(&"cargo.misc"),
+            "cargo 未产生重打却发规则 = 劫持内置路由的隐患, got {intents:?}"
+        );
+        assert!(
+            !intents.contains(&"hello_world.misc"),
+            "未达阈值的实体不该有规则, got {intents:?}"
+        );
     }
 }

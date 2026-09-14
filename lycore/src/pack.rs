@@ -77,26 +77,29 @@ impl Pack {
         Ok(Self { conn, rules })
     }
 
-    /// 规则来源优先级: rules.json > 内置 RULES
+    /// 规则来源: rules.json (领域/学习产物) 叠加在内置 RULES 之上, 内置永不丢失。
+    /// lookup() 首个命中即返回 → 领域规则优先; 但一个 rules.json (哪怕只有一条
+    /// 学习规则) 不再挤掉内置 rust 路由 (learn 自学习回归修复)。手写 pack_final 的
+    /// rules.json 本就镜像内置 intent, 叠加后行为不变。
     fn load_rules(pack_dir: &Path) -> Vec<Rule> {
-        let rules_json = pack_dir.join("rules.json");
-        if let Ok(raw) = std::fs::read_to_string(&rules_json) {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if let Some(list) = v.get("rules").and_then(|r| r.as_array()) {
-                    let parsed: Vec<Rule> = list
-                        .iter()
-                        .filter_map(|r| serde_json::from_value(r.clone()).ok())
-                        .collect();
-                    if !parsed.is_empty() {
-                        return parsed;
-                    }
-                }
-            }
-        }
-        RULES
+        let builtin: Vec<Rule> = RULES
             .iter()
             .map(|(pat, intent)| parse_legacy_rule(pat, intent))
-            .collect()
+            .collect();
+        let mut out: Vec<Rule> = Vec::new();
+        if let Ok(raw) = std::fs::read_to_string(pack_dir.join("rules.json")) {
+            if let Some(list) = serde_json::from_str::<serde_json::Value>(&raw)
+                .ok()
+                .and_then(|v| v.get("rules").and_then(|r| r.as_array().cloned()))
+            {
+                out.extend(
+                    list.into_iter()
+                        .filter_map(|r| serde_json::from_value::<Rule>(r).ok()),
+                );
+            }
+        }
+        out.extend(builtin);
+        out
     }
 
     fn by_intent(&self, intent: &str) -> rusqlite::Result<Option<Evidence>> {
@@ -243,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn configured_rules_load_from_rules_json() {
+    fn configured_rules_extend_builtin_domain_first() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("index")).unwrap();
         // 空库 — 只为测试规则加载
@@ -256,7 +259,10 @@ mod tests {
         )
         .unwrap();
         let pack = Pack::open(dir.path()).unwrap();
-        assert_eq!(pack.rules.len(), 1);
-        assert_eq!(pack.rules[0].intent, "art.draw");
+        // rules.json 叠加在内置 RULES 之上 (不替换): 一个学习/领域 pack 不得挤掉内置 rust 路由
+        assert_eq!(pack.rules.len(), 1 + RULES.len(), "领域规则 + 内置规则都在");
+        assert_eq!(pack.rules[0].intent, "art.draw", "领域规则在前 (first-match-wins 优先)");
+        // 内置规则仍在尾部兜底
+        assert!(pack.rules.iter().any(|r| r.intent == "rust.project.create"));
     }
 }

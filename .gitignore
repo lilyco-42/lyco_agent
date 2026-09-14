@@ -48,3 +48,7 @@ smoke/lilyco_pack/
 # 本地交叉编译 hack (CI 用 env 注入链接器, 不依赖 .cargo/config.toml)
 lycore/.cargo/
 lycore/zigcc-linker.sh
+
+# 源素材视频 (138MB, GitHub 硬拒 >100MB; 学习产物 SRT+pack 入库, 视频本身留在本地)
+smoke/adb_scrcpy/adb_scrpy.mp4
+smoke/adb_scrcpy/pack/source.mp4

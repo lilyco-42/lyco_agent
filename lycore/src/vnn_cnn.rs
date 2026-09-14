@@ -292,6 +292,22 @@ mod tests {
         assert_eq!(best.0, "terminal", "暗底亮行应判 terminal, got {probs:?}");
     }
 
+    /// 锁死"默认路径优先 v3": 上一轮修过 resolve() 默认返回 v2 → 神经元投票/分歧升级
+    /// 全部休眠 (特性发布即失效)。v2 与 v3 对该合成图都给 terminal, 所以 classify
+    /// 断言抓不到这个回归 —— 必须直接断言 resolve 命中的文件名与库可用性。
+    #[test]
+    fn resolve_prefers_v3_so_voting_is_live() {
+        std::env::remove_var("LYCO_VNN_CNN");
+        let path = CnnClassifier::resolve().expect("应能解析权重");
+        assert!(
+            path.to_string_lossy().contains("v3"),
+            "resolve 应优先 v3 (含神经元库), 否则投票/升级休眠: {}",
+            path.display()
+        );
+        let clf = CnnClassifier::load(&path).expect("加载失败");
+        assert!(clf.has_neurons(), "v3 必带神经元库");
+    }
+
     /// v2 权重无 neurons 字段 → has_neurons false, 投票返回空 (向后兼容, 不 panic)
     #[test]
     fn v2_weights_have_no_neurons() {

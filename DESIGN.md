@@ -371,6 +371,16 @@
       工具执行失败类仍全排除。31 测试全绿。
       已知边界："帮我看看这张截图" 仍标 lyv（实为识图，需 vnn reason 才能分）；
       "如何起标题" 疑问词优先归知识查询（与 "怎么做红烧肉" 同类语言模糊）。
+- [x] **自学习词表 — 领域实体从素材派生**（2026-09-15，bc83979）：用户否决硬编码
+      adb 词条 ("不能自己学习么?")。`learn_vocabulary()`: 实体 = strong token
+      (ASR∩OCR 跨模态互证) 且跨 ≥2 段；仅重打内置词典未覆盖的 misc.talk →
+      `{实体}.misc`；只发实际重打过的实体（防 left-only 宽规则劫持内置路由）。
+      pack.rs `load_rules` 契约改「替换→叠加」：领域 pack 的 rules.json 不再挤掉
+      内置 rust 路由（回归实测 rust demo 仍 intent=rust.project.create）。
+      adb 素材自学出 adb.misc(8)+connect.misc(2)，scrcpy **正确地没学到** ——
+      ASR 0 次命中 (large-v3 听漏), 跨模态规则要求双源; 实测 OCR-only 备选规则
+      会放进水印噪声 ("via"×49/"warn"/pod 名 "adb-5986a22d-…")，阈值是特性不是缺陷。
+      回归: learn_vocabulary_derives_from_cross_modal_only + 29 passed。
 - [ ] lyco_chat 侧消费 tools_openai.json —— **前提不成立, 需产品决策, 非接线可解**:
       ① `grep tools_openai lyco_chat/src/` 无命中, 运行时从不加载该文件 (README 称
       "供运行时注入" 但代码里未实现); ② lyco_chat 从内部 TinyGPT `generate_greedy_from`

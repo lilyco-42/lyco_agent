@@ -77,7 +77,9 @@
 - [x] ASR 远端路径端到端验证（2026-09-10，CloudStudio A10）：edge-tts 神经语音合成
       视频 → whisper-small@CUDA 远端转写（四句全对，时间戳与场景对齐）→ 词典/FTS
       检索 → grounding VERIFY_PASS → 按需切片 8s 片段。A10 上 large-v3 转写 20s 音频
-      仅 1.3s，small 为默认档
+      仅 1.3s。**默认档修订为 large-v3（2026-09-14 真实素材证伪 small）**：adb/scrcpy
+      教程 (189s 复杂中文音频) 上 small 产乱码 ("先教室在口中"/"肤心调整") 且污染检索
+      命中; large-v3 技术词全对 (adb/install/scoop), 56s→25s wall。small 仅适合清晰朗读体
 - [x] 商业重定位决策（CBAM）：B2B 企业视频知识库，见
       `.agents/results/architecture/cbam-lyco-agent-repositioning.md`
       （领域配置化/来源授权元数据/计算策略路由为后续投资序列）

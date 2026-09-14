@@ -67,9 +67,11 @@ def whisper_transcribe(wav, lang="zh"):
     segs, _ = model.transcribe(str(wav), language=lang, vad_filter=False)
     return [(s.start, s.end, s.text.strip()) for s in segs if s.text.strip()]
 
-def cs_transcribe(wav, lang="zh", model_size="small", initial_prompt="终端操作演示视频: 命令行与 GUI 操作, 简体中文字幕。"):
+def cs_transcribe(wav, lang="zh", model_size="large-v3", initial_prompt="终端操作演示视频: 命令行与 GUI 操作, 简体中文字幕。"):
     """CloudStudio 远端 ASR: 上传 wav -> cs_exec 跑 faster-whisper -> 返回 (t0,t1,text) 列表。
-    依赖 CS_COOKIE 或 CS_JPS+CS_TOKEN 环境变量。默认 small: A10 上 small 与 tiny 同级耗时, 质量远优"""
+    依赖 CS_COOKIE 或 CS_JPS+CS_TOKEN 环境变量。默认 large-v3: 真实教程音频 (adb/scrcpy
+    189s) 上 small 产乱码污染检索命中, large-v3 技术词全对且 A10 仅慢 2.8x (25s vs 9s)。
+    small 仅适合清晰朗读体; 首次使用需拉 ~3GB 模型。"""
     if not (os.environ.get("CS_COOKIE") or
             (os.environ.get("CS_JPS") and os.environ.get("CS_TOKEN"))):
         return None  # 未配置远端通道, 让调用方决定回退

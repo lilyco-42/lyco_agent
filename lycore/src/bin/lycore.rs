@@ -224,35 +224,15 @@ fn cmd_learn_cli(args: &[String]) -> i32 {
         eprintln!("缺少 --pack <dir>");
         return 2;
     };
-    let py = flag(args, "--python").unwrap_or_else(|| "python3".into());
-    let indexer = flag(args, "--indexer").unwrap_or_else(|| "tools/cli_indexer.py".into());
-    // indexer 路径相对于当前目录, 直接在 cwd 执行 (不做 current_dir 切换)
-    let indexer_path = std::path::Path::new(&indexer);
-    let script_dir = if indexer_path.is_absolute() {
-        indexer_path.parent().unwrap().to_path_buf()
-    } else {
-        std::env::current_dir().unwrap()
-    };
-    let indexer_abs = if indexer_path.is_absolute() {
-        indexer.clone()
-    } else {
-        script_dir.join(&indexer).to_string_lossy().to_string()
-    };
-    let r = std::process::Command::new(&py)
-        .args([&indexer_abs, &tool, &pack])
-        .current_dir(&script_dir)
-        .status();
-    match r {
-        Ok(s) if s.success() => {
-            println!("CLI 索引完成: {tool} → {pack}");
+    // Rust 原生索引 (零 Python): tool --help → parse Commands → 逐子命令 help
+    // → tool-scoped 幂等写包。旧 --python/--indexer 参数忽略 (兼容不报错)。
+    match lycore::learn_cli::index_and_build(&tool, std::path::Path::new(&pack)) {
+        Ok(n) => {
+            println!("CLI 索引完成: {tool} → {pack} ({n} 条目)");
             0
         }
-        Ok(s) => {
-            eprintln!("CLI 索引失败 (exit {})", s);
-            1
-        }
         Err(e) => {
-            eprintln!("启动失败: {e}");
+            eprintln!("CLI 索引失败: {e}");
             1
         }
     }

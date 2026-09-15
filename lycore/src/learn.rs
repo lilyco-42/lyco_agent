@@ -181,6 +181,35 @@ pub fn build(
     build_cues(video, &cues, pack_dir, ffmpeg, ocr, ocr_lang)
 }
 
+/// 幂等重建: 清掉旧派生产物 (sqlite/fts/rules/帧/ocr), 保留运行时学习队列
+/// (learning_queue.jsonl 是 FEE 飞轮的记忆, 重建知识包不该清空已收集的待学任务)。
+/// 只删文件, 目录由随后 create_dir_all 兜底。返回删除条目数 (供测试断言)。
+/// 修的是: build_cues 用 Connection::open + CREATE TABLE, 重跑进已有 pack 会撞
+/// "table segments already exists" 直接崩 (demo.sh 靠前置 rm -rf 掩盖)。
+pub fn reset_pack_for_rebuild(pack_dir: &Path) -> usize {
+    let mut n = 0;
+    for f in [
+        "index/knowledge.sqlite",
+        "index/knowledge.sqlite-wal",
+        "index/knowledge.sqlite-shm",
+        "rules.json",
+    ] {
+        if std::fs::remove_file(pack_dir.join(f)).is_ok() {
+            n += 1;
+        }
+    }
+    for d in ["frames", "ocr"] {
+        if let Ok(rd) = std::fs::read_dir(pack_dir.join(d)) {
+            for e in rd.flatten() {
+                if std::fs::remove_file(e.path()).is_ok() {
+                    n += 1;
+                }
+            }
+        }
+    }
+    n
+}
+
 /// Cue 列表驱动的构建核心 (SRT 或 ASR 来源都汇到这里)
 pub fn build_cues(
     video: &Path,
@@ -190,6 +219,8 @@ pub fn build_cues(
     ocr: &crate::verify::Ocr,
     ocr_lang: &str,
 ) -> anyhow::Result<usize> {
+    // 幂等重建: 先清旧派生产物 (保留 learning_queue.jsonl), 否则 CREATE TABLE 撞已存在崩
+    reset_pack_for_rebuild(pack_dir);
     for d in ["frames", "ocr", "knowledge", "index"] {
         std::fs::create_dir_all(pack_dir.join(d))?;
     }
@@ -492,6 +523,34 @@ mod tests {
         let (strong, weak) = mine_event("首先 cargo new 建立项目", "PS> cargo new demo");
         assert!(strong.contains(&"cargo".into()) && strong.contains(&"new".into()));
         assert!(!weak.contains(&"cargo".into()));
+    }
+
+    /// 幂等重建回归: 清派生产物 (sqlite/rules/帧/ocr) 但保留 learning_queue.jsonl
+    /// (FEE 飞轮记忆)。修的是重跑 learn 进已有 pack 撞 CREATE TABLE 崩。
+    #[test]
+    fn reset_pack_clears_derived_keeps_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        for d in ["index", "frames", "ocr", "knowledge"] {
+            std::fs::create_dir_all(p.join(d)).unwrap();
+        }
+        std::fs::write(p.join("index/knowledge.sqlite"), b"x").unwrap();
+        std::fs::write(p.join("rules.json"), b"{}").unwrap();
+        std::fs::write(p.join("frames/u000_f0.webp"), b"x").unwrap();
+        std::fs::write(p.join("ocr/u000.json"), b"x").unwrap();
+        std::fs::write(p.join("knowledge/segments.jsonl"), b"{}\n").unwrap();
+        std::fs::write(p.join("learning_queue.jsonl"), b"{\"query\":\"q\"}\n").unwrap();
+
+        let n = reset_pack_for_rebuild(p);
+        assert!(!p.join("index/knowledge.sqlite").exists(), "sqlite 应清");
+        assert!(!p.join("rules.json").exists(), "rules 应清");
+        assert!(!p.join("frames/u000_f0.webp").exists(), "帧应清");
+        assert!(!p.join("ocr/u000.json").exists(), "ocr 应清");
+        assert!(
+            p.join("learning_queue.jsonl").exists(),
+            "学习队列必须保留 (FEE 记忆不被重建清空)"
+        );
+        assert!(n >= 4, "至少清 4 类派生文件, got {n}");
     }
 
     /// 自学习词表回归: 跨段互证阈值 + 只重打 misc.talk + 只发实际学到的实体

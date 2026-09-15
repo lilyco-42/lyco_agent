@@ -9,40 +9,49 @@
 use crate::learn::Cue;
 use std::path::Path;
 
-/// 解析 --help 输出的 Commands 段 (clap 格式: "  name   描述")
+/// 解析 --help 的命令条目, 兼容 clap 与 adb 式多段格式。
+/// 规则: 顶格 (无前导缩进) 且以 ':' 结尾的行 = 段落标题; 进入"命令段"开始收集,
+/// 除非标题含 option/usage/variable/example/argument (那些是选项/环境变量段, 非命令)。
+/// 段内缩进行: 首 token 为字母数字开头 (排除 `-a` 式选项) 且有描述 → 命令。
+/// clap "Commands:" 与 adb "general commands:"/"networking:" 统一走这条路径。
 pub fn parse_commands(help_text: &str) -> Vec<(String, String)> {
     let mut commands = Vec::new();
-    let mut in_commands = false;
+    let mut in_section = false;
+    const META: &[&str] = &["option", "usage", "variable", "example", "argument"];
     for line in help_text.lines() {
-        let trimmed = line.trim();
-        if trimmed == "Commands:" || trimmed == "Subcommands:" {
-            in_commands = true;
+        let is_header = !line.starts_with(char::is_whitespace)
+            && !line.trim().is_empty()
+            && line.trim_end().ends_with(':');
+        if is_header {
+            let h = line.to_lowercase();
+            in_section = !META.iter().any(|m| h.contains(m));
             continue;
         }
-        if in_commands {
-            if trimmed.is_empty() && !commands.is_empty() {
-                break;
-            }
-            // clap 两种格式: "  name   描述" 与带短别名的 "  name, s   描述"
-            let mut it = trimmed.split_whitespace();
-            let Some(raw) = it.next() else { continue };
-            let has_alias = raw.ends_with(',');
-            let name = raw.trim_end_matches(',');
-            // 有别名时跳过第二个 token (短别名), 余下为描述
-            if has_alias {
-                it.next();
-            }
-            let desc = it.collect::<Vec<_>>().join(" ");
-            if !name.is_empty()
-                && name
-                    .chars()
-                    .next()
-                    .map(|c| c.is_ascii_alphanumeric())
-                    .unwrap_or(false)
-                && !desc.is_empty()
-            {
-                commands.push((name.to_string(), desc));
-            }
+        if !in_section || !line.starts_with(char::is_whitespace) {
+            continue;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // clap 两种格式: "  name   描述" 与带短别名的 "  name, s   描述"
+        let mut it = trimmed.split_whitespace();
+        let Some(raw) = it.next() else { continue };
+        let has_alias = raw.ends_with(',');
+        let name = raw.trim_end_matches(',');
+        if has_alias {
+            it.next();
+        }
+        let desc = it.collect::<Vec<_>>().join(" ");
+        if !name.is_empty()
+            && name
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_alphanumeric())
+                .unwrap_or(false)
+            && !desc.is_empty()
+        {
+            commands.push((name.to_string(), desc));
         }
     }
     commands
@@ -285,5 +294,19 @@ mod tests {
         assert_eq!(cmds[0].0, "build", "逗号别名应剥离, got {:?}", cmds[0].0);
         assert!(cmds[0].1.starts_with("Compile"), "短别名 b 不应进描述, got {:?}", cmds[0].1);
         assert_eq!(cmds[2].0, "clean", "无别名行也应正常");
+    }
+
+    /// adb 式多段格式 (用户真实目标): 多个非 "Commands:" 段标题都应被识别为命令段,
+    /// 而 global options / environment variables 段应被排除。
+    #[test]
+    fn parse_adb_multisection() {
+        let help = "Android Debug Bridge version 1.0.41\n\nglobal options:\n -a   listen on all interfaces\n -d   use USB device\n\ngeneral commands:\n devices [-l]   list connected devices\n help           show this help message\n version        show version num\n\nnetworking:\n connect HOST   connect via TCP/IP\n tcpip PORT     restart on TCP port\n\nenvironment variables:\n ANDROID_SERIAL  specify device";
+        let cmds = parse_commands(help);
+        let names: Vec<&str> = cmds.iter().map(|c| c.0.as_str()).collect();
+        // general commands + networking 段命中; global options(-a/-d) 与 env vars 排除
+        assert!(names.contains(&"devices"), "adb general 段应命中, got {names:?}");
+        assert!(names.contains(&"connect"), "adb networking 段应命中, got {names:?}");
+        assert!(!names.contains(&"-a"), "选项行不应进命令, got {names:?}");
+        assert!(!names.contains(&"ANDROID_SERIAL"), "env var 段应排除, got {names:?}");
     }
 }

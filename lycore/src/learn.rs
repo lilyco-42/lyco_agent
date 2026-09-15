@@ -436,7 +436,6 @@ pub fn detect_intent(text: &str) -> (String, Option<String>) {
                     _ => continue,
                 }
             };
-            eprintln!("DBG tool={tool} prefix={prefix} corrected={corrected}");
             let intent = match (*prefix, corrected.as_str()) {
                 ("rust.project", "new") => "rust.project.create",
                 ("rust.project", "run") => "rust.project.run",

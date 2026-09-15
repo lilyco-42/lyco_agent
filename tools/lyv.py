@@ -299,16 +299,17 @@ def build(video, out, srt=None, lang="zh", ocr_lang="eng", frames_per_unit=2):
     db.execute("CREATE TABLE segments(id TEXT PRIMARY KEY, t0 REAL, t1 REAL, text TEXT,"
                " intent TEXT, command TEXT, frame TEXT, ocr TEXT, ocr_conf REAL,"
                " strong TEXT, weak TEXT)")
-    db.execute("CREATE VIRTUAL TABLE seg_fts USING fts5(id, text, entities, intent, strong)")
+    db.execute("CREATE VIRTUAL TABLE seg_fts USING fts5(id, text, entities, intent, strong, ocr)")
     for u in units:
         db.execute("INSERT INTO segments VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                    (u["id"], u["t0"], u["t1"], u["text"], u["intent"], u["command"],
                     u["frame"], u["ocr"], u["ocr_conf"], " ".join(u["strong"]),
                     " ".join(u["weak"])))
-        db.execute("INSERT INTO seg_fts VALUES(?,?,?,?,?)",
+        # OCR 入索引: ASR 听漏的技术词 (如 scrcpy) 常在屏幕 OCR 里, 表级 MATCH 自动召回
+        db.execute("INSERT INTO seg_fts VALUES(?,?,?,?,?,?)",
                    (u["id"], " ".join(tokens(u["text"])),
                     " ".join(tokens(" ".join(u["entities"]))), u["intent"],
-                    " ".join(tokens(" ".join(u["strong"])))))
+                    " ".join(tokens(" ".join(u["strong"]))), " ".join(tokens(u["ocr"]))))
     db.commit(); db.close()
     meta = {"format": "LYV 0.1", "video": video.name, "duration": dur,
             "asr_src": asr_src, "units": len(units)}

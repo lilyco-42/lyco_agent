@@ -266,7 +266,7 @@ pub fn build_cues(
         "CREATE TABLE segments(id TEXT PRIMARY KEY, t0 REAL, t1 REAL, text TEXT,
          intent TEXT, command TEXT, frame TEXT, ocr TEXT, ocr_conf REAL,
          strong TEXT, weak TEXT);
-         CREATE VIRTUAL TABLE seg_fts USING fts5(id, text, entities, intent, strong);",
+         CREATE VIRTUAL TABLE seg_fts USING fts5(id, text, entities, intent, strong, ocr);",
     )?;
     for u in &units {
         let strong = u["strong"].as_array().cloned().unwrap_or_default();
@@ -296,10 +296,12 @@ pub fn build_cues(
         let fts_text = tokenize(text).join(" ");
         let fts_entities = tokenize(command).join(" ");
         let fts_strong = tokenize(&strong_str.join(" ")).join(" ");
+        // OCR 入索引: ASR 听漏的技术词 (如 scrcpy) 常在屏幕 OCR 里, 表级 MATCH 自动召回
+        let fts_ocr = tokenize(u["ocr"].as_str().unwrap_or("")).join(" ");
         db.execute(
-            "INSERT INTO seg_fts VALUES(?1,?2,?3,?4,?5)",
+            "INSERT INTO seg_fts VALUES(?1,?2,?3,?4,?5,?6)",
             rusqlite::params![u["id"].as_str().unwrap_or(""), fts_text, fts_entities,
-                              u["intent"].as_str().unwrap_or(""), fts_strong],
+                              u["intent"].as_str().unwrap_or(""), fts_strong, fts_ocr],
         )?;
     }
     db.execute_batch(

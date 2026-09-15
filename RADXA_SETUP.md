@@ -71,3 +71,7 @@ html_render_video → chromium headless + ffmpeg
 video_info → ffprobe
 vnn_identify → 内置 CNN (lycore/assets)
 lyv_knowledge → 知识包 sqlite/FTS
+
+<!-- 提交归属说明: §4.0-4.4 (OOM 限制/llama-bench/cache-reuse/延迟预期) 由并发会话
+     撰写, 在 95d1d89 (路径 A 改静态) 提交时因整文件 git add 被一并卷入, commit message
+     未反映该部分。内容有效, 此处补正归属。 -->

@@ -395,6 +395,15 @@
       内置 rust 域 (parity 测试用硬编码 golden 值), 学习/域规则本就不在 Python 侧。
       结论: 非回归, 是「Rust=产品 / lyv.py=原型」的预期分叉; 若 Python 侧要追平需
       移植 rules.json 加载 (A1 未完成项, 原型低优先)。
+- [x] **静态 musl aarch64 交付 — 根治 glibc 变量**（2026-09-15，v0.3.7）：预编译 gnu
+      二进制动态链 glibc≥2.39 (CI runner 24.04)，但 Radxa 主流镜像 Ubuntu22.04(2.35)/
+      Debian12(2.36) 更低 → clone 用户跑不起来（我引入的交付缺陷，曾误报为"物理变量"）。
+      CI 新增 build-musl job (cargo-zigbuild，zig 自带 musl 目标；apt 无 zig 包 → 直下
+      tarball，URL curl 验证)，产 `lycore-aarch64-static`，不替换 gnu = 零回归。
+      验证链：qemu 无 sysroot 跑通 (file=statically linked) + **出站 TLS 到 NIM 真实成功**
+      (musl 上 ring 的 getrandom 熵源风险实测未现，纯检索与 llm_generate HTTPS 双过)。
+      RADXA_SETUP 路径 A 改推静态版，glibc 变量从用户侧消失。
+
 - [ ] lyco_chat 侧消费 tools_openai.json —— **前提不成立, 需产品决策, 非接线可解**:
       ① `grep tools_openai lyco_chat/src/` 无命中, 运行时从不加载该文件 (README 称
       "供运行时注入" 但代码里未实现); ② lyco_chat 从内部 TinyGPT `generate_greedy_from`

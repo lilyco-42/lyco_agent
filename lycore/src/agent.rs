@@ -167,14 +167,25 @@ mod tests {
         }
     }
 
-    fn executor_on_real_pack() -> Executor {
-        Executor::open(Path::new("../smoke/pack_final")).expect("open pack")
+    /// 复制到 tempdir 再开: 否则 NO_HIT 测试会往 committed
+    /// pack_final/learning_queue.jsonl 写脏数据 (跑 `cargo test -- --ignored`
+    /// 就脏工作树)。sqlite 足够 (executor 只走 pack.lookup 读它)。
+    fn executor_on_real_pack() -> (Executor, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("index")).unwrap();
+        std::fs::copy(
+            "../smoke/pack_final/index/knowledge.sqlite",
+            tmp.path().join("index/knowledge.sqlite"),
+        )
+        .unwrap();
+        let ex = Executor::open(tmp.path()).expect("open pack");
+        (ex, tmp)
     }
 
     #[test]
     #[ignore = "需要真实知识包"]
     fn multihop_call_then_final_answer() {
-        let ex = executor_on_real_pack();
+        let (ex, _tmp) = executor_on_real_pack();
         let agent = Agent::new(&ex, 4);
         let mut backend = Scripted::new(vec![
             // round 1: 发起工具调用 (GRPO 模型真实输出样式)
@@ -220,7 +231,7 @@ mod tests {
     #[test]
     #[ignore = "需要真实知识包"]
     fn max_rounds_guard() {
-        let ex = executor_on_real_pack();
+        let (ex, _tmp) = executor_on_real_pack();
         let agent = Agent::new(&ex, 2);
         let mut backend = Scripted::new(vec![
             r#"<tool_call>
@@ -239,7 +250,7 @@ mod tests {
     #[test]
     #[ignore = "需要真实知识包"]
     fn repeat_failed_tool_short_circuits() {
-        let ex = executor_on_real_pack();
+        let (ex, _tmp) = executor_on_real_pack();
         let agent = Agent::new(&ex, 4);
         // "怎么配置防火墙" 在 pack_final 中 NO_HIT → 第 1 轮失败入 failed_tools,
         // 第 2 轮模型复读同名工具被短路 (rounds=2, 而非耗尽 max_rounds=4)

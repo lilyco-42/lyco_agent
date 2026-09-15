@@ -9,20 +9,25 @@
 use crate::learn::Cue;
 use std::path::Path;
 
-/// 解析 --help 的命令条目, 兼容 clap / adb 同行式 / adb 换行式三种格式。
-/// 段落: 顶格且以 ':' 结尾 = 段标题; 含 option/usage/variable/example/argument/
-/// shortcut/status 的标题视为非命令段 (排除选项表、按键表、退出码、环境变量)。
-/// 命令两种排版:
-///   A 同行式 "devices [-l]   list connected..." → 列分隔 (≥2 空格或 tab) 前为命令;
-///   B 换行式 "shell [-e] [COMMAND...]" + 下一行更深缩进的描述 → 取下一行为描述。
-/// 命令名须字母开头 (排除退出码 1 / 按键 MOD+q / 选项 -a)。
-/// B 的"更深缩进"要求天然排除 prose 续行 (同缩进单空格, 如 scrcpy Shortcuts 说明)。
+/// 解析 --help 的命令条目, 三种段模式:
+///   Command (命令段, 如 clap Commands: / adb general commands:):
+///     A 同行式 "devices [-l]   list..." → 列分隔 (≥2 空格/tab) 前为命令名;
+///     B 换行式 "shell [-e] ..." + 下一行更深缩进描述。名须字母开头。
+///   Flag (选项段, 标题含 "option", 如 scrcpy Options:):
+///     仅收 `--xxx` 长 flag (scrcpy 的接口就是 flags), 描述取下一行更深缩进。
+///     prose 续行 (不以 -- 开头) 天然被拒 → 不产 "Select"/"the" 之类垃圾。
+///   Off (usage/variable/example/argument/shortcut/status 段): 整段跳过。
+/// 段标题 = 顶格且以 ':' 结尾。
 pub fn parse_commands(help_text: &str) -> Vec<(String, String)> {
+    #[derive(PartialEq)]
+    enum Mode {
+        Off,
+        Command,
+        Flag,
+    }
     let mut commands = Vec::new();
-    let mut in_section = false;
-    const META: &[&str] = &[
-        "option", "usage", "variable", "example", "argument", "shortcut", "status",
-    ];
+    let mut mode = Mode::Off;
+    const OFF: &[&str] = &["usage", "variable", "example", "argument", "shortcut", "status"];
     let lines: Vec<&str> = help_text.lines().collect();
     let mut skip_next = false;
     for (idx, raw) in lines.iter().enumerate() {
@@ -36,10 +41,16 @@ pub fn parse_commands(help_text: &str) -> Vec<(String, String)> {
             && line.trim_end().ends_with(':');
         if is_header {
             let h = line.to_lowercase();
-            in_section = !META.iter().any(|m| h.contains(m));
+            mode = if OFF.iter().any(|m| h.contains(m)) {
+                Mode::Off
+            } else if h.contains("option") {
+                Mode::Flag
+            } else {
+                Mode::Command
+            };
             continue;
         }
-        if !in_section || !line.starts_with(char::is_whitespace) {
+        if mode == Mode::Off || !line.starts_with(char::is_whitespace) {
             continue;
         }
         let trimmed = line.trim();
@@ -47,33 +58,54 @@ pub fn parse_commands(help_text: &str) -> Vec<(String, String)> {
             continue;
         }
         let first_tok = trimmed.split_whitespace().next().unwrap_or("");
-        let name = first_tok.trim_end_matches(',');
-        if name.is_empty()
-            || !name
-                .chars()
-                .next()
-                .map(|c| c.is_ascii_alphabetic())
-                .unwrap_or(false)
-        {
-            continue; // 数字/符号开头: 退出码、按键 (MOD+q)、选项 (-a)
-        }
-        // A: 同行列对齐
-        if let Some((cmd_field, desc)) = split_first_column(trimmed) {
-            let _ = cmd_field;
-            if !desc.is_empty() {
-                commands.push((name.to_string(), desc.to_string()));
+        match mode {
+            Mode::Flag => {
+                // 仅 --长flag; 去 =value 尾巴。描述取下一行更深缩进。
+                if !first_tok.starts_with("--") {
+                    continue;
+                }
+                let name = first_tok.split('=').next().unwrap_or(first_tok);
+                if let Some(next) = lines.get(idx + 1) {
+                    let cur_indent = line.len() - line.trim_start().len();
+                    let nindent = next.len() - next.trim_start().len();
+                    let ntrim = next.trim();
+                    if !ntrim.is_empty() && nindent > cur_indent {
+                        commands.push((name.to_string(), ntrim.to_string()));
+                        skip_next = true;
+                    }
+                }
             }
-            continue;
-        }
-        // B: 换行式 —— 下一行缩进更深视为该命令的描述
-        if let Some(next) = lines.get(idx + 1) {
-            let cur_indent = line.len() - line.trim_start().len();
-            let nindent = next.len() - next.trim_start().len();
-            let ntrim = next.trim();
-            if !ntrim.is_empty() && nindent > cur_indent {
-                commands.push((name.to_string(), ntrim.to_string()));
-                skip_next = true;
+            Mode::Command => {
+                let name = first_tok.trim_end_matches(',');
+                if name.is_empty()
+                    || !name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_ascii_alphabetic())
+                        .unwrap_or(false)
+                {
+                    continue; // 数字/符号开头: 退出码、按键 (MOD+q)、短选项 (-a)
+                }
+                // A: 同行列对齐
+                if let Some((cmd_field, desc)) = split_first_column(trimmed) {
+                    let _ = cmd_field;
+                    if !desc.is_empty() {
+                        commands.push((name.to_string(), desc.to_string()));
+                    }
+                    continue;
+                }
+                // B: 换行式 —— 下一行缩进更深视为该命令的描述
+                if let Some(next) = lines.get(idx + 1) {
+                    let cur_indent = line.len() - line.trim_start().len();
+                    let nindent = next.len() - next.trim_start().len();
+                    let ntrim = next.trim();
+                    if !ntrim.is_empty() && nindent > cur_indent {
+                        commands.push((name.to_string(), ntrim.to_string()));
+                        skip_next = true;
+                    }
+                }
             }
+            Mode::Off => {}
         }
     }
     commands
@@ -329,6 +361,27 @@ mod tests {
     #[test]
     fn parse_empty_help() {
         assert!(parse_commands("no commands here").is_empty());
+    }
+
+    /// scrcpy 式 Options 段: 接口就是 --长flag, 描述在下一行更深缩进。
+    /// prose 续行 (不以 -- 开头) 不得被当命令 (曾产 "Select"/"the" 垃圾)。
+    #[test]
+    fn parse_option_section_flags() {
+        let help = "scrcpy 4.1\n\nOptions:\n\n    --always-on-top\n        Make scrcpy window always on top.\n\n    --angle=degrees\n        Rotate the video content.\n        suffixes are supported: 'K' (x1000).\n\nShortcuts:\n    MOD+q\n        Quit.\n";
+        let cmds = parse_commands(help);
+        let names: Vec<&str> = cmds.iter().map(|c| c.0.as_str()).collect();
+        assert!(names.contains(&"--always-on-top"), "长 flag 应命中, got {names:?}");
+        assert!(
+            names.contains(&"--angle"),
+            "--angle=degrees 应去 =value, got {names:?}"
+        );
+        assert!(!names.contains(&"Make"), "prose 词不应成命令, got {names:?}");
+        assert!(!names.contains(&"suffixes"), "续行 prose 不应成命令, got {names:?}");
+        assert!(!names.contains(&"MOD+q"), "Shortcuts 段应整段排除, got {names:?}");
+        assert_eq!(
+            cmds.iter().find(|c| c.0 == "--always-on-top").unwrap().1,
+            "Make scrcpy window always on top."
+        );
     }
 
     /// clap 带短别名格式 ("build, b  Compile...") 不应产出 "build," 或把别名混进描述

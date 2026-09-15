@@ -123,9 +123,15 @@ jobs:
         with:
           targets: aarch64-unknown-linux-musl
       - name: Install zig + cargo-zigbuild
+        # Ubuntu 24.04 主仓库无 zig (E: Unable to locate package zig) → 直下官方 tarball。
+        # 0.14.1 URL 已 curl -I 验证 200 (0.14.0 是 404, 勿改回)。
         run: |
           sudo apt-get update
-          sudo apt-get install -y zig
+          sudo apt-get install -y patchelf xz-utils
+          ZV=0.14.1
+          curl -sL "https://ziglang.org/download/$ZV/zig-x86_64-linux-$ZV.tar.xz" \
+            | tar xJ -C /tmp
+          echo "$(/bin/ls -d /tmp/zig-x86_64-linux-*/ | head -1)" >> "$GITHUB_PATH"
           cargo install cargo-zigbuild --locked
       - name: Build (static)
         run: cargo zigbuild --release --target aarch64-unknown-linux-musl

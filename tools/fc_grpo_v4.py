@@ -163,7 +163,11 @@ def train():
     from trl import GRPOConfig, GRPOTrainer
     import torch, os
 
-    src = BASE_MODEL if os.path.exists(BASE_MODEL) else MODEL_ID
+    # V3/V4 是从前驱续训的定向修 (撤 chat 双倍权重等), 依赖前驱 final 存在;
+    # 静默回退 base 会产出"看起来对但没续训"的错模型 —— fail-loud。
+    if not os.path.exists(BASE_MODEL):
+        raise SystemExit(f"缺前驱 {BASE_MODEL}: 需先跑上一阶段 GRPO (见 tools/fc_grpo_v*.py 链)")
+    src = BASE_MODEL
     print(f"base: {src}", flush=True)
     tok = AutoTokenizer.from_pretrained(src)
     tok.pad_token = tok.eos_token

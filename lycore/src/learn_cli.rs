@@ -9,16 +9,28 @@
 use crate::learn::Cue;
 use std::path::Path;
 
-/// 解析 --help 的命令条目, 兼容 clap 与 adb 式多段格式。
-/// 规则: 顶格 (无前导缩进) 且以 ':' 结尾的行 = 段落标题; 进入"命令段"开始收集,
-/// 除非标题含 option/usage/variable/example/argument (那些是选项/环境变量段, 非命令)。
-/// 段内缩进行: 首 token 为字母数字开头 (排除 `-a` 式选项) 且有描述 → 命令。
-/// clap "Commands:" 与 adb "general commands:"/"networking:" 统一走这条路径。
+/// 解析 --help 的命令条目, 兼容 clap / adb 同行式 / adb 换行式三种格式。
+/// 段落: 顶格且以 ':' 结尾 = 段标题; 含 option/usage/variable/example/argument/
+/// shortcut/status 的标题视为非命令段 (排除选项表、按键表、退出码、环境变量)。
+/// 命令两种排版:
+///   A 同行式 "devices [-l]   list connected..." → 列分隔 (≥2 空格或 tab) 前为命令;
+///   B 换行式 "shell [-e] [COMMAND...]" + 下一行更深缩进的描述 → 取下一行为描述。
+/// 命令名须字母开头 (排除退出码 1 / 按键 MOD+q / 选项 -a)。
+/// B 的"更深缩进"要求天然排除 prose 续行 (同缩进单空格, 如 scrcpy Shortcuts 说明)。
 pub fn parse_commands(help_text: &str) -> Vec<(String, String)> {
     let mut commands = Vec::new();
     let mut in_section = false;
-    const META: &[&str] = &["option", "usage", "variable", "example", "argument"];
-    for line in help_text.lines() {
+    const META: &[&str] = &[
+        "option", "usage", "variable", "example", "argument", "shortcut", "status",
+    ];
+    let lines: Vec<&str> = help_text.lines().collect();
+    let mut skip_next = false;
+    for (idx, raw) in lines.iter().enumerate() {
+        let line = *raw;
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
         let is_header = !line.starts_with(char::is_whitespace)
             && !line.trim().is_empty()
             && line.trim_end().ends_with(':');
@@ -34,27 +46,61 @@ pub fn parse_commands(help_text: &str) -> Vec<(String, String)> {
         if trimmed.is_empty() {
             continue;
         }
-        // clap 两种格式: "  name   描述" 与带短别名的 "  name, s   描述"
-        let mut it = trimmed.split_whitespace();
-        let Some(raw) = it.next() else { continue };
-        let has_alias = raw.ends_with(',');
-        let name = raw.trim_end_matches(',');
-        if has_alias {
-            it.next();
-        }
-        let desc = it.collect::<Vec<_>>().join(" ");
-        if !name.is_empty()
-            && name
+        let first_tok = trimmed.split_whitespace().next().unwrap_or("");
+        let name = first_tok.trim_end_matches(',');
+        if name.is_empty()
+            || !name
                 .chars()
                 .next()
-                .map(|c| c.is_ascii_alphanumeric())
+                .map(|c| c.is_ascii_alphabetic())
                 .unwrap_or(false)
-            && !desc.is_empty()
         {
-            commands.push((name.to_string(), desc));
+            continue; // 数字/符号开头: 退出码、按键 (MOD+q)、选项 (-a)
+        }
+        // A: 同行列对齐
+        if let Some((cmd_field, desc)) = split_first_column(trimmed) {
+            let _ = cmd_field;
+            if !desc.is_empty() {
+                commands.push((name.to_string(), desc.to_string()));
+            }
+            continue;
+        }
+        // B: 换行式 —— 下一行缩进更深视为该命令的描述
+        if let Some(next) = lines.get(idx + 1) {
+            let cur_indent = line.len() - line.trim_start().len();
+            let nindent = next.len() - next.trim_start().len();
+            let ntrim = next.trim();
+            if !ntrim.is_empty() && nindent > cur_indent {
+                commands.push((name.to_string(), ntrim.to_string()));
+                skip_next = true;
+            }
         }
     }
     commands
+}
+
+/// 在行内找第一个 ≥2 连续空格 (或 tab) 作为列分隔, 返回 (命令字段, 描述)。
+/// 找不到 (纯单空格 prose) → None。空格为 ASCII, 字节切片安全。
+fn split_first_column(line: &str) -> Option<(&str, &str)> {
+    let b = line.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'\t' => return Some((line[..i].trim_end(), line[i + 1..].trim_start())),
+            b' ' => {
+                let mut j = i;
+                while j < b.len() && b[j] == b' ' {
+                    j += 1;
+                }
+                if j - i >= 2 {
+                    return Some((line[..i].trim_end(), line[j..].trim_start()));
+                }
+                i = j;
+            }
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 /// 执行 tool --help 获取全文

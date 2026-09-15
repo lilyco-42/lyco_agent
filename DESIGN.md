@@ -388,6 +388,13 @@
       (未过跨模态阈值, 不硬凑标签) —— **诚实标注与可达检索是两个正交属性**。
       两侧对称改 (learn.rs + lyv.py) 保 6 列 schema; 表级 MATCH 向后兼容,
       旧 5 列 pack (pack_final/pack_merged) 新代码读仍正确路由 (实测)。
+      ★ 跨语言 reader 边界 (2026-09-15 实测): scrcpy 查询两侧一致 (179.0s, OCR 索引
+      对称生效); 但「怎么安装 adb」Rust-reader→adb.misc(43.7s)、Python-reader→
+      misc.talk(4.02s) —— 因 Rust `load_rules` 读 rules.json (A1 领域配置),
+      Python 原型 `lookup()` 只遍历硬编码 RULES 不读 rules.json。文档化不变量仅覆盖
+      内置 rust 域 (parity 测试用硬编码 golden 值), 学习/域规则本就不在 Python 侧。
+      结论: 非回归, 是「Rust=产品 / lyv.py=原型」的预期分叉; 若 Python 侧要追平需
+      移植 rules.json 加载 (A1 未完成项, 原型低优先)。
 - [ ] lyco_chat 侧消费 tools_openai.json —— **前提不成立, 需产品决策, 非接线可解**:
       ① `grep tools_openai lyco_chat/src/` 无命中, 运行时从不加载该文件 (README 称
       "供运行时注入" 但代码里未实现); ② lyco_chat 从内部 TinyGPT `generate_greedy_from`

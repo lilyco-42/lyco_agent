@@ -12,6 +12,7 @@ pub mod executor;
 pub mod lernen;
 pub mod llamacpp;
 pub mod learn;
+pub mod learn_cli;
 pub mod pack;
 pub mod rewrite;
 pub mod serve;

@@ -23,19 +23,25 @@ pub fn parse_commands(help_text: &str) -> Vec<(String, String)> {
             if trimmed.is_empty() && !commands.is_empty() {
                 break;
             }
-            let mut parts = trimmed.splitn(2, char::is_whitespace);
-            if let (Some(name), Some(desc)) = (parts.next(), parts.next()) {
-                let name = name.trim();
-                let desc = desc.trim();
-                if !name.is_empty()
-                    && name
-                        .chars()
-                        .next()
-                        .map(|c| c.is_ascii_alphanumeric())
-                        .unwrap_or(false)
-                {
-                    commands.push((name.to_string(), desc.to_string()));
-                }
+            // clap 两种格式: "  name   描述" 与带短别名的 "  name, s   描述"
+            let mut it = trimmed.split_whitespace();
+            let Some(raw) = it.next() else { continue };
+            let has_alias = raw.ends_with(',');
+            let name = raw.trim_end_matches(',');
+            // 有别名时跳过第二个 token (短别名), 余下为描述
+            if has_alias {
+                it.next();
+            }
+            let desc = it.collect::<Vec<_>>().join(" ");
+            if !name.is_empty()
+                && name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_alphanumeric())
+                    .unwrap_or(false)
+                && !desc.is_empty()
+            {
+                commands.push((name.to_string(), desc));
             }
         }
     }
@@ -140,8 +146,31 @@ pub fn build_cli_pack(cues: &[Cue], pack_dir: &Path) -> anyhow::Result<usize> {
          strong TEXT, weak TEXT);
          CREATE VIRTUAL TABLE IF NOT EXISTS seg_fts USING fts5(id, text, entities, intent, strong);",
     )?;
-    db.commit();
-    db.close();
+    // 真正写入 (原孤儿版只建表不插入 → 空包, 且 db.commit() 编译不过)
+    for u in &units {
+        let text = u["text"].as_str().unwrap_or("");
+        let intent = crate::learn::detect_intent(text).0;
+        db.execute(
+            "INSERT OR REPLACE INTO segments VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            rusqlite::params![
+                u["id"].as_str().unwrap_or(""),
+                u["t0"].as_f64().unwrap_or(0.0),
+                u["t1"].as_f64().unwrap_or(0.0),
+                text, intent,
+                u["command"].as_str().unwrap_or(""),
+                u["frame"].as_str().unwrap_or(""),
+                u["ocr"].as_str().unwrap_or(""),
+                u["ocr_conf"].as_f64().unwrap_or(0.0),
+                "", "",
+            ],
+        )?;
+        // 索引侧分词与查询侧 tokens() 同一实现 (与 learn.rs build_cues 对齐)
+        let fts_text = crate::tokens::tokens(text).join(" ");
+        db.execute(
+            "INSERT OR REPLACE INTO seg_fts VALUES(?1,?2,?3,?4,?5)",
+            rusqlite::params![u["id"].as_str().unwrap_or(""), fts_text, "", intent, ""],
+        )?;
+    }
     Ok(units.len())
 }
 
@@ -161,5 +190,16 @@ mod tests {
     #[test]
     fn parse_empty_help() {
         assert!(parse_commands("no commands here").is_empty());
+    }
+
+    /// clap 带短别名格式 ("build, b  Compile...") 不应产出 "build," 或把别名混进描述
+    #[test]
+    fn parse_clap_alias_format() {
+        let help = "Usage: cargo [OPTIONS] [COMMAND]\n\nCommands:\n  build, b    Compile the current package\n  check, c    Analyze the current package\n  clean       Remove the target directory\n\nOptions:\n  -h, --help";
+        let cmds = parse_commands(help);
+        assert_eq!(cmds.len(), 3, "got {cmds:?}");
+        assert_eq!(cmds[0].0, "build", "逗号别名应剥离, got {:?}", cmds[0].0);
+        assert!(cmds[0].1.starts_with("Compile"), "短别名 b 不应进描述, got {:?}", cmds[0].1);
+        assert_eq!(cmds[2].0, "clean", "无别名行也应正常");
     }
 }

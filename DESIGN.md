@@ -404,6 +404,14 @@
       (musl 上 ring 的 getrandom 熵源风险实测未现，纯检索与 llm_generate HTTPS 双过)。
       RADXA_SETUP 路径 A 改推静态版，glibc 变量从用户侧消失。
 
+- [x] **serve HTTP API 静态 ARM 验证**（2026-09-15）：`serve` 是文档承诺交付物
+      (/health /queue /ask /harvest) 但整会话只测过 `ask` CLI。qemu 跑 v0.3.7 静态
+      ARM 二进制起 serve: /health→`{"ok":true,"served":0}`, /ask→完整 agent 往返
+      (route:agent, rounds:2, tool_calls 执行 + 结果回填 + learning_queue_used)。
+      边界 (诚实): 该次因残留 mock 走的是 llm_generate 分支 (诚实报 key 未设);
+      vnn_identify-经-serve 未单独隔离, 但 vnn-经-executor 已在 ask CLI 测通 (同一
+      Agent/Executor), 两半独立证明。serve 的 HTTP→agent→工具→响应管线成立。
+
 - [ ] lyco_chat 侧消费 tools_openai.json —— **前提不成立, 需产品决策, 非接线可解**:
       ① `grep tools_openai lyco_chat/src/` 无命中, 运行时从不加载该文件 (README 称
       "供运行时注入" 但代码里未实现); ② lyco_chat 从内部 TinyGPT `generate_greedy_from`

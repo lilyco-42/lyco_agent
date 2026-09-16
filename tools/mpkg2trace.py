@@ -19,6 +19,31 @@ import tempfile
 import time
 
 
+def describe(cmd: str) -> str:
+    """命令 → 人话描述（启发式，用于歌词行的 `about`）。
+
+    为什么需要: 只看 `step(python x.py --selftest 200 --seed 7)` 看不懂在干什么。
+    说明: 这是**命令模式启发式**，不是语义理解；要真正的语义应写进 mpkg 的 steps[].about。
+    """
+    c = cmd.strip()
+    parts = c.split()
+    base = os.path.basename(parts[0]) if parts else c
+    if base == "mkdir":
+        return "创建输出目录"
+    if base == "cp":
+        src = parts[1] if len(parts) > 1 else ""
+        return f"拷贝产物: {os.path.basename(src)}"
+    if base.startswith("python"):
+        if "--selftest" in c:
+            return "运行 headless 自检（验证真的能跑起来）"
+        return "运行脚本"
+    if base == "cargo":
+        return f"cargo {parts[1]}" if len(parts) > 1 else "cargo"
+    if base == "git":
+        return f"git {parts[1]}" if len(parts) > 1 else "git"
+    return f"{base} …"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="mpkg2trace")
     ap.add_argument("pkg_dir")
@@ -57,7 +82,7 @@ def main() -> int:
             ok = r.returncode == 0
             if not ok:
                 fail += 1
-        emit("tool", name="step", arg=cmd, ok=ok)
+        emit("tool", name="step", arg=cmd, about=describe(cmd), ok=ok)
         if not ok:
             why = (r.stderr or r.stdout or "").strip().splitlines()
             emit("revert", why=f"step {n} 失败(exit={r.returncode}): {(why[-1] if why else '')[:140]}")
@@ -70,7 +95,7 @@ def main() -> int:
             ok = r.returncode == 0
             if not ok:
                 fail += 1
-        emit("tool", name="verify", arg=cmd, ok=ok)
+        emit("tool", name="verify", arg=cmd, about="验证: " + describe(cmd), ok=ok)
 
     emit("final", answer=f"{manifest.get('name','?')} —— " + ("全部通过" if not fail else f"{fail} 步失败"))
 

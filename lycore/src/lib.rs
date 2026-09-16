@@ -15,6 +15,7 @@ pub mod toolrag; // P1: ToolRAG 语义召回层 (embedding Top-K + 裁剪 tools_
 pub mod datagen; // P1: 训练语料生成 (answer-first / ToolGrad 式, 学习队列→SFT 语料)
 pub mod npu_runtime; // P2: A733 VIP9000 NPU 串行调度器 (租约+优先级队列+超时; 纯设计+mock 单测)
 pub mod project; // 项目目录扫描 + 启动脚本生成 (识别 paper.jar → 关联知识 → 时间窗启动脚本)
+pub mod search; // agent 自主检索 (SearXNG/离线占位) + 检索结果学习进知识包
 pub mod lernen;
 pub mod llamacpp;
 pub mod learn;

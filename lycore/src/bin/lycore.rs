@@ -12,6 +12,7 @@ use lycore::agent::Agent;
 use lycore::executor::Executor;
 use lycore::lernen::harvest;
 use lycore::llamacpp::LlamaCppBackend;
+use lycore::search::SearchBackend;
 use std::path::PathBuf;
 
 fn main() {
@@ -24,6 +25,7 @@ fn main() {
         "harvest" => cmd_harvest(&args[1..]),
         "datagen" => cmd_datagen(&args[1..]),
         "project" => cmd_project(&args[1..]),
+        "search" => cmd_search(&args[1..]),
         "doctor" => cmd_doctor(&args[1..]),
         "serve" => cmd_serve(&args[1..]),
         "tools" => cmd_tools(&args[1..]),
@@ -36,6 +38,7 @@ fn main() {
                  lycore harvest --pack <dir> [--out <file>]\n  \
                  lycore datagen --pack <dir> [--out <file>]  (学习队列→answer-first SFT 语料)\n  \
                  lycore project --dir <path> [--pack <dir>] [--out <script>] [--start 08:00] [--end 22:00]\n  \
+                 lycore search --query <...> [--pack <dir>] [--url <searxng>] [--k 5]\n  \
                  lycore doctor --pack <dir>"
             );
             2
@@ -335,6 +338,49 @@ fn cmd_project(args: &[String]) -> i32 {
             println!("  启动脚本 → {out} (时间窗 {start}-{end})");
         }
         None => println!("\n{script}"),
+    }
+    0
+}
+
+/// 自主检索 + 学习进知识包 (补"懂得自己去搜"这一环)
+/// 未给 --url 时用离线占位后端 (不触网); 给了则走自建 SearXNG。
+fn cmd_search(args: &[String]) -> i32 {
+    let Some(query) = flag(args, "--query") else {
+        eprintln!("缺少 --query <...>");
+        return 2;
+    };
+    let k = flag(args, "--k").and_then(|x| x.parse().ok()).unwrap_or(5);
+    let results = match flag(args, "--url") {
+        Some(base) => {
+            let b = lycore::search::SearxngBackend::new(&base);
+            println!("[search] SearXNG: {}", b.base());
+            match b.search(&query, k) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("搜索失败: {e}");
+                    return 1;
+                }
+            }
+        }
+        None => {
+            eprintln!("[search] 未给 --url, 使用离线占位结果 (StubSearch, 不触网)");
+            lycore::search::StubSearch::demo(&query)
+                .search(&query, k)
+                .unwrap_or_default()
+        }
+    };
+    for (i, r) in results.iter().enumerate() {
+        println!("{}. {} — {}\n   {}", i + 1, r.title, r.url, r.snippet);
+    }
+    if let Some(pack) = flag(args, "--pack") {
+        let cues = lycore::search::to_cues(&query, &results);
+        match lycore::learn_cli::append_cues(std::path::Path::new(&pack), "search", &cues) {
+            Ok(n) => println!("  已学习 {n} 条 → {pack}"),
+            Err(e) => {
+                eprintln!("入库失败: {e}");
+                return 1;
+            }
+        }
     }
     0
 }

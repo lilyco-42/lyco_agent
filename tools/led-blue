@@ -1,0 +1,27 @@
+#!/bin/sh
+# led-blue —— Radxa A7A 蓝灯 CLI（light_cli 的真身）
+# 用法: led-blue on|off|status
+# root 才能写 /sys/class/leds，所以由 sudoers 只对本脚本免密（最小权限）
+# 自包含: 回放/受限环境下 PATH 可能被清空
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+L=/sys/class/leds/radxa:blue:user
+case "$1" in
+  on)
+    echo 1 > "$L/brightness" || exit 1
+    echo "blue led: on"
+    ;;
+  off)
+    echo 0 > "$L/brightness" || exit 1
+    echo "blue led: off"
+    ;;
+  status)
+    b=$(cat "$L/brightness" 2>/dev/null)
+    echo "blue led: $( [ "$b" = "1" ] && echo on || echo off ) (brightness=$b)"
+    ;;
+  *)
+    echo "usage: led-blue on|off|status" >&2
+    exit 2
+    ;;
+esac

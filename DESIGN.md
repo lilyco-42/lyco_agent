@@ -412,6 +412,28 @@
       vnn_identify-经-serve 未单独隔离, 但 vnn-经-executor 已在 ask CLI 测通 (同一
       Agent/Executor), 两半独立证明。serve 的 HTTP→agent→工具→响应管线成立。
 
+- [x] **learn-cli 收敛到真可用 — 兑现"学 adb 和 scrcpy cli"**（2026-09-15→16，
+      v0.3.8→v0.3.12）：line 311 曾写"learn-cli 六命令、稳定交付", 实为空头支票。
+      审计发现并逐层修:
+      ① 整个 learn_cli.rs 是孤儿 (从没进 lib.rs → 从没编译过, 藏 db.commit()
+         编译错 + build_cli_pack 只建表不 INSERT 的空包 bug); cmd_learn_cli 实际
+         shell python3, "零 Python" 是假。接线 + 补 INSERT (8e1534f/839e508)。
+      ② parser 只认 clap 单段 → adb 1 条目空壳。泛化多段 (a0e3029) → 又引入
+         scrcpy 50 条垃圾 (Shortcuts/Exit status prose 当命令) → 回滚重做 (ce023ef)。
+      ③ scrcpy 接口是 Options 段的 --flags, 被误排除 → 三态段模式
+         Command/Flag/Off, flag-mode 仅收 --长flag (prose 续行不以 -- 开头天然排除),
+         scrcpy 1→61 真 flags (53719a4)。
+      实测 4 真实工具: adb 50 (含 shell/install), cargo 17, git 25, scrcpy 61。
+      回归 parse_option_section_flags + parse_adb_multisection 锁住 (曾两次回归的点)。
+      教训: 一次 half-edit (删 META option 没加 flag 识别) 让 scrcpy 反成 14 垃圾,
+      回滚重做 —— 半改动比不改更坏。
+
+- [ ] **index_lilyco_schema 是孤儿函数**（2026-09-16 发现, 未修）: learn_cli.rs:175
+      定义 `index_lilyco_schema` (--schema JSON → Cue), 但全库零调用点 ——
+      cmd_learn_cli 没有 --schema 分支。即"lilyco 应用零训练接入"这条 DESIGN 承诺的
+      路径是死的 (与 learn_cli 模块整体孤儿同类)。修需接一个 --schema 入口 + 一个
+      可产 --schema 的 lilyco 二进制 (当前无构建) 才能端到端验; 未接前该能力不存在。
+
 - [ ] lyco_chat 侧消费 tools_openai.json —— **前提不成立, 需产品决策, 非接线可解**:
       ① `grep tools_openai lyco_chat/src/` 无命中, 运行时从不加载该文件 (README 称
       "供运行时注入" 但代码里未实现); ② lyco_chat 从内部 TinyGPT `generate_greedy_from`

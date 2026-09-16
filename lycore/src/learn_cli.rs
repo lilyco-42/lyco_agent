@@ -7,6 +7,7 @@
 //! 输出与 learn.rs build_cues 同 schema (sqlite + FTS5), 共享 pack 基础设施。
 
 use crate::learn::Cue;
+use crate::skill;
 use std::path::Path;
 
 /// 解析 --help 的命令条目, 三种段模式:
@@ -179,14 +180,27 @@ pub fn index_lilyco_schema(schema_exe: &str) -> anyhow::Result<Vec<Cue>> {
         .map_err(|e| anyhow::anyhow!("{} --schema 失败: {}", schema_exe, e))?;
     anyhow::ensure!(out.status.success(), "--schema 执行失败");
     let schema: serde_json::Value = serde_json::from_slice(&out.stdout)?;
-    let name = schema["name"].as_str().unwrap_or("unknown").to_lowercase();
-    let about = schema["about"].as_str().unwrap_or("");
+    let mut cues = Vec::new();
+    collect_schema(&schema, "", &mut cues);
+    Ok(cues)
+}
 
-    let mut cues = vec![Cue {
+/// 递归收集 CommandSchema (name/about/args/subcommands) → Cue。
+/// 原实现只读顶层 args, 丢光所有子命令 —— 而子命令正是 lilyco 框架的核心价值。
+/// path 为已走过的子命令链 (如 "imgpress crop"), 用于生成 "imgpress crop : ..." 前缀。
+fn collect_schema(schema: &serde_json::Value, path: &str, cues: &mut Vec<Cue>) {
+    let name = schema["name"].as_str().unwrap_or("unknown").to_lowercase();
+    let full = if path.is_empty() {
+        name.clone()
+    } else {
+        format!("{path} {name}")
+    };
+    let about = schema["about"].as_str().unwrap_or("");
+    cues.push(Cue {
         t0: 0.0,
         t1: 0.0,
-        text: format!("{} : {} : 用法见帮助", name, about),
-    }];
+        text: format!("{full} : {about} : 用法见帮助"),
+    });
     for arg in schema["args"].as_array().unwrap_or(&vec![]) {
         let aname = arg["name"].as_str().unwrap_or("");
         let aabout = arg["about"].as_str().unwrap_or("");
@@ -194,10 +208,12 @@ pub fn index_lilyco_schema(schema_exe: &str) -> anyhow::Result<Vec<Cue>> {
         cues.push(Cue {
             t0: 0.0,
             t1: 0.0,
-            text: format!("{} {} : 参数 {} ({}): {} : 用法见帮助", name, aname, aname, req, aabout),
+            text: format!("{full} {aname} : 参数 {aname} ({req}): {aabout} : 用法见帮助"),
         });
     }
-    Ok(cues)
+    for sub in schema["subcommands"].as_array().unwrap_or(&vec![]) {
+        collect_schema(sub, &full, cues);
+    }
 }
 
 /// 构建知识包 (轻量版, 不抽帧 — CLI 工具无视频帧)
@@ -341,6 +357,38 @@ pub fn index_and_build(tool: &str, pack_dir: &Path) -> anyhow::Result<usize> {
         jsonl.push_str(&serde_json::to_string(&u)?);
         jsonl.push('\n');
     }
+
+    // P1 修 DESIGN issue①: 把 lyco 自身工具 schema 也索引进同一张 FTS5 表。
+    // 原 `index_lilyco_schema()` (learn_cli.rs:175) 依赖外部 --schema 二进制 → 零调用者
+    // (孤儿)。此处改用 `skill::ALL_SKILLS` 直接生成 Cue, 无需外部二进制, 孤儿就地解决;
+    // 真实 LilyCo --schema 二进制日后仍走 `index_lilyco_schema()` 通用路径。
+    for s in skill::ALL_SKILLS {
+        let intent = format!("lilyco.{}", s.name);
+        let command = s.executor;
+        let text = format!(
+            "{} : {} : 能力 {:?} 风险 {} 验证器 {:?}",
+            s.name, s.desc, s.capabilities, s.risk.as_str(), s.verifier
+        );
+        let strong = crate::tokens::tokens(command).join(" ");
+        let fts_text = crate::tokens::tokens(&format!("{command} {}", s.desc)).join(" ");
+        let uid = format!("lilyco_{}", s.name);
+        db.execute(
+            "INSERT OR REPLACE INTO segments VALUES(?1,0,0,?2,?3,?4,'',?5,1.0,?6,'')",
+            rusqlite::params![&uid, &text, &intent, &command, &text, &strong],
+        )?;
+        db.execute(
+            "INSERT OR REPLACE INTO seg_fts VALUES(?1,?2,?3,?4,?5)",
+            rusqlite::params![&uid, &fts_text, &strong, &intent, &strong],
+        )?;
+        let u = serde_json::json!({
+            "id": uid, "t0": 0.0, "t1": 0.0, "text": text, "intent": intent,
+            "command": command, "frame": "", "ocr": "", "ocr_conf": 1.0,
+            "strong": crate::tokens::tokens(command), "weak": [],
+        });
+        jsonl.push_str(&serde_json::to_string(&u)?);
+        jsonl.push('\n');
+    }
+
     std::fs::write(pack_dir.join("knowledge/segments.jsonl"), jsonl)?;
     Ok(entries.len())
 }
@@ -348,6 +396,37 @@ pub fn index_and_build(tool: &str, pack_dir: &Path) -> anyhow::Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 递归收集子命令回归: 原实现只读顶层 args, 丢光 subcommands
+    /// (lilyco 框架的核心价值)。合成嵌套 schema 验证递归到位。
+    #[test]
+    fn collect_schema_recurses_subcommands() {
+        let schema = serde_json::json!({
+            "name": "imgpress", "about": "图像工具",
+            "args": [{"name": "verbose", "about": "详细输出", "required": false}],
+            "subcommands": [{
+                "name": "crop", "about": "裁剪图像",
+                "args": [{"name": "rect", "about": "裁剪框", "required": true}],
+                "subcommands": [{
+                    "name": "auto", "about": "自动裁剪", "args": [], "subcommands": []
+                }]
+            }]
+        });
+        let mut cues = Vec::new();
+        collect_schema(&schema, "", &mut cues);
+        let texts: Vec<&str> = cues.iter().map(|c| c.text.as_str()).collect();
+        // 顶层 + 顶层参数 + 一级子命令 + 其参数 + 二级子命令 = 5 条
+        assert_eq!(cues.len(), 5, "递归应展开所有层级, got {texts:?}");
+        assert!(texts.iter().any(|t| t.starts_with("imgpress crop :")), "子命令须入, got {texts:?}");
+        assert!(
+            texts.iter().any(|t| t.contains("imgpress crop rect") && t.contains("必填")),
+            "子命令参数带路径前缀+必填, got {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.starts_with("imgpress crop auto :")),
+            "二级子命令须递归到, got {texts:?}"
+        );
+    }
 
     #[test]
     fn parse_clap_commands() {

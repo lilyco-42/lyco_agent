@@ -30,12 +30,16 @@ impl RiskLevel {
 
 /// 验证器标识 — 指向 `verify.rs` 的某个确定性级联
 ///
-/// P0 只定义标识; P1 把每个变体接成 `verify::*` 的真实调用
-/// (见 research-architecture-2026-09-16.md §1.3 Verifier 注册表)。
+/// P1 把每个变体接成 `verify::*` 的真实调用 (见 research-architecture-2026-09-16.md
+/// §1.3 Verifier 注册表)。`VerifierId::instantiate()` 返回 `Box<dyn Verifier>`。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VerifierId {
-    /// OCR 级联 (`verify::verify`) — 识图类技能用
+    /// OCR 级联 (`verify::OcrVerifier` → `verify::verify`) — 识图类技能用
     Ocr,
+    /// ffprobe 验证 (`verify::FfprobeVerifier`) — 视频产物确定性验收
+    Ffprobe,
+    /// VNN Rust 路径未实现 → 诚实降级到学习队列 (`verify::VnnVerifier`)
+    Vnn,
     /// 无确定性验证 (纯文本创作 / 检索) — 视为永远 pass
     None,
 }
@@ -44,6 +48,9 @@ pub enum VerifierId {
 ///
 /// 这是简报「Skill 描述符」的 Rust 落地。注册表 [`ALL_SKILLS`] 与
 /// `llamacpp::CHAT_TOOLS` 七工具一一对应, 单一真源。
+///
+/// `desc` 是 P1 新增的**语义召回语料**: 含同义词/中英文, 供 ToolRAG 的
+/// embedding 召回层 (toolrag.rs) 检索用, 与 `capabilities`/`risk` 解耦。
 pub struct Skill {
     pub name: &'static str,
     pub capabilities: &'static [Capability],
@@ -51,6 +58,8 @@ pub struct Skill {
     pub verifier: VerifierId,
     /// 执行器工具名 (与 `executor::Executor::execute` 的 match 分支一致)
     pub executor: &'static str,
+    /// 语义描述 + 同义词 (ToolRAG 召回语料, 与 CHAT_TOOLS description 互补)
+    pub desc: &'static str,
 }
 
 /// 全部技能注册表 (与 `llamacpp::CHAT_TOOLS` 七工具一一对应)
@@ -61,13 +70,16 @@ pub const ALL_SKILLS: &[Skill] = &[
         risk: RiskLevel::Low,
         verifier: VerifierId::None,
         executor: "lyv_knowledge",
+        desc: "查询视频教程里演示过的具体操作命令步骤 软件怎么用 某命令怎么敲 教程怎么做 操作指南 howto tutorial 知识检索",
     },
     Skill {
         name: "vnn_identify",
         capabilities: &[Capability::FileRead, Capability::Camera],
         risk: RiskLevel::Medium,
-        verifier: VerifierId::Ocr,
+        // VNN Rust 路径占位 (降级保持) — P1 接成 verify::VnnVerifier
+        verifier: VerifierId::Vnn,
         executor: "vnn_identify",
+        desc: "识别图片内容 截图分类 终端 GUI 自然 文档 画面理解 image classification scene recognition 识图",
     },
     Skill {
         name: "rembg_remove",
@@ -75,6 +87,7 @@ pub const ALL_SKILLS: &[Skill] = &[
         risk: RiskLevel::Medium,
         verifier: VerifierId::None,
         executor: "rembg_remove",
+        desc: "抠图 去除图片背景 透明背景 png 去背 matting cutout remove background 背景消除",
     },
     Skill {
         name: "html_gen",
@@ -82,6 +95,7 @@ pub const ALL_SKILLS: &[Skill] = &[
         risk: RiskLevel::Low,
         verifier: VerifierId::None,
         executor: "html_gen",
+        desc: "生成 html 页面 单文件网页 前端页面 写网页 generate webpage 网页生成 静态页面",
     },
     Skill {
         name: "llm_generate",
@@ -89,13 +103,16 @@ pub const ALL_SKILLS: &[Skill] = &[
         risk: RiskLevel::Low,
         verifier: VerifierId::None,
         executor: "llm_generate",
+        desc: "文本创作 写文案 故事 诗 邮件 翻译 润色 起标题 开放生成 writing generation 写作 生成",
     },
     Skill {
         name: "html_render_video",
         capabilities: &[Capability::FileWrite, Capability::Shell],
         risk: RiskLevel::Medium,
-        verifier: VerifierId::None,
+        // P1 接成 verify::FfprobeVerifier — 视频产物确定性验收
+        verifier: VerifierId::Ffprobe,
         executor: "html_render_video",
+        desc: "把 html 页面渲染成视频 headless 浏览器截图合成 mp4 录屏网页 webpage to video render 网页转视频",
     },
     Skill {
         name: "video_info",
@@ -103,6 +120,7 @@ pub const ALL_SKILLS: &[Skill] = &[
         risk: RiskLevel::Low,
         verifier: VerifierId::None,
         executor: "video_info",
+        desc: "查看视频信息 时长 分辨率 帧率 视频元数据 video metadata duration 视频属性",
     },
 ];
 

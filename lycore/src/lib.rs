@@ -11,6 +11,7 @@ pub mod agent;
 pub mod capability; // P0: 能力层 (Capability Layer) 一等公民组件
 pub mod executor;
 pub mod skill; // P0: 技能描述符 { capabilities, risk, verifier, executor }
+pub mod toolrag; // P1: ToolRAG 语义召回层 (embedding Top-K + 裁剪 tools_openai.json)
 pub mod lernen;
 pub mod llamacpp;
 pub mod learn;

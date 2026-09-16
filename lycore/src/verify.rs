@@ -8,6 +8,7 @@
 //! OCR 本体: 进程外 tesseract (零绑定依赖, 端侧 agent 也能装 tesseract)。
 //! Python 版细节: lev() 编辑距离 + min_conf=0.5 + 词长>=4 才允许距离<=2 模糊命中。
 
+use crate::skill::VerifierId;
 use crate::tokens::tokens;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -165,6 +166,252 @@ pub fn verify(
     })
 }
 
+// ===================== P1: Verifier 注册表 =====================
+//
+// 把「技能算不算做成了」从具体级联提升为 `Verifier` trait + 注册表,
+// 让新增技能即插即用确定性验证器 (research-architecture-2026-09-16.md §1.3)。
+// `VerifierId::instantiate()` 返回 `Box<dyn Verifier>`, 与 `skill::Skill.verifier`
+// 一一对应。
+
+/// 验证器输入 (统一抽象: 产物路径 + 期望命中词 + 语言 + 最小置信度)
+pub struct VerifierInput {
+    /// 产物路径 (图片 / 视频 / 文件)
+    pub artifact: Option<PathBuf>,
+    /// 期望命中的关键词 (OCR 类验证用)
+    pub expected: Vec<String>,
+    /// OCR 语言 (默认 eng)
+    pub lang: String,
+    /// 最小置信度 (OCR 类)
+    pub min_conf: f64,
+}
+
+impl Default for VerifierInput {
+    fn default() -> Self {
+        Self {
+            artifact: None,
+            expected: Vec::new(),
+            lang: "eng".to_string(),
+            min_conf: 0.5,
+        }
+    }
+}
+
+/// 验证器输出 (确定性判定)
+#[derive(Debug, Clone, Serialize)]
+pub struct VerifierResult {
+    /// 是否通过确定性验收
+    pub pass: bool,
+    /// 路由: "ocr" | "ffprobe" | "vnn" | "none" | "learning_queue"
+    pub route: &'static str,
+    /// 可信度 0.0-1.0
+    pub score: f64,
+    /// 人类可读诊断
+    pub detail: String,
+}
+
+/// 验证器 trait — 把「任务是否完成」抽离成确定性程序, 不调 LLM
+pub trait Verifier: Send + Sync {
+    /// 该验证器对应的标识 (与 `skill::VerifierId` 对齐)
+    fn id(&self) -> VerifierId;
+    /// 对产物做确定性验收
+    fn run(&self, input: &VerifierInput) -> VerifierResult;
+}
+
+/// OCR 级联验证器 — 包 `verify()` (tesseract conf + 编辑距离模糊)
+pub struct OcrVerifier {
+    ocr: Ocr,
+}
+
+impl OcrVerifier {
+    pub fn new() -> Self {
+        Self { ocr: Ocr::new() }
+    }
+}
+
+impl Default for OcrVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Verifier for OcrVerifier {
+    fn id(&self) -> VerifierId {
+        VerifierId::Ocr
+    }
+    fn run(&self, input: &VerifierInput) -> VerifierResult {
+        let Some(image) = &input.artifact else {
+            return VerifierResult {
+                pass: false,
+                route: "learning_queue",
+                score: 0.0,
+                detail: "OCR 验证缺产物路径".into(),
+            };
+        };
+        match verify(
+            &self.ocr,
+            image,
+            &input.expected,
+            &input.lang,
+            input.min_conf,
+        ) {
+            Some(v) => VerifierResult {
+                pass: v.pass,
+                route: v.route,
+                score: v.ocr_conf,
+                detail: format!("ocr_conf={:.2}", v.ocr_conf),
+            },
+            None => VerifierResult {
+                pass: false,
+                route: "learning_queue",
+                score: 0.0,
+                detail: "OCR 执行失败".into(),
+            },
+        }
+    }
+}
+
+/// ffprobe 验证器 — 验收 `html_render_video` 的 mp4 产物
+///
+/// 确定性判定: 含 video 流 且 duration > 0。ffprobe 缺失时诚实降级。
+pub struct FfprobeVerifier {
+    bin: PathBuf,
+}
+
+impl FfprobeVerifier {
+    pub fn new() -> Self {
+        Self {
+            bin: std::env::var("LYCO_FFPROBE")
+                .unwrap_or_else(|_| "ffprobe".to_string())
+                .into(),
+        }
+    }
+}
+
+impl Default for FfprobeVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Verifier for FfprobeVerifier {
+    fn id(&self) -> VerifierId {
+        VerifierId::Ffprobe
+    }
+    fn run(&self, input: &VerifierInput) -> VerifierResult {
+        let Some(video) = &input.artifact else {
+            return VerifierResult {
+                pass: false,
+                route: "learning_queue",
+                score: 0.0,
+                detail: "ffprobe 验证缺视频路径".into(),
+            };
+        };
+        let out = std::process::Command::new(&self.bin)
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration:stream=codec_type",
+                "-of",
+                "json",
+                video.to_str().unwrap_or(""),
+            ])
+            .output();
+        let Ok(out) = out else {
+            return VerifierResult {
+                pass: false,
+                route: "learning_queue",
+                score: 0.0,
+                detail: "ffprobe 不可用".into(),
+            };
+        };
+        if !out.status.success() {
+            return VerifierResult {
+                pass: false,
+                route: "learning_queue",
+                score: 0.0,
+                detail: "ffprobe 退出非 0".into(),
+            };
+        }
+        let v: serde_json::Value = match serde_json::from_slice(&out.stdout) {
+            Ok(v) => v,
+            Err(_) => {
+                return VerifierResult {
+                    pass: false,
+                    route: "learning_queue",
+                    score: 0.0,
+                    detail: "ffprobe 输出非 JSON".into(),
+                }
+            }
+        };
+        let has_video = v["streams"]
+            .as_array()
+            .map(|s| s.iter().any(|x| x["codec_type"] == serde_json::json!("video")))
+            .unwrap_or(false);
+        let dur: f64 = v["format"]["duration"]
+            .as_str()
+            .and_then(|d| d.parse().ok())
+            .or_else(|| v["format"]["duration"].as_f64())
+            .unwrap_or(0.0);
+        let pass = has_video && dur > 0.0;
+        VerifierResult {
+            pass,
+            route: if pass { "ffprobe" } else { "learning_queue" },
+            score: if pass { 1.0 } else { 0.0 },
+            detail: format!("has_video={has_video} duration={dur:.2}s"),
+        }
+    }
+}
+
+/// VNN Rust 路径占位验证器 — 当前未实现 → 诚实降级到学习队列 (DESIGN.md 语义)
+pub struct VnnVerifier;
+
+impl Verifier for VnnVerifier {
+    fn id(&self) -> VerifierId {
+        VerifierId::Vnn
+    }
+    fn run(&self, _input: &VerifierInput) -> VerifierResult {
+        VerifierResult {
+            pass: false,
+            route: "learning_queue",
+            score: 0.0,
+            detail: "VNN Rust 路径未实现: 此帧入学习队列".into(),
+        }
+    }
+}
+
+/// 无确定性验证器 — 纯文本创作 / 检索, 视为永远 pass
+pub struct NoneVerifier;
+
+impl Verifier for NoneVerifier {
+    fn id(&self) -> VerifierId {
+        VerifierId::None
+    }
+    fn run(&self, _input: &VerifierInput) -> VerifierResult {
+        VerifierResult {
+            pass: true,
+            route: "none",
+            score: 1.0,
+            detail: "无确定性验证".into(),
+        }
+    }
+}
+
+/// 验证器注册表 — 按 `VerifierId` 取具体验证器实例 (即插即用)
+pub struct VerifierRegistry;
+
+impl VerifierRegistry {
+    /// 实例化某标识对应的验证器 (与 `skill::Skill.verifier` 对齐)
+    pub fn instantiate(id: VerifierId) -> Box<dyn Verifier> {
+        match id {
+            VerifierId::Ocr => Box::new(OcrVerifier::new()),
+            VerifierId::Ffprobe => Box::new(FfprobeVerifier::new()),
+            VerifierId::Vnn => Box::new(VnnVerifier),
+            VerifierId::None => Box::new(NoneVerifier),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,5 +443,65 @@ mod tests {
         // 确认 expected 词表与 Python 侧一致生成 (strong ∪ tokens(command))
         let expected: Vec<String> = vec![" 建".into(), "cargo".into(), "项目".into()];
         assert!(ocr_pass("cargo new 建立项目", 0.9, &expected, 0.5));
+    }
+
+    // ---- P1: Verifier 注册表 ----
+
+    #[test]
+    fn registry_instantiates_each_id() {
+        // 四个标识都能取到对应具体验证器, 且 id 回环一致
+        let ids = [
+            VerifierId::Ocr,
+            VerifierId::Ffprobe,
+            VerifierId::Vnn,
+            VerifierId::None,
+        ];
+        for id in ids {
+            let v = VerifierRegistry::instantiate(id);
+            assert_eq!(v.id(), id, "注册表回环不一致");
+        }
+    }
+
+    #[test]
+    fn none_verifier_always_passes() {
+        let v = VerifierRegistry::instantiate(VerifierId::None);
+        let r = v.run(&VerifierInput::default());
+        assert!(r.pass);
+        assert_eq!(r.route, "none");
+    }
+
+    #[test]
+    fn vnn_verifier_degrades_honestly() {
+        // VNN Rust 路径未实现 → 永远 pass=false, 路由学习队列 (DESIGN 诚实降级)
+        let v = VerifierRegistry::instantiate(VerifierId::Vnn);
+        let r = v.run(&VerifierInput {
+            artifact: Some(std::path::PathBuf::from("/tmp/x.png")),
+            ..Default::default()
+        });
+        assert!(!r.pass);
+        assert_eq!(r.route, "learning_queue");
+    }
+
+    #[test]
+    fn ffprobe_verifier_reports_missing_binary() {
+        // 指向不存在的二进制 → 诚实降级 (不 panic, 不假 pass)
+        let v = FfprobeVerifier {
+            bin: std::path::PathBuf::from("/nonexistent/ffprobe-xyz"),
+        };
+        let r = v.run(&VerifierInput {
+            artifact: Some(std::path::PathBuf::from("/tmp/x.mp4")),
+            ..Default::default()
+        });
+        assert!(!r.pass);
+        assert_eq!(r.route, "learning_queue");
+    }
+
+    #[test]
+    fn ocr_verifier_missing_artifact_fails() {
+        // 缺产物路径 → 不调用 tesseract, 直接降级
+        let v = VerifierRegistry::instantiate(VerifierId::Ocr);
+        let r = v.run(&VerifierInput::default());
+        assert!(!r.pass);
+        assert_eq!(r.route, "learning_queue");
     }
 }

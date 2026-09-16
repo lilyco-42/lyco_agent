@@ -82,7 +82,9 @@ def main() -> int:
             ok = r.returncode == 0
             if not ok:
                 fail += 1
-        emit("tool", name="step", arg=cmd, about=describe(cmd), ok=ok)
+        # tpl = 带 {{pkg}}/{{work}} 的原始命令 (可移植, 供 trace2mpkg 生成 mpkg.steps);
+        # arg = 替换后的真实命令 (可在本机直接复跑)。只用 arg 会导致换机器就回放不了。
+        emit("tool", name="step", arg=cmd, tpl=s["run"], about=describe(cmd), ok=ok)
         if not ok:
             why = (r.stderr or r.stdout or "").strip().splitlines()
             emit("revert", why=f"step {n} 失败(exit={r.returncode}): {(why[-1] if why else '')[:140]}")
@@ -95,7 +97,7 @@ def main() -> int:
             ok = r.returncode == 0
             if not ok:
                 fail += 1
-        emit("tool", name="verify", arg=cmd, about="验证: " + describe(cmd), ok=ok)
+        emit("tool", name="verify", arg=cmd, tpl=v, about="验证: " + describe(cmd), ok=ok)
 
     emit("final", answer=f"{manifest.get('name','?')} —— " + ("全部通过" if not fail else f"{fail} 步失败"))
 

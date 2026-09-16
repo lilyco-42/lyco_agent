@@ -83,7 +83,12 @@ fn cmd_ask(args: &[String]) -> i32 {
             eprintln!("llama-server 不可用: {e}");
             return 1;
         }
-        let agent = Agent::new(&executor, 4);
+        let mut agent = Agent::new(&executor, 4);
+        // --trace <file>: 把执行过程写成 ndjson 事件流 (回放/可视化/打包)
+        if let Some(tp) = flag(args, "--trace") {
+            agent = agent.with_trace(std::path::Path::new(&tp));
+            eprintln!("[trace] → {tp}");
+        }
         match agent.run(&mut backend, &question) {
             Ok(turn) => {
                 println!("{}", serde_json::to_string_pretty(&turn).unwrap());

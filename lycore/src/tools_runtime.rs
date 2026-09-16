@@ -375,6 +375,14 @@ pub fn shell_exec(command: &str, cwd: Option<&Path>) -> RunOutcome {
         c.args(["/C", command]);
     }
     if let Some(d) = cwd {
+        // 显式校验: cwd 不存在时 spawn 会报 ENOENT, 误指向"shell 找不到" (实测踩坑)
+        if !d.is_dir() {
+            return RunOutcome {
+                ok: false,
+                summary: format!("工作目录不存在: {}", d.display()),
+                artifact: None,
+            };
+        }
         c.current_dir(d);
     }
     match run_with_timeout(c, 120) {

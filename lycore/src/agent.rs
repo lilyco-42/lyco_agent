@@ -41,11 +41,55 @@ pub struct Turn {
 pub struct Agent<'a> {
     pub executor: &'a Executor,
     pub max_rounds: usize,
+    /// 可选 trace 事件流 (ndjson): 边执行边写, 供回放/可视化/打包
+    pub tracer: Option<std::sync::Mutex<crate::trace::Tracer>>,
 }
 
 impl<'a> Agent<'a> {
     pub fn new(executor: &'a Executor, max_rounds: usize) -> Self {
-        Self { executor, max_rounds }
+        Self {
+            executor,
+            max_rounds,
+            tracer: None,
+        }
+    }
+
+    /// 开启 trace 记录 (写 ndjson; pigma 可 `tail -f` 直播)
+    pub fn with_trace(mut self, path: &std::path::Path) -> Self {
+        self.tracer = Some(std::sync::Mutex::new(crate::trace::Tracer::new(path)));
+        self
+    }
+
+    fn trace_prompt(&self, text: &str) {
+        if let Some(t) = &self.tracer {
+            if let Ok(mut t) = t.lock() {
+                t.prompt(text);
+            }
+        }
+    }
+
+    fn trace_tool(&self, name: &str, arg: &str, ok: bool) {
+        if let Some(t) = &self.tracer {
+            if let Ok(mut t) = t.lock() {
+                t.tool(name, arg, ok);
+            }
+        }
+    }
+
+    fn trace_revert(&self, why: &str) {
+        if let Some(t) = &self.tracer {
+            if let Ok(mut t) = t.lock() {
+                t.revert(why);
+            }
+        }
+    }
+
+    fn trace_final(&self, answer: &str) {
+        if let Some(t) = &self.tracer {
+            if let Ok(mut t) = t.lock() {
+                t.final_answer(answer);
+            }
+        }
     }
 
     /// 主循环: 模型↔工具 多轮交互直到收束
@@ -64,6 +108,7 @@ impl<'a> Agent<'a> {
         let mut learning_queue_used = false;
         // 回填复读防护: 记录失败过的工具, 模型重复调用同名失败工具 = 卡死信号, 短路收束
         let mut failed_tools: Vec<String> = Vec::new();
+        self.trace_prompt(question);
 
         for round in 1..=self.max_rounds {
             let text = backend.generate(&messages)?;
@@ -93,13 +138,16 @@ impl<'a> Agent<'a> {
                             question,
                             "DEGENERATE_OUTPUT: 模型未产出有效回答",
                         );
+                        let honest = "抱歉，我没能理解这个请求，已加入学习队列。".to_string();
+                        self.trace_final(&honest);
                         return Ok(Turn {
                             rounds: round,
-                            answer: "抱歉，我没能理解这个请求，已加入学习队列。".to_string(),
+                            answer: honest,
                             tool_calls,
                             learning_queue_used: true,
                         });
                     }
+                    self.trace_final(&answer);
                     return Ok(Turn { rounds: round, answer, tool_calls, learning_queue_used });
                 }
                 Some((name, arguments)) => {
@@ -121,6 +169,16 @@ impl<'a> Agent<'a> {
                         failed_tools.push(name.clone());
                     }
                     log_result(&result);
+                    // trace: 一次工具调用 = 一条事件 (= mpkg 的一个 step / 一个 jj commit)
+                    self.trace_tool(&name, &arguments.to_string(), result.ok);
+                    if !result.ok {
+                        // 试错也入 trace —— "编曲注记", 别人才能听懂为什么改
+                        self.trace_revert(&format!(
+                            "{} 失败: {}",
+                            name,
+                            result.error.as_deref().unwrap_or("未知原因")
+                        ));
+                    }
                     messages.push(Message::new(
                         "assistant",
                         format!("<tool_call>\n{}\n</tool_call>", serde_json::to_string(&call_value(&name, &arguments))?),

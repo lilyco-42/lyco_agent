@@ -22,6 +22,7 @@ fn main() {
         "learn" => cmd_learn(&args[1..]),
         "learn-cli" => cmd_learn_cli(&args[1..]),
         "harvest" => cmd_harvest(&args[1..]),
+        "datagen" => cmd_datagen(&args[1..]),
         "doctor" => cmd_doctor(&args[1..]),
         "serve" => cmd_serve(&args[1..]),
         "tools" => cmd_tools(&args[1..]),
@@ -32,6 +33,7 @@ fn main() {
                  lycore ask    --pack <dir> [--llama <url>] \"<问题>\"\n  \
                  lycore learn  --video <mp4> --srt <srt> --pack <out_dir>\n  \
                  lycore harvest --pack <dir> [--out <file>]\n  \
+                 lycore datagen --pack <dir> [--out <file>]  (学习队列→answer-first SFT 语料)\n  \
                  lycore doctor --pack <dir>"
             );
             2
@@ -256,6 +258,29 @@ fn cmd_harvest(args: &[String]) -> i32 {
         }
         Err(e) => {
             eprintln!("回流失败: {e}");
+            1
+        }
+    }
+}
+
+/// 学习队列 → answer-first SFT 语料 (P1 数据闭环; ToolRAG 语义复核 + ToolGrad 种子)
+fn cmd_datagen(args: &[String]) -> i32 {
+    let Some(pack) = flag(args, "--pack") else {
+        eprintln!("缺少 --pack <dir>");
+        return 2;
+    };
+    let out = flag(args, "--out")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("sft_corpus.jsonl"));
+    let rag = lycore::toolrag::ToolRag::build(lycore::toolrag::TokenEmbedder::new());
+    let queue = std::path::Path::new(&pack).join("learning_queue.jsonl");
+    match lycore::datagen::datagen(&queue, &out, &rag) {
+        Ok(n) => {
+            println!("answer-first SFT 语料: {n} 条 → {}", out.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("datagen 失败: {e}");
             1
         }
     }

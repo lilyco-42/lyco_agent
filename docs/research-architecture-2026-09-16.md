@@ -213,7 +213,10 @@ impl NpuRuntime {
 3. **P1 — Verifier 注册表**（`verify.rs` 改造）✅ **已完成**（commit `f8a50c6`）：`Verifier` trait + `VerifierRegistry::instantiate(VerifierId)`；新增 `OcrVerifier`/`FfprobeVerifier`/`VnnVerifier`(占位降级)/`NoneVerifier`；`skill.rs` 的 `VerifierId` 加 `Ffprobe`/`Vnn` 两变体，`html_render_video`→`Ffprobe`、`vnn_identify`→`Vnn`。VNN Rust 路径保持诚实降级（入学习队列）。
 4. **P1 — ToolRAG 召回层**（`toolrag.rs` 新建 + `learn_cli.rs` 改造）✅ **已完成**（commit `f8a50c6`/`981b20a`）：`Embedder` trait + `TokenEmbedder`(零依赖 bag-of-tokens, 4096 桶) + `ToolRag::recall()` Top-K + `to_openai_tools_schema()` 裁剪 `tools_openai.json`；`skill::Skill` 加 `desc` 语义语料；孤儿 `index_lilyco_schema` 就地解决（`index_and_build` 内联 lyco 自身 7 工具进同一 FTS5 表）。
    > **云端验证（CloudStudio V100, spaceKey `b0d0f5fb…`）**：`cargo build` Finished（6 warnings，toolrag 零警告）；`cargo test` **49 passed / 0 failed / 6 ignored**（lib）+ 集成 2 passed（其余需真实数据）。本机零编译（遵循「不本机编译」约束）。
-5. **P1 — 数据闭环**（`lernen.rs` + `tools/qwen_grpo_train.py`）：LearningQueue 失败轨迹 → answer-first 反向生成 → GRPO/经验 SFT 输入；在 CloudStudio A10 跑。
+5. **P1 — 数据闭环**（`datagen.rs` 新建 + `lernen.rs` 复用 + `tools/qwen_grpo_train.py`）
+   - **Rust 侧 ✅ 已完成**（commit `d1abb83`）：新建 `datagen.rs`，在既有 `lernen::harvest` 之上补 **ToolRAG 语义复核 + answer-first 规范 tool_call 合成**：`build_samples`（保留 `classify` 权威工具，挂 `rag_confirms` 复核信号，不推翻 FC-V4 经验）、`reverse_gen_seeds`（ToolGrad 式种子覆盖 7 工具，补 NO_HIT 只产 lyv/llm 的偏科）、`to_chat_jsonl`（messages + 裁剪 tools schema，assistant 用 `<tool_call>` 与 `executor::parse_call` 闭环）、`datagen` 端到端。CLI 加 `lycore datagen --pack <dir> [--out]`。
+     > **云端验证（CloudStudio V100）**：`cargo test` **54 passed / 0 failed / 6 ignored**（lib，+5 datagen 测试）；CLI 实跑学习队列 → 11 条语料（3 真实 + 8 种子），JSONL 结构与 `parse_call` 闭环一致。
+   - **训练侧 ⏳ 待做**：把 `sft_corpus.jsonl` 接入 `tools/qwen_grpo_train.py`，在 CloudStudio **A10**（spaceKey `04e7e16c…`，需控制台启动）跑 GRPO/经验 SFT；产出新 FC 模型下发端侧。这是唯一需 CUDA 的一步。
 6. **P2 — NPU 调度器**（`lyco-npu-runtime` crate）：纯设计+单测（mock backend），等板子恢复再联调真实 `/dev/galcore`（走 TIM-VX 用户态，避开 6.6 galcore hard hang）。
 7. **P2 — escalation 接线**：Capability 层裁决越权/超难时升级到云端前沿模型（需确认外部模型接入策略，见 issue②）。
 

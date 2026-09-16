@@ -217,7 +217,9 @@ impl NpuRuntime {
    - **Rust 侧 ✅ 已完成**（commit `d1abb83`）：新建 `datagen.rs`，在既有 `lernen::harvest` 之上补 **ToolRAG 语义复核 + answer-first 规范 tool_call 合成**：`build_samples`（保留 `classify` 权威工具，挂 `rag_confirms` 复核信号，不推翻 FC-V4 经验）、`reverse_gen_seeds`（ToolGrad 式种子覆盖 7 工具，补 NO_HIT 只产 lyv/llm 的偏科）、`to_chat_jsonl`（messages + 裁剪 tools schema，assistant 用 `<tool_call>` 与 `executor::parse_call` 闭环）、`datagen` 端到端。CLI 加 `lycore datagen --pack <dir> [--out]`。
      > **云端验证（CloudStudio V100）**：`cargo test` **54 passed / 0 failed / 6 ignored**（lib，+5 datagen 测试）；CLI 实跑学习队列 → 11 条语料（3 真实 + 8 种子），JSONL 结构与 `parse_call` 闭环一致。
    - **训练侧 ⏳ 待做**：把 `sft_corpus.jsonl` 接入 `tools/qwen_grpo_train.py`，在 CloudStudio **A10**（spaceKey `04e7e16c…`，需控制台启动）跑 GRPO/经验 SFT；产出新 FC 模型下发端侧。这是唯一需 CUDA 的一步。
-6. **P2 — NPU 调度器**（`lyco-npu-runtime` crate）：纯设计+单测（mock backend），等板子恢复再联调真实 `/dev/galcore`（走 TIM-VX 用户态，避开 6.6 galcore hard hang）。
+6. **P2 — NPU 调度器 ✅ 已完成（设计+mock 单测）**（commit `d3bbe55`）：落在 `lycore/src/npu_runtime.rs`（**模块而非独立 crate** —— 仓库无 workspace，置于 lycore 内免搭第二套构建；真实 FFI 落地时再提为 `lyco-npu-runtime` crate 以隔离 `unsafe`）。`NpuRuntime<B: NpuBackend>`：租约(Lease) + 优先级等待队列(同级 FIFO) + 租约超时惰性回收(`sweep`/`acquire_at`)；`infer`/`load`/`unload` **强制校验当前租约**（伪造/过期租约一律 `NoSuchLease`）——这是「VIP9000 单网络串行」的强制执行点。`MockNpu` 确定性后端，8 条单测。
+   > **云端验证（CloudStudio V100）**：`cargo test` **62 passed / 0 failed / 6 ignored**（lib，+8 npu_runtime 测试）。
+   > ⏳ **待板子恢复**：实现 `FfiNpu`（TIM-VX 用户态，避开 6.6 galcore hard hang），把 `vnn_identify` executor 接 `acquire("vnn_identify", prio)` / `release`。
 7. **P2 — escalation 接线**：Capability 层裁决越权/超难时升级到云端前沿模型（需确认外部模型接入策略，见 issue②）。
 
 ---

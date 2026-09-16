@@ -380,6 +380,53 @@ impl Verifier for VnnVerifier {
     }
 }
 
+/// 退出码验证器 — shell 类技能: 命令是否成功 (exit=0)
+///
+/// `VerifierInput.score` 复用为退出码 (0 = 成功)。
+pub struct ExitCodeVerifier;
+
+impl Verifier for ExitCodeVerifier {
+    fn id(&self) -> VerifierId {
+        VerifierId::ExitCode
+    }
+    fn run(&self, input: &VerifierInput) -> VerifierResult {
+        let pass = input.min_conf == 0.0; // 约定: 0 表示 exit code 0
+        VerifierResult {
+            pass,
+            route: if pass { "exit_code" } else { "learning_queue" },
+            score: input.min_conf,
+            detail: format!("exit_code={}", input.min_conf as i64),
+        }
+    }
+}
+
+/// 文件存在验证器 — 落盘类技能: 产物存在且非空
+pub struct FileExistsVerifier;
+
+impl Verifier for FileExistsVerifier {
+    fn id(&self) -> VerifierId {
+        VerifierId::FileExists
+    }
+    fn run(&self, input: &VerifierInput) -> VerifierResult {
+        let Some(p) = &input.artifact else {
+            return VerifierResult {
+                pass: false,
+                route: "learning_queue",
+                score: 0.0,
+                detail: "FileExists 验证缺产物路径".into(),
+            };
+        };
+        let len = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+        let pass = len > 0;
+        VerifierResult {
+            pass,
+            route: if pass { "file_exists" } else { "learning_queue" },
+            score: if pass { 1.0 } else { 0.0 },
+            detail: format!("{} = {} bytes", p.display(), len),
+        }
+    }
+}
+
 /// 无确定性验证器 — 纯文本创作 / 检索, 视为永远 pass
 pub struct NoneVerifier;
 
@@ -407,6 +454,8 @@ impl VerifierRegistry {
             VerifierId::Ocr => Box::new(OcrVerifier::new()),
             VerifierId::Ffprobe => Box::new(FfprobeVerifier::new()),
             VerifierId::Vnn => Box::new(VnnVerifier),
+            VerifierId::ExitCode => Box::new(ExitCodeVerifier),
+            VerifierId::FileExists => Box::new(FileExistsVerifier),
             VerifierId::None => Box::new(NoneVerifier),
         }
     }
@@ -454,6 +503,8 @@ mod tests {
             VerifierId::Ocr,
             VerifierId::Ffprobe,
             VerifierId::Vnn,
+            VerifierId::ExitCode,
+            VerifierId::FileExists,
             VerifierId::None,
         ];
         for id in ids {

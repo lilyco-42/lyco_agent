@@ -54,6 +54,10 @@ pub const TOOL_CAPS: &[(&str, &[Capability])] = &[
         &[Capability::FileWrite, Capability::Shell],
     ),
     ("video_info", &[Capability::FileRead]),
+    // --- 执行类工具 (日常任务"真能干活"所需; 用户 2026-09-16 要求) ---
+    ("shell_exec", &[Capability::Shell]),
+    ("file_write", &[Capability::FileWrite]),
+    ("schedule", &[Capability::Shell, Capability::FileWrite]),
 ];
 
 /// 查询某工具声明的能力 (未登记返回空切片)
@@ -89,6 +93,9 @@ mod tests {
             "llm_generate",
             "html_render_video",
             "video_info",
+            "shell_exec",
+            "file_write",
+            "schedule",
         ];
         for n in names {
             assert!(

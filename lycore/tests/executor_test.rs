@@ -22,6 +22,9 @@ fn chat_tools_matches_executor_dispatch() {
         "rembg_remove",
         "llm_generate",
         "video_info",
+        "shell_exec",
+        "file_write",
+        "schedule",
     ];
     assert_eq!(names, expected, "schema 漂移: 导出工具集 ≠ 期望 (与 executor match 对齐)");
     // 每个工具都得有参数 schema (OpenAI 要求), 且 name 唯一

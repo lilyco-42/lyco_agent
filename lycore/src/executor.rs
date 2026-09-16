@@ -278,6 +278,62 @@ impl Executor {
                     }
                 }
             }
+            "shell_exec" => {
+                let command = arguments.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                let cwd = arguments.get("cwd").and_then(|v| v.as_str());
+                if command.is_empty() {
+                    ToolResult::err(name, "参数需 {\"command\": \"...\"} (可选 cwd)")
+                } else {
+                    let o = crate::tools_runtime::shell_exec(command, cwd.map(Path::new));
+                    if o.ok {
+                        ToolResult {
+                            ok: true, tool: name.to_string(), answer: Some(o.summary),
+                            command: Some(command.to_string()), clip: None, keyframe: None,
+                            strong: None, error: None,
+                        }
+                    } else {
+                        let _ = self.queue.push(command, "shell_exec: 执行失败");
+                        ToolResult::err(name, &o.summary)
+                    }
+                }
+            }
+            "file_write" => {
+                let path = arguments.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                let content = arguments.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                if path.is_empty() {
+                    ToolResult::err(name, "参数需 {\"path\": \"...\", \"content\": \"...\"}")
+                } else {
+                    let o = crate::tools_runtime::file_write(Path::new(path), content);
+                    if o.ok {
+                        ToolResult {
+                            ok: true, tool: name.to_string(), answer: Some(o.summary),
+                            command: None, clip: None, keyframe: None, strong: None, error: None,
+                        }
+                    } else {
+                        let _ = self.queue.push(path, "file_write: 执行失败");
+                        ToolResult::err(name, &o.summary)
+                    }
+                }
+            }
+            "schedule" => {
+                let spec = arguments.get("spec").and_then(|v| v.as_str()).unwrap_or("");
+                let command = arguments.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                let apply = arguments.get("apply").and_then(|v| v.as_bool()).unwrap_or(false);
+                if spec.is_empty() || command.is_empty() {
+                    ToolResult::err(name, "参数需 {\"spec\": \"0 8 * * *\", \"command\": \"...\", \"apply\": false}")
+                } else {
+                    let o = crate::tools_runtime::schedule(spec, command, apply);
+                    if o.ok {
+                        ToolResult {
+                            ok: true, tool: name.to_string(), answer: Some(o.summary),
+                            command: Some(format!("{spec} {command}")), clip: None, keyframe: None,
+                            strong: None, error: None,
+                        }
+                    } else {
+                        ToolResult::err(name, &o.summary)
+                    }
+                }
+            }
             other => ToolResult::err(other, "未知工具"),
         }
     }

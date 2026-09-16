@@ -283,11 +283,215 @@ pub fn video_info(video: &Path) -> RunOutcome {
     }
 }
 
+// ===================== 执行类工具 (日常任务"真能干活") =====================
+//
+// shell 选择链 (用户指定): LYCO_SHELL 显式覆盖 → **brush**(Rust 写的 bash/POSIX 兼容,
+// 跨平台首选, MIT) → **nu**(nushell, 备用, MIT) → 平台默认(sh / cmd)。
+// 三者都只在「命令字符串」层面工作, 故可互换; 缺失时优雅降级并在错误里提示安装。
+
+/// 探测可执行文件是否在 PATH
+fn which(prog: &str) -> bool {
+    let checker = if cfg!(windows) { "where" } else { "which" };
+    std::process::Command::new(checker)
+        .arg(prog)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// 选 shell → (程序名, 是否用 `-c` 传命令)
+pub fn pick_shell() -> (String, bool) {
+    if let Ok(s) = std::env::var("LYCO_SHELL") {
+        let s = s.trim().to_string();
+        if !s.is_empty() {
+            return (s, true);
+        }
+    }
+    if which("brush") {
+        return ("brush".to_string(), true);
+    }
+    if which("nu") {
+        return ("nu".to_string(), true);
+    }
+    if cfg!(windows) {
+        ("cmd".to_string(), false)
+    } else {
+        ("sh".to_string(), true)
+    }
+}
+
+/// 带超时的命令执行 (std 无内置 timeout, 用 try_wait 轮询)
+fn run_with_timeout(
+    mut cmd: std::process::Command,
+    secs: u64,
+) -> std::io::Result<(bool, String, String)> {
+    use std::io::Read;
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let mut so = String::new();
+            let mut se = String::new();
+            if let Some(mut o) = child.stdout.take() {
+                let _ = o.read_to_string(&mut so);
+            }
+            if let Some(mut e) = child.stderr.take() {
+                let _ = e.read_to_string(&mut se);
+            }
+            return Ok((status.success(), so, se));
+        }
+        if start.elapsed() > Duration::from_secs(secs) {
+            let _ = child.kill();
+            return Ok((false, String::new(), format!("超时 {secs}s (已终止)")));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn tail_n(s: &str, n: usize) -> String {
+    s.lines()
+        .rev()
+        .take(n)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// shell_exec: 执行一条命令 (brush/nu/平台默认), 返回 exit code + 输出摘要
+pub fn shell_exec(command: &str, cwd: Option<&Path>) -> RunOutcome {
+    if command.trim().is_empty() {
+        return RunOutcome { ok: false, summary: "空命令".to_string(), artifact: None };
+    }
+    let (prog, dash_c) = pick_shell();
+    let mut c = std::process::Command::new(&prog);
+    if dash_c {
+        c.args(["-c", command]);
+    } else {
+        c.args(["/C", command]);
+    }
+    if let Some(d) = cwd {
+        c.current_dir(d);
+    }
+    match run_with_timeout(c, 120) {
+        Ok((ok, so, se)) => RunOutcome {
+            ok,
+            summary: if ok {
+                format!("[{prog}] {}", tail_n(&so, 5))
+            } else {
+                format!("[{prog}] {}", tail_n(&se, 5))
+            },
+            artifact: None,
+        },
+        Err(e) => RunOutcome {
+            ok: false,
+            summary: format!("{prog} 启动失败: {e} (可安装 brush 或 nushell 作为跨平台 shell)"),
+            artifact: None,
+        },
+    }
+}
+
+/// file_write: 写文本文件 (自动建父目录)
+pub fn file_write(path: &Path, content: &str) -> RunOutcome {
+    if let Some(p) = path.parent() {
+        if !p.as_os_str().is_empty() {
+            if let Err(e) = std::fs::create_dir_all(p) {
+                return RunOutcome { ok: false, summary: format!("建目录失败: {e}"), artifact: None };
+            }
+        }
+    }
+    match std::fs::write(path, content) {
+        Ok(()) => RunOutcome {
+            ok: true,
+            summary: format!("写入 {} 字节 → {}", content.len(), path.display()),
+            artifact: Some(path.to_path_buf()),
+        },
+        Err(e) => RunOutcome { ok: false, summary: format!("写文件失败: {e}"), artifact: None },
+    }
+}
+
+/// schedule: 定时任务 (Linux cron / Windows schtasks)。
+/// **安全默认**: 只返回配置片段 (dry-run); 传 `apply=true` 才真正登记。
+pub fn schedule(spec: &str, command: &str, apply: bool) -> RunOutcome {
+    if spec.trim().is_empty() || command.trim().is_empty() {
+        return RunOutcome { ok: false, summary: "需 {spec, command}".to_string(), artifact: None };
+    }
+    #[cfg(windows)]
+    let snippet = format!(
+        "# Windows 计划任务\nschtasks /Create /SC DAILY /TN lyco_task /TR \"{command}\" /F\n\
+         # (cron 风格 spec: {spec} — Windows 下需换算为 /ST HH:MM)"
+    );
+    #[cfg(not(windows))]
+    let snippet = format!("# crontab 行 (crontab -e 粘贴)\n{spec} {command}\n");
+
+    if !apply {
+        return RunOutcome {
+            ok: true,
+            summary: format!("[dry-run] 定时配置:\n{snippet}"),
+            artifact: None,
+        };
+    }
+    #[cfg(windows)]
+    let result = {
+        let mut c = std::process::Command::new("schtasks");
+        c.args(["/Create", "/SC", "DAILY", "/TN", "lyco_task", "/TR", command, "/F"]);
+        run_with_timeout(c, 30)
+    };
+    #[cfg(not(windows))]
+    let result = {
+        let line = format!("(crontab -l 2>/dev/null; echo \"{spec} {command}\") | crontab -");
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", line.as_str()]);
+        run_with_timeout(c, 30)
+    };
+    match result {
+        Ok((ok, so, se)) => RunOutcome {
+            ok,
+            summary: if ok {
+                format!("已登记定时任务: {spec} {command}")
+            } else {
+                format!("登记失败: {}", tail_n(&se, 3))
+            },
+            artifact: None,
+        },
+        Err(e) => RunOutcome { ok: false, summary: format!("登记失败: {e}"), artifact: None },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    #[test]
+    fn file_write_creates_file_and_parents() {
+        let t = tempfile::tempdir().unwrap();
+        let p = t.path().join("a/b/c.txt");
+        let o = super::file_write(&p, "hi");
+        assert!(o.ok, "{}", o.summary);
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "hi");
+        assert_eq!(o.artifact.as_deref(), Some(p.as_path()));
+    }
+
+    #[test]
+    fn shell_exec_runs_command() {
+        let o = super::shell_exec("echo lyco_ok", None);
+        assert!(o.ok, "shell_exec 失败: {}", o.summary);
+        assert!(o.summary.contains("lyco_ok"), "summary={}", o.summary);
+    }
+
+    #[test]
+    fn schedule_dry_run_returns_snippet_without_applying() {
+        let o = super::schedule("0 8 * * *", "java -jar paper.jar nogui", false);
+        assert!(o.ok, "{}", o.summary);
+        assert!(o.summary.contains("0 8 * * *"), "{}", o.summary);
+        assert!(o.summary.contains("dry-run"), "默认不落地: {}", o.summary);
+    }
+
     fn llm_generate_requires_key() {
         // 无 key 时诚实失败, 不编造
         std::env::remove_var("LYCO_LLM_KEY");

@@ -40,6 +40,10 @@ pub enum VerifierId {
     Ffprobe,
     /// VNN Rust 路径未实现 → 诚实降级到学习队列 (`verify::VnnVerifier`)
     Vnn,
+    /// 退出码验证 (`verify::ExitCodeVerifier`) — shell 类技能用
+    ExitCode,
+    /// 文件存在且非空 (`verify::FileExistsVerifier`) — 落盘类技能用
+    FileExists,
     /// 无确定性验证 (纯文本创作 / 检索) — 视为永远 pass
     None,
 }
@@ -122,6 +126,31 @@ pub const ALL_SKILLS: &[Skill] = &[
         executor: "video_info",
         desc: "查看视频信息 时长 分辨率 帧率 视频元数据 video metadata duration 视频属性",
     },
+    // --- 执行类 (日常任务)。Verifier 挂确定性验收: shell→退出码, 落盘→文件存在 ---
+    Skill {
+        name: "shell_exec",
+        capabilities: &[Capability::Shell],
+        risk: RiskLevel::High,
+        verifier: VerifierId::ExitCode,
+        executor: "shell_exec",
+        desc: "执行 shell 命令 跑脚本 启动程序 让某程序运行起来 执行命令 run command shell script launch 跨平台 brush nushell",
+    },
+    Skill {
+        name: "file_write",
+        capabilities: &[Capability::FileWrite],
+        risk: RiskLevel::Medium,
+        verifier: VerifierId::FileExists,
+        executor: "file_write",
+        desc: "写文件 生成脚本 保存配置 输出到文件 落盘 write file save script config",
+    },
+    Skill {
+        name: "schedule",
+        capabilities: &[Capability::Shell, Capability::FileWrite],
+        risk: RiskLevel::Medium,
+        verifier: VerifierId::None,
+        executor: "schedule",
+        desc: "定时任务 定时启动 每天几点 定时执行 cron 计划任务 schedule timer daily 到点自动运行",
+    },
 ];
 
 /// 技能注册表查询 / 按能力过滤 (模型-escalation 与 ToolRAG 裁剪前置)
@@ -195,6 +224,6 @@ mod tests {
             Capability::DeviceControl,
             Capability::GitHub,
         ];
-        assert_eq!(SkillRegistry::allowed_tool_names(&full).len(), 7);
+        assert_eq!(SkillRegistry::allowed_tool_names(&full).len(), 10);
     }
 }

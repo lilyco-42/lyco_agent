@@ -84,6 +84,22 @@ impl<'a> Agent<'a> {
                             };
                         }
                     }
+                    // 退化输出防护: 空 / "None" / "null" / "undefined" 不是有效回答。
+                    // 实证来源 (2026-09-16 A10): Q4_K_M 量化的 0.6B 在分布外意图上会把
+                    // 「不确定」压塌成字面量 "None" (同权重 f16 输出正常) → 绝不能外泄给用户。
+                    // 按 lyco「诚实降级」语义: 入学习队列, 不编造。
+                    if is_degenerate(&answer) {
+                        let _ = self.executor.learning_queue().push(
+                            question,
+                            "DEGENERATE_OUTPUT: 模型未产出有效回答",
+                        );
+                        return Ok(Turn {
+                            rounds: round,
+                            answer: "抱歉，我没能理解这个请求，已加入学习队列。".to_string(),
+                            tool_calls,
+                            learning_queue_used: true,
+                        });
+                    }
                     return Ok(Turn { rounds: round, answer, tool_calls, learning_queue_used });
                 }
                 Some((name, arguments)) => {
@@ -136,6 +152,16 @@ fn strip_tags(text: &str) -> String {
     }
     // 从 im_end 后截断的语义由 replace 保留 (删掉标记后可能留尾部) — 与 Python 正则版近似
     s.trim().to_string()
+}
+
+/// 退化输出判定: 这些不是「回答」, 是模型的失效信号
+pub fn is_degenerate(s: &str) -> bool {
+    let t = s.trim();
+    t.is_empty()
+        || t.eq_ignore_ascii_case("none")
+        || t.eq_ignore_ascii_case("null")
+        || t.eq_ignore_ascii_case("undefined")
+        || t.eq_ignore_ascii_case("nan")
 }
 
 fn log_result(r: &ToolResult) {
@@ -262,5 +288,38 @@ mod tests {
         assert_eq!(turn.rounds, 2, "复读应在第 2 轮收束, 实得 {}", turn.rounds);
         assert!(turn.learning_queue_used);
         assert!(turn.answer.contains("还没学会"), "answer={}", turn.answer);
+    }
+
+    #[test]
+    fn degenerate_detection() {
+        assert!(is_degenerate(""));
+        assert!(is_degenerate("   "));
+        assert!(is_degenerate("None"));
+        assert!(is_degenerate("null"));
+        assert!(is_degenerate("undefined"));
+        assert!(is_degenerate("nan"));
+        assert!(!is_degenerate("你好"));
+        assert!(!is_degenerate("Nonexistent tool"), "含 None 但不是纯 None → 保留");
+    }
+
+    /// 退化输出 (Q4_K_M 实测的 "None") → 诚实降级 + 入学习队列, 绝不外泄给用户
+    #[test]
+    fn degenerate_output_becomes_honest_degrade() {
+        let tmp = tempfile::tempdir().unwrap();
+        // 先建出 pack schema (append_cues 会建表), 使 Executor::open 可用
+        crate::learn_cli::append_cues(
+            tmp.path(),
+            "test",
+            &[crate::learn::Cue { t0: 0.0, t1: 0.0, text: "dummy".to_string() }],
+        )
+        .unwrap();
+        let ex = Executor::open(tmp.path()).expect("open pack");
+        let agent = Agent::new(&ex, 4);
+        let mut backend = Scripted::new(vec!["None"]);
+        let turn = agent.run(&mut backend, "帮我写一个脚本").unwrap();
+        assert!(turn.learning_queue_used, "退化输出应入学习队列");
+        assert!(turn.tool_calls.is_empty());
+        assert!(turn.answer.contains("没能理解"), "answer={}", turn.answer);
+        assert_eq!(LearningQueue::open(tmp.path()).len(), 1);
     }
 }

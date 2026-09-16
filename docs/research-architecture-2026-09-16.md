@@ -210,8 +210,9 @@ impl NpuRuntime {
 
 1. **P0 — Capability 枚举**（`lycore/src/capability.rs`）：定义 `enum Capability` + `TOOL_CAPS` 表，并入 `lib.rs`。
 2. **P0 — Skill 描述符**（`lycore/src/skill.rs`）：`struct Skill { capabilities, risk, verifier, executor }`，把 `verify.rs`/`executor.rs` 接进来；补 `RiskLevel`。
-3. **P1 — Verifier 注册表**（`verify.rs` 改造）：`Verifier` trait + 注册表；补 `html_render_video` 的 ffprobe 验证器；VNN Rust 路径占位（降级保持）。
-4. **P1 — ToolRAG 召回层**（`learn_cli.rs` 改造）：FTS5 之上加 embedding Top-K；接 `index_lilyco_schema` 孤儿（fix issue①）；产出裁剪版 `tools_openai.json`。
+3. **P1 — Verifier 注册表**（`verify.rs` 改造）✅ **已完成**（commit `f8a50c6`）：`Verifier` trait + `VerifierRegistry::instantiate(VerifierId)`；新增 `OcrVerifier`/`FfprobeVerifier`/`VnnVerifier`(占位降级)/`NoneVerifier`；`skill.rs` 的 `VerifierId` 加 `Ffprobe`/`Vnn` 两变体，`html_render_video`→`Ffprobe`、`vnn_identify`→`Vnn`。VNN Rust 路径保持诚实降级（入学习队列）。
+4. **P1 — ToolRAG 召回层**（`toolrag.rs` 新建 + `learn_cli.rs` 改造）✅ **已完成**（commit `f8a50c6`/`981b20a`）：`Embedder` trait + `TokenEmbedder`(零依赖 bag-of-tokens, 4096 桶) + `ToolRag::recall()` Top-K + `to_openai_tools_schema()` 裁剪 `tools_openai.json`；`skill::Skill` 加 `desc` 语义语料；孤儿 `index_lilyco_schema` 就地解决（`index_and_build` 内联 lyco 自身 7 工具进同一 FTS5 表）。
+   > **云端验证（CloudStudio V100, spaceKey `b0d0f5fb…`）**：`cargo build` Finished（6 warnings，toolrag 零警告）；`cargo test` **49 passed / 0 failed / 6 ignored**（lib）+ 集成 2 passed（其余需真实数据）。本机零编译（遵循「不本机编译」约束）。
 5. **P1 — 数据闭环**（`lernen.rs` + `tools/qwen_grpo_train.py`）：LearningQueue 失败轨迹 → answer-first 反向生成 → GRPO/经验 SFT 输入；在 CloudStudio A10 跑。
 6. **P2 — NPU 调度器**（`lyco-npu-runtime` crate）：纯设计+单测（mock backend），等板子恢复再联调真实 `/dev/galcore`（走 TIM-VX 用户态，避开 6.6 galcore hard hang）。
 7. **P2 — escalation 接线**：Capability 层裁决越权/超难时升级到云端前沿模型（需确认外部模型接入策略，见 issue②）。

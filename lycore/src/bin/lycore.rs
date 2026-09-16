@@ -23,6 +23,7 @@ fn main() {
         "learn-cli" => cmd_learn_cli(&args[1..]),
         "harvest" => cmd_harvest(&args[1..]),
         "datagen" => cmd_datagen(&args[1..]),
+        "project" => cmd_project(&args[1..]),
         "doctor" => cmd_doctor(&args[1..]),
         "serve" => cmd_serve(&args[1..]),
         "tools" => cmd_tools(&args[1..]),
@@ -34,6 +35,7 @@ fn main() {
                  lycore learn  --video <mp4> --srt <srt> --pack <out_dir>\n  \
                  lycore harvest --pack <dir> [--out <file>]\n  \
                  lycore datagen --pack <dir> [--out <file>]  (学习队列→answer-first SFT 语料)\n  \
+                 lycore project --dir <path> [--pack <dir>] [--out <script>] [--start 08:00] [--end 22:00]\n  \
                  lycore doctor --pack <dir>"
             );
             2
@@ -284,6 +286,57 @@ fn cmd_datagen(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// 项目目录 → 服务端识别 + 关联知识入库 + 时间窗启动脚本
+/// (支撑指令: "写一个 8:00-22:00 自动启动 java 起 Minecraft 的程序")
+fn cmd_project(args: &[String]) -> i32 {
+    let Some(dir) = flag(args, "--dir") else {
+        eprintln!("缺少 --dir <path>");
+        return 2;
+    };
+    let start = flag(args, "--start").unwrap_or_else(|| "08:00".into());
+    let end = flag(args, "--end").unwrap_or_else(|| "22:00".into());
+    let scan = match lycore::project::scan(std::path::Path::new(&dir)) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("扫描失败: {e}");
+            return 1;
+        }
+    };
+    println!("[project] {}", scan.dir);
+    println!("  服务端类型: {}", scan.kind.as_str());
+    println!("  服务端 jar: {}", scan.server_jar.as_deref().unwrap_or("(未发现)"));
+    println!("  eula.txt: {}   plugins/: {}", scan.eula_present, scan.plugins_dir);
+    for a in &scan.artifacts {
+        println!("   - {} [{}]", a.name, a.kind);
+    }
+
+    // 关联知识入库 (Minecraft/paper 领域知识 + 本项目事实)
+    if let Some(pack) = flag(args, "--pack") {
+        let cues = lycore::project::knowledge_cues(&scan);
+        match lycore::learn_cli::append_cues(std::path::Path::new(&pack), "project", &cues) {
+            Ok(n) => println!("  关联知识入库: {n} 条 → {pack}"),
+            Err(e) => {
+                eprintln!("入库失败: {e}");
+                return 1;
+            }
+        }
+    }
+
+    // 生成启动脚本
+    let script = lycore::project::launch_script(&scan, &start, &end);
+    match flag(args, "--out") {
+        Some(out) => {
+            if let Err(e) = std::fs::write(&out, &script) {
+                eprintln!("写脚本失败: {e}");
+                return 1;
+            }
+            println!("  启动脚本 → {out} (时间窗 {start}-{end})");
+        }
+        None => println!("\n{script}"),
+    }
+    0
 }
 
 fn cmd_doctor(args: &[String]) -> i32 {

@@ -393,6 +393,48 @@ pub fn index_and_build(tool: &str, pack_dir: &Path) -> anyhow::Result<usize> {
     Ok(entries.len())
 }
 
+/// 追加 Cue 到知识包 (幂等: 先删同 prefix 旧条目; 不覆盖他人条目, 不改 jsonl)。
+/// 供领域知识注入 (如 `project` 扫描出的 Minecraft/paper 知识) 复用同一 FTS5 表。
+pub fn append_cues(pack_dir: &Path, prefix: &str, cues: &[Cue]) -> anyhow::Result<usize> {
+    use rusqlite::Connection;
+    for d in ["knowledge", "index"] {
+        std::fs::create_dir_all(pack_dir.join(d))?;
+    }
+    let db = Connection::open(pack_dir.join("index/knowledge.sqlite"))?;
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS segments(id TEXT PRIMARY KEY, t0 REAL, t1 REAL,
+         text TEXT, intent TEXT, command TEXT, frame TEXT, ocr TEXT, ocr_conf REAL,
+         strong TEXT, weak TEXT);
+         CREATE VIRTUAL TABLE IF NOT EXISTS seg_fts USING fts5(id, text, entities, intent, strong);",
+    )?;
+    {
+        let mut stmt = db.prepare("SELECT id FROM segments WHERE intent LIKE ?1")?;
+        let old: Vec<String> = stmt
+            .query_map([format!("{prefix}.%")], |r| r.get::<_, String>(0))?
+            .collect::<Result<_, _>>()?;
+        for id in old {
+            db.execute("DELETE FROM seg_fts WHERE id = ?1", [&id])?;
+            db.execute("DELETE FROM segments WHERE id = ?1", [&id])?;
+        }
+    }
+    for (i, cue) in cues.iter().enumerate() {
+        let uid = format!("{prefix}_{i:03}");
+        let intent = format!("{prefix}.k{i:03}");
+        let text = cue.text.clone();
+        let strong = crate::tokens::tokens(&text).join(" ");
+        let fts_text = strong.clone();
+        db.execute(
+            "INSERT OR REPLACE INTO segments VALUES(?1,?2,?3,?4,?5,'','',?6,1.0,?7,'')",
+            rusqlite::params![&uid, cue.t0, cue.t1, &text, &intent, &text, &strong],
+        )?;
+        db.execute(
+            "INSERT OR REPLACE INTO seg_fts VALUES(?1,?2,?3,?4,?5)",
+            rusqlite::params![&uid, &fts_text, &strong, &intent, &strong],
+        )?;
+    }
+    Ok(cues.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

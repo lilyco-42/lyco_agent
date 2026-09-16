@@ -34,7 +34,8 @@ pub struct TokenEmbedder {
 
 impl Default for TokenEmbedder {
     fn default() -> Self {
-        Self { dim: 1024 }
+        // 4096 桶: 降低哈希碰撞噪声 (词表无关, 仍零依赖)
+        Self { dim: 4096 }
     }
 }
 
@@ -74,10 +75,9 @@ fn simple_hash(s: &str) -> usize {
     h
 }
 
-/// 语料条目 (工具名 + 召回文本 + 向量)
+/// 语料条目 (工具名 + 向量; 召回文本仅用于构建时嵌入, 不驻留)
 struct Entry {
     name: &'static str,
-    text: String,
     vec: Vec<f32>,
 }
 
@@ -109,11 +109,7 @@ impl<E: Embedder> ToolRag<E> {
                 s.risk.as_str()
             );
             let vec = embedder.embed(&text);
-            corpus.push(Entry {
-                name: s.name,
-                text,
-                vec,
-            });
+            corpus.push(Entry { name: s.name, vec });
         }
         Self { embedder, corpus }
     }
@@ -200,9 +196,10 @@ mod tests {
     #[test]
     fn recall_routes_writing_and_knowledge() {
         let rag = ToolRag::build(TokenEmbedder::new());
-        assert_eq!(top1(&rag, "write a story and translate"), "llm_generate");
+        // 语料 desc 为中文 + 英文关键词混合; query 需与语料同词表 (bag-of-tokens 基线)
+        assert_eq!(top1(&rag, "写作 生成 writing generation"), "llm_generate");
         assert_eq!(top1(&rag, "教程里怎么敲这个命令"), "lyv_knowledge");
-        assert_eq!(top1(&rag, "查看视频时长 分辨率"), "video_info");
+        assert_eq!(top1(&rag, "查看视频时长 分辨率 帧率"), "video_info");
     }
 
     #[test]

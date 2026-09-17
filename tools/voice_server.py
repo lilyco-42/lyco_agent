@@ -229,8 +229,15 @@ class H(BaseHTTPRequestHandler):
             t0 = time.time()
             text = ""
             try:
-                segs, info = model.transcribe(io.BytesIO(audio), language="zh")
+                # initial_prompt 偏置简体; opencc(t2s) 兜底转简 (路由器语料全是简体)
+                segs, info = model.transcribe(io.BytesIO(audio), language="zh",
+                                              initial_prompt="以下是普通话的句子。")
                 text = "".join(s.text for s in segs).strip()
+                try:
+                    from opencc import OpenCC
+                    text = OpenCC("t2s").convert(text)
+                except ImportError:
+                    pass
             except Exception as e:
                 text = f"(解码失败: {e})"
             secs = round(time.time() - t0, 2)

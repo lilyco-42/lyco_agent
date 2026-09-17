@@ -73,16 +73,43 @@ async function turn(text){
 }
 document.getElementById('send').onclick=()=>turn(inp.value);
 inp.onkeydown=e=>{if(e.key==='Enter')turn(inp.value);};
-document.getElementById('mic').onclick=()=>document.getElementById('file').click();
+let rec=null, chunks=[], micBusy=false;
+const mic=document.getElementById('mic');
+mic.onclick=async()=>{
+  if(rec&&rec.state==='recording'){rec.stop();return;}
+  if(!window.isSecureContext){
+    add('a','⚠️ 当前是 http 页面，浏览器禁用麦克风。请改用 https://192.168.10.69:8443 （接受一次证书警告即可），或点 📎 上传语音文件。');
+    return;
+  }
+  if(micBusy) return; micBusy=true;
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    rec=new MediaRecorder(stream); chunks=[];
+    rec.ondataavailable=ev=>chunks.push(ev.data);
+    rec.onstop=async()=>{
+      stream.getTracks().forEach(t=>t.stop());
+      mic.textContent='🎤'; micBusy=false;
+      const blob=new Blob(chunks);
+      if(blob.size>1000) await sendAudio(blob);
+    };
+    rec.start(); mic.textContent='⏹ 停止';
+  }catch(err){ micBusy=false; add('a','🎤 麦克风不可用: '+err.message+' — 可点 📎 上传语音文件。'); }
+};
 document.getElementById('up').onclick=()=>document.getElementById('file').click();
 document.getElementById('file').onchange=e=>{
   const f=e.target.files[0]; if(!f) return;
-  const w=document.getElementById('wel'); if(w) w.remove();
-  add('u','🎤 (语音消息)');
-  const d=add('a',''); d.innerHTML='<span class=dots><span></span><span></span><span></span></span>';
-  const fd=new FormData(); fd.append('audio',f);
-  fetch('/asr',{method:'POST',body:fd}).then(r=>r.json()).then(async j=>{
-    d.remove(); await turn(j.text||''); });
+  if(f.size>1000) sendAudio(f);
   e.target.value='';
 };
+async function sendAudio(blob){
+  const w=document.getElementById('wel'); if(w) w.remove();
+  add('u','🎤 (语音)');
+  const d=add('a',''); d.innerHTML='<span class=dots><span></span><span></span><span></span></span>';
+  const fd=new FormData(); fd.append('audio',blob);
+  try{
+    const r=await fetch('/asr',{method:'POST',body:fd});
+    const j=await r.json(); d.remove();
+    await turn(j.text||'(没听清)');
+  }catch(e){ d.textContent='识别失败: '+e.message; }
+}
 </script></body></html>

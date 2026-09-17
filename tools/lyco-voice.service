@@ -1,0 +1,15 @@
+[Unit]
+Description=lyco voice/chat UI (faster-whisper + router glue)
+After=network.target lyco-llama.service
+
+[Service]
+Type=simple
+User=radxa
+WorkingDirectory=/home/radxa
+Environment=LD_LIBRARY_PATH=/home/radxa/lib
+ExecStart=/usr/bin/python3 /home/radxa/voice_server.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

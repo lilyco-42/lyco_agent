@@ -1,0 +1,14 @@
+[Unit]
+Description=lyco router (llama-server, local 0.6B q8_0)
+After=network.target
+
+[Service]
+Type=simple
+User=radxa
+Environment=LD_LIBRARY_PATH=/home/radxa/llm
+ExecStart=/home/radxa/llm/llama-server -m /home/radxa/router-q8_0.gguf --host 127.0.0.1 --port 8080 -t 6 -c 1024 --no-webui
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

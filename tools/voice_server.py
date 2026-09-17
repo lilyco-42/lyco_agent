@@ -229,10 +229,12 @@ class H(BaseHTTPRequestHandler):
             t0 = time.time()
             text = ""
             try:
-                # initial_prompt 偏置简体; opencc(t2s) 兜底转简 (路由器语料全是简体)
-                segs, info = model.transcribe(io.BytesIO(audio), language="zh",
-                                              initial_prompt="以下是普通话的句子。")
-                text = "".join(s.text for s in segs).strip()
+                # tiny int8 是这块 CPU 的上限 (base 实测 16x 实时率, 不可用);
+                # 准确率靠 hotwords 领域词 + initial_prompt 简体偏置, 不靠换大模型
+                segs, info = model.transcribe(
+                    io.BytesIO(audio), language="zh",
+                    initial_prompt="以下是普通话的句子。打开台灯。把蓝灯关掉。风扇调到一百五。",
+                    hotwords="台灯 蓝灯 绿灯 风扇 温度 内存 磁盘 打开 关闭 亮 灯 调到")
                 try:
                     from opencc import OpenCC
                     text = OpenCC("t2s").convert(text)

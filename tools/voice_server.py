@@ -83,11 +83,25 @@ class H(BaseHTTPRequestHandler):
             self._send(404, b"{}", "application/json")
             return
         n = int(self.headers.get("Content-Length", 0))
-        audio = self.rfile.read(n)          # webm/ogg 由浏览器 MediaRecorder 产出
+        body = self.rfile.read(n)
+        # ⚠️ 浏览器 FormData 上传是 multipart/form-data: 必须解析出音频部分,
+        # 否则连边界头一起喂给 ffmpeg → "Invalid data found" (实测踩坑)
+        ct = self.headers.get("Content-Type", "")
+        audio = body
+        if "multipart/form-data" in ct:
+            boundary = ct.split("boundary=")[-1].strip('"').encode()
+            for part in body.split(b"--" + boundary):
+                if b"filename" in part or b"audio" in part:
+                    _, _, data = part.partition(b"\r\n\r\n")
+                    if data.endswith(b"\r\n"):
+                        data = data[:-2]
+                    if len(data) > 100:
+                        audio = data
+                    break
         t0 = time.time()
         text = ""
         try:
-            # faster-whisper 经 ffmpeg 直接吃 webm/ogg 容器, 无需转 wav
+            # faster-whisper 经 ffmpeg 直接吃 webm/ogg/mp4 容器, 无需转 wav
             segs, info = model.transcribe(io.BytesIO(audio), language="zh")
             text = "".join(s.text for s in segs).strip()
         except Exception as e:

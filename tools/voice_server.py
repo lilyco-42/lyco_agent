@@ -19,32 +19,47 @@ print("ready", flush=True)
 PAGE = """<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>lyco 语音入口</title>
-<style>body{font-family:system-ui;background:#111;color:#eee;text-align:center;padding-top:12vh}
-button{font-size:22px;padding:18px 44px;border-radius:40px;border:0;background:#2b6cff;color:#fff}
-#out{margin-top:24px;font-size:18px;white-space:pre-wrap;color:#9f9}</style></head><body>
-<h2>lyco 语音入口</h2><p>按住说话 → 松开识别</p>
-<button id=b>🎤 按住说话</button><div id=out></div>
+<style>body{font-family:system-ui;background:#111;color:#eee;text-align:center;padding-top:10vh}
+button{font-size:20px;padding:16px 36px;border-radius:40px;border:0;background:#2b6cff;color:#fff;margin:8px}
+#file{color:#bbb;margin:10px}
+#out{margin-top:20px;font-size:18px;white-space:pre-wrap;color:#9f9}</style></head><body>
+<h2>lyco 语音入口</h2>
+<button id=b>🎤 按住说话</button><br>
+<input id=file type=file accept="audio/*" capture=microphone>
+<div id=out>提示: 手机上若麦克风被禁, 用下面的"选择录音文件"</div>
 <script>
 let rec, chunks=[], btn=document.getElementById('b'), out=document.getElementById('out');
-btn.onpointerdown = async e => {
-  const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-  rec = new MediaRecorder(stream);
-  chunks = [];
-  rec.ondataavailable = ev => chunks.push(ev.data);
-  rec.start(); btn.textContent = '🔴 松开识别';
+const fin = document.getElementById('file');
+
+function speak(t){                      // TTS 反馈: 读出结果 (http 页面也可用)
+  try{ const u=new SpeechSynthesisUtterance(t); u.lang='zh-CN'; u.rate=1.1;
+       speechSynthesis.cancel(); speechSynthesis.speak(u); }catch(e){}
+}
+async function send(blob, tag){
+  out.textContent = '识别中...';
+  const fd = new FormData();
+  fd.append('audio', blob, 'speech.' + (blob.type.includes('ogg')?'ogg':(blob.type.includes('mp4')?'mp4':'webm')));
+  const r = await fetch('/asr', {method:'POST', body:fd});
+  const j = await r.json();
+  const t = j.text || '(空)';
+  out.textContent = '[' + tag + ' ' + j.secs + 's] ' + t;
+  speak('识别到: ' + t);
+}
+btn.onpointerdown = async e => {        // 按住说话 (需安全上下文: localhost 或白名单)
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    rec = new MediaRecorder(stream); chunks = [];
+    rec.ondataavailable = ev => chunks.push(ev.data);
+    rec.start(); btn.textContent = '🔴 松开识别';
+  }catch(err){ out.textContent = '麦克风被禁: 用下方"选择录音文件"'; }
 };
 btn.onpointerup = () => {
-  rec.onstop = async () => {
-    const blob = new Blob(chunks);
-    out.textContent = '识别中...';
-    const fd = new FormData();
-    fd.append('audio', blob, 'speech.webm');
-    const r = await fetch('/asr', {method:'POST', body:fd});
-    const j = await r.json();
-    out.textContent = '识别: ' + (j.text || '(空)') + ' (' + j.secs + 's)';
-    btn.textContent = '🎤 按住说话';
-  };
-  rec.stop();
+  if(!rec || rec.state !== 'recording'){ btn.textContent='🎤 按住说话'; return; }
+  rec.onstop = () => send(new Blob(chunks), '按住说话');
+  rec.stop(); btn.textContent = '🎤 按住说话';
+};
+fin.onchange = () => {                  // 文件入口: 走系统录音器, 不受 https 限制
+  if(fin.files && fin.files[0]) send(fin.files[0], '文件');
 };
 </script></body></html>"""
 

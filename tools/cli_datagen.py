@@ -41,8 +41,8 @@ T = {
     "disk": ["磁盘还剩多少", "disk space", "存储满了没", "看下磁盘"],
     "fan": ["风扇调到{v}", "风扇转速{v}", "把风扇设为{v}", "fan speed {v}"],
     "fan_status": ["风扇转多快", "看看风扇", "fan rpm", "风扇状态",
-                   "风扇现在什么速度", "风扇转没有", "fan speed status",
-                   "fan rpm now", "查风扇转速", "fan?"],
+                   "风扇现在什么速度", "fan speed status",
+                   "fan rpm now", "查风扇转速", "风扇开着吗", "fan?"],
     "gpio_get": ["读一下 gpio{cn} 的 {l} 号脚", "gpio line {l} 什么电平",
                  "读 gpio chip{cn} line{l}"],
     "gpio_set": ["把 gpio{cn} 的 {l} 号脚拉{v}", "gpio line {l} 设为 {v}",
@@ -149,7 +149,7 @@ def main():
             "写个爬虫", "推荐一部电影", "1 加 1 等于几",
             "你是谁", "讲个鬼故事", "帮我订机票", "明天天气如何", "hello"]
     for t in noop:
-        for _ in range(max(a.train // 100, 1)):
+        for _ in range(max(a.train // 300, 1)):
             train.append({"messages": [{"role": "user", "content": t},
                                        {"role": "assistant",
                                         "content": "(无需调用硬件命令)"}]})

@@ -71,10 +71,11 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID, torch_dtype=torch.bfloat16, attn_implementation="sdpa").cuda()
 
-    train = [encode(tok, m) for m in load(os.path.join(DATA, "train.jsonl"))]
+    train = [encode(tok, [{"role": "system", "content": SYSTEM}] + m)
+             for m in load(os.path.join(DATA, "train.jsonl"))]
     print(f"train={len(train)}", flush=True)
 
-    args = TrainingArguments(output_dir=OUT, num_train_epochs=3,
+    args = TrainingArguments(output_dir=OUT, num_train_epochs=5,
                              per_device_train_batch_size=8, learning_rate=2e-5,
                              logging_steps=25, save_strategy="no", bf16=True,
                              report_to=[])

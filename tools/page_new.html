@@ -1,0 +1,88 @@
+<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>lyco · 本地助手</title>
+<style>
+*{box-sizing:border-box} body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;background:#f3f4f6;color:#1a1a1a;height:100dvh;display:flex;flex-direction:column}
+#hd{background:#fff;border-bottom:1px solid #e5e7eb;padding:12px 20px;display:flex;align-items:center;gap:10px}
+#hd .logo{width:30px;height:30px;border-radius:8px;background:#4D6BFE;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+#hd .t{font-weight:600;font-size:15px} #hd .s{font-size:12px;color:#9ca3af;margin-left:auto}
+#chat{flex:1;overflow-y:auto;width:100%;max-width:760px;margin:0 auto;padding:24px 16px;display:flex;flex-direction:column}
+.welcome{text-align:center;margin-top:8vh}
+.welcome .big{font-size:26px;font-weight:700} .welcome .big em{font-style:normal;color:#4D6BFE}
+.welcome .sub{color:#6b7280;font-size:14px;margin-top:10px}
+.chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:26px}
+.chip{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px 16px;font-size:14px;cursor:pointer;transition:.15s}
+.chip:hover{border-color:#4D6BFE;color:#4D6BFE}
+.m{max-width:78%;padding:12px 16px;border-radius:16px;font-size:15px;white-space:pre-wrap;line-height:1.6;margin-top:16px;word-break:break-word}
+.u{align-self:flex-end;background:#4D6BFE;color:#fff;border-bottom-right-radius:4px}
+.a{align-self:flex-start;background:#fff;border:1px solid #e5e7eb;border-bottom-left-radius:4px}
+.a.cmd{color:#059669;font-family:ui-monospace,monospace;font-size:13px;margin-top:-10px;padding:8px 14px}
+.dots span{display:inline-block;width:6px;height:6px;border-radius:50%;background:#9ca3af;margin-right:4px;animation:b 1.2s infinite}
+.dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
+@keyframes b{0%,80%,100%{opacity:.25}40%{opacity:1}}
+#bar{background:#f3f4f6;padding:12px 16px 20px}
+#box{max-width:760px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:10px 12px;display:flex;gap:8px;align-items:center;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+#in{flex:1;border:0;outline:none;font-size:15px;background:transparent;color:#1a1a1a}
+.ib{width:38px;height:38px;border-radius:50%;border:0;background:#eef1f6;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+#send{background:#4D6BFE;color:#fff}
+#file{display:none}
+</style></head><body>
+<div id=hd><div class=logo>ly</div><div class=t>lyco 助手</div><div class=s>Radxa 本地运行 · 零云</div></div>
+<div id=chat>
+ <div class=welcome id=wel>
+  <div class=big>嗨，我是 <em>lyco</em></div>
+  <div class=sub>跑在你家 Radxa 上的本地助手 —— 语音或文字，全在板上完成，数据不出门</div>
+  <div class=chips>
+   <div class=chip onclick=go('打开台灯')>💡 打开台灯</div>
+   <div class=chip onclick=go('把蓝灯关了')>⏻ 关掉蓝灯</div>
+   <div class=chip onclick=go('cpu 多少度')>🌡️ cpu 温度</div>
+   <div class=chip onclick=go('风扇调到 150')>🌀 风扇调速</div>
+   <div class=chip onclick=go('看看内存')>💾 内存状态</div>
+  </div>
+ </div>
+</div>
+<div id=bar><div id=box>
+ <input id=in placeholder="输入指令，或点 🎤 说话">
+ <button class=ib id=mic title=语音>🎤</button>
+ <button class=ib id=send title=发送>➤</button>
+ <input id=file type=file accept="audio/*" capture=microphone>
+ <button class=ib id=up title=语音文件>📎</button>
+</div></div>
+<script>
+const chat=document.getElementById('chat'), inp=document.getElementById('in');
+function add(cls,text,cmd){
+  const d=document.createElement('div'); d.className='m '+cls; d.textContent=text;
+  chat.appendChild(d); chat.scrollTop=chat.scrollHeight; return d;
+}
+function addcmd(cmd){ const c=document.createElement('div'); c.className='a cmd';
+  c.textContent='▸ '+cmd; chat.appendChild(c); chat.scrollTop=chat.scrollHeight; }
+function go(t){ turn(t); }
+function speak(t){ try{const u=new SpeechSynthesisUtterance(t.replace(/\\n/g,' '));
+ u.lang='zh-CN';u.rate=1.15;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){} }
+async function turn(text){
+  if(!text.trim()) return;
+  const w=document.getElementById('wel'); if(w) w.remove();
+  add('u',text); inp.value='';
+  const d=add('a',''); d.innerHTML='<span class=dots><span></span><span></span><span></span></span>';
+  const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({text})});
+  const j=await r.json();
+  d.textContent=j.reply;
+  if(j.command) addcmd(j.command);
+  chat.scrollTop=chat.scrollHeight; speak(j.reply.split('\\n')[0]);
+}
+document.getElementById('send').onclick=()=>turn(inp.value);
+inp.onkeydown=e=>{if(e.key==='Enter')turn(inp.value);};
+document.getElementById('mic').onclick=()=>document.getElementById('file').click();
+document.getElementById('up').onclick=()=>document.getElementById('file').click();
+document.getElementById('file').onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const w=document.getElementById('wel'); if(w) w.remove();
+  add('u','🎤 (语音消息)');
+  const d=add('a',''); d.innerHTML='<span class=dots><span></span><span></span><span></span></span>';
+  const fd=new FormData(); fd.append('audio',f);
+  fetch('/asr',{method:'POST',body:fd}).then(r=>r.json()).then(async j=>{
+    d.remove(); await turn(j.text||''); });
+  e.target.value='';
+};
+</script></body></html>

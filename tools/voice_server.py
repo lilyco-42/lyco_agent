@@ -99,4 +99,26 @@ class H(BaseHTTPRequestHandler):
                    "application/json")
 
 
-ThreadingHTTPServer(("0.0.0.0", 8000), H).serve_forever()
+if __name__ == "__main__":
+    import os
+    import ssl
+    import threading
+
+    # HTTP :8000 保留 (文件上传入口不需要安全上下文)
+    threading.Thread(
+        target=ThreadingHTTPServer(("0.0.0.0", 8000), H).serve_forever, daemon=True
+    ).start()
+
+    # HTTPS :8443 —— 手机麦克风必须安全上下文; 自签名证书, 首次访问接受一次警告
+    cert = "/home/radxa/certs/cert.pem"
+    key = "/home/radxa/certs/key.pem"
+    if os.path.exists(cert):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        srv = ThreadingHTTPServer(("0.0.0.0", 8443), H)
+        srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+        print("https ready on :8443 (mic enabled after cert accept)", flush=True)
+        srv.serve_forever()
+    else:
+        print("no cert, http only on :8000", flush=True)
+        ThreadingHTTPServer(("0.0.0.0", 8000), H).serve_forever()

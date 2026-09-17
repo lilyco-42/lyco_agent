@@ -20,6 +20,7 @@ fn main() {
     let cmd = args.first().map(String::as_str).unwrap_or("help");
     let exit = match cmd {
         "ask" => cmd_ask(&args[1..]),
+        "run" => cmd_run(&args[1..]),
         "learn" => cmd_learn(&args[1..]),
         "learn-cli" => cmd_learn_cli(&args[1..]),
         "harvest" => cmd_harvest(&args[1..]),
@@ -52,6 +53,68 @@ fn flag(args: &[String], name: &str) -> Option<String> {
         .position(|a| a == name)
         .and_then(|i| args.get(i + 1))
         .cloned()
+}
+
+/// run —— 执行一条本地 CLI（意图路由器的动作出口）
+///
+/// 用法:
+///   lyco_agent run [--trace <file>] [--cwd <dir>] -- <command...>
+///   lyco_agent run echo hello
+///
+/// 行为: 打印 `[run <cmd0>] <整条命令>` → 执行 → 摘要 → 以命令退出码退出。
+/// 配合 --trace 可把这次执行写进 trace（回放/出版用）。
+fn cmd_run(args: &[String]) -> i32 {
+    let mut trace: Option<String> = None;
+    let mut cwd: Option<PathBuf> = None;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--trace" => {
+                trace = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--cwd" => {
+                cwd = args.get(i + 1).map(PathBuf::from);
+                i += 2;
+            }
+            "--" => {
+                i += 1;
+                break;
+            }
+            other => {
+                if other.starts_with("--") {
+                    i += 1;
+                    continue;
+                }
+                break;
+            }
+        }
+    }
+    let command = args[i.min(args.len())..].join(" ");
+    if command.trim().is_empty() {
+        eprintln!("用法: lyco_agent run [--trace <file>] [--cwd <dir>] -- <command...>");
+        return 2;
+    }
+    let head = command.split_whitespace().next().unwrap_or("").to_string();
+    println!("[run {head}] {command}");
+
+    let out = lycore::tools_runtime::shell_exec(&command, cwd.as_deref());
+
+    if let Some(tp) = trace {
+        let mut tr = lycore::trace::Tracer::new(std::path::Path::new(&tp));
+        tr.prompt(&format!("run: {command}"));
+        tr.tool(&head, &command, out.ok);
+        if !out.ok {
+            tr.revert(out.summary.trim());
+        }
+    }
+
+    println!("{}", out.summary.trim());
+    if out.ok {
+        0
+    } else {
+        1
+    }
 }
 
 fn cmd_ask(args: &[String]) -> i32 {

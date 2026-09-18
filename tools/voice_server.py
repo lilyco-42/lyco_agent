@@ -8,6 +8,7 @@
 """
 import io
 import json
+import os
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -205,6 +206,70 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(n)
+        # ---- 算力平台 agent 友好的裸字节端点 (暴露本机能力给 lain42.top/compute) ----
+        if self.path.startswith("/node/"):
+            import subprocess
+            out = b""
+            try:
+                if self.path == "/node/hw":
+                    # 白名单: 只允许 hw 命令
+                    cmd = body.decode("utf-8", "replace").strip()
+                    if not cmd.startswith("hw "):
+                        out = b"ERR: only hw commands allowed"
+                    else:
+                        parts = cmd.split()
+                        p = subprocess.run(["sudo", "-n", "/usr/local/bin/" + parts[0]] + parts[1:],
+                                           capture_output=True, timeout=60)
+                        out = (p.stdout + p.stderr)[:65536]
+                elif self.path == "/node/chat":
+                    text = body.decode("utf-8", "replace").strip()
+                    r = handle_turn(text)
+                    out = (r.get("reply", "") + "\n" + r.get("command", "")).encode("utf-8")
+                elif self.path == "/node/asr":
+                    import io as _io
+                    import wave as _wave
+                    from faster_whisper.audio import decode_audio
+                    pcm = decode_audio(_io.BytesIO(body), sampling_rate=16000)
+                    with _wave.open("/home/radxa/node_asr.wav", "wb") as w:
+                        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+                        w.writeframes((pcm * 32767).astype("int16").tobytes())
+                    segs, _ = model.transcribe("/home/radxa/node_asr.wav", language="zh",
+                                               hotwords="台灯 蓝灯 绿灯 风扇 温度 打开 关闭 灯 关")
+                    out = "".join(s.text for s in segs).strip().encode("utf-8")
+                elif self.path == "/node/ve2":
+                    # body: 第一行 "WxH", 其后为 NV12 裸帧 -> H.264 (硬件编码)
+                    head, _, raw = body.partition(b"\n")
+                    wh = head.decode().strip()
+                    w_, h_ = [int(x) for x in wh.lower().split("x")]
+                    fr = len(raw) // (w_ * h_ * 3 // 2)
+                    open("/tmp/ve2_in.yuv", "wb").write(raw)
+                    p = subprocess.run(["sudo", "-n", "/usr/bin/vencoderdemo",
+                                        "-i", "/tmp/ve2_in.yuv", "-n", str(fr), "-f", "0",
+                                        "-o", "/tmp/ve2_out.h264", "-s", wh, "-d", wh,
+                                        "-r", "30", "-enc_num", "1"],
+                                       capture_output=True, timeout=900)
+                    out = open("/tmp/ve2_out.h264", "rb").read() if p.returncode == 0 else b"ERR: ve2 encode failed"
+                elif self.path == "/node/kws":
+                    # body: 16k 单声道 wav -> NPU 唤醒词判定
+                    open("/tmp/kws_in.wav", "wb").write(body)
+                    d = "/home/radxa/npu_demos/kws_npu_demo"
+                    env = dict(os.environ, LD_LIBRARY_PATH="/home/radxa/lib")
+                    p = subprocess.run([d + "/kws_npu_demo_a733",
+                                        "-nb0", "/home/radxa/npu_demos/voice_assistant/prebuilt/kws/encoder_float_a733.nb",
+                                        "-nb1", "/home/radxa/npu_demos/voice_assistant/prebuilt/kws/decoder_float_a733.nb",
+                                        "-nb2", "/home/radxa/npu_demos/voice_assistant/prebuilt/kws/joiner_float_a733.nb",
+                                        "-i", "/tmp/kws_in.wav",
+                                        "-k", "/home/radxa/npu_demos/voice_assistant/keywords_wake.txt"],
+                                       capture_output=True, timeout=300, cwd=d, env=env)
+                    txt = (p.stdout + p.stderr).decode("utf-8", "replace")
+                    hits = [l for l in txt.splitlines() if l.startswith("HITS")]
+                    out = ("\n".join(hits) or "HITS: (none)").encode("utf-8")
+                else:
+                    out = b"ERR: unknown node endpoint"
+            except Exception as e:
+                out = ("ERR: %s: %s" % (type(e).__name__, e)).encode("utf-8")
+            self._send(200, out, "application/octet-stream")
+            return
         if self.path == "/chat":
             try:
                 text = json.loads(body).get("text", "")

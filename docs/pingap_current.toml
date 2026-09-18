@@ -1,0 +1,704 @@
+[basic]
+log_level = "INFO"
+pid_file = "/run/pingap.pid"
+
+[servers.http]
+addr = "0.0.0.0:80"
+locations = ["force_https"]
+
+[servers.https]
+addr = "0.0.0.0:443"
+enabled_h2 = true
+global_certificates = true
+locations = [
+    "pet",
+    "game_ws",
+    "game_api",
+    "game_assets",
+    "game_support",
+    "game_static",
+    "game_live",
+    "game_login",
+    "game_token",
+    "lyco",
+    "compute",
+    "gh_short",
+    "workshop_plugin",
+    "workshop_login",
+    "workshop_admin",
+    "workshop_api",
+    "workshop",
+    "panel",
+    "panel_api",
+    "panel_ws",
+    "susong",
+    "raid",
+    "tool",
+    "studio_api",
+    "main",
+    "incloud_api",
+    "incloud",
+    "signal",
+]
+
+[upstreams.compute_backend]
+addrs = ["127.0.0.1:4601"]
+
+[upstreams.game_backend]
+addrs = ["127.0.0.1:4000"]
+
+[upstreams.gh_short_backend]
+addrs = ["127.0.0.1:4500"]
+
+[upstreams.incloud_admin_backend]
+addrs = ["127.0.0.1:4602"]
+
+[upstreams.lyco_backend]
+addrs = ["127.0.0.1:3300"]
+
+[upstreams.panel_backend]
+addrs = ["127.0.0.1:8010"]
+
+[upstreams.panel_ws_backend]
+addrs = ["127.0.0.1:10086"]
+
+[upstreams.placeholder]
+addrs = ["127.0.0.1:1"]
+
+[upstreams.studio_billing_backend]
+addrs = ["127.0.0.1:4700"]
+
+[upstreams.workshop_backend]
+addrs = ["127.0.0.1:4100"]
+
+[locations.compute]
+enable_reverse_proxy_headers = true
+path = "/compute/"
+upstream = "compute_backend"
+
+[locations.force_https]
+path = "/"
+plugins = ["force_https_redirect"]
+
+[locations.game_api]
+enable_reverse_proxy_headers = true
+path = "/game/turing/api"
+rewrite = "^/game/turing/(.*) /$1"
+upstream = "game_backend"
+
+[locations.game_assets]
+enable_reverse_proxy_headers = true
+path = "/game/turing/assets"
+plugins = ["game_dir"]
+upstream = "placeholder"
+
+[locations.game_live]
+enable_reverse_proxy_headers = true
+path = "/game/live"
+plugins = [
+    "game_fwd_auth",
+    "game_live_dir",
+]
+rewrite = "^/game/live/([^/]+)(/play)?/?$ /game/live/$1/index.html"
+upstream = "placeholder"
+
+[locations.game_login]
+enable_reverse_proxy_headers = true
+path = "/game/login"
+plugins = [
+    "game_login_auth",
+    "game_login_dir",
+]
+rewrite = "^/game/login(/.*)?$ /game/login/index.html"
+upstream = "placeholder"
+
+[locations.game_static]
+enable_reverse_proxy_headers = true
+path = "/game/turing"
+plugins = ["game_dir"]
+rewrite = "^/game/turing(/.*)?$ /game/turing/index.html"
+upstream = "placeholder"
+
+[locations.game_support]
+enable_reverse_proxy_headers = true
+path = "/game/turing/support"
+plugins = ["game_dir"]
+upstream = "placeholder"
+
+[locations.game_token]
+enable_reverse_proxy_headers = true
+path = "/game/token"
+plugins = ["game_token_auth"]
+rewrite = "^/game/token /game_token"
+upstream = "lyco_backend"
+
+[locations.game_ws]
+enable_reverse_proxy_headers = true
+path = "/game/turing/ws"
+rewrite = "^/game/turing/(.*) /$1"
+upstream = "game_backend"
+
+[locations.gh_short]
+enable_reverse_proxy_headers = true
+path = "/g/"
+upstream = "gh_short_backend"
+
+[locations.incloud]
+enable_reverse_proxy_headers = true
+path = "/incloud"
+plugins = [
+    "incloud_auth",
+    "incloud_dir",
+]
+rewrite = "^/incloud/?$ /incloud/index.html"
+upstream = "placeholder"
+
+[locations.incloud_api]
+enable_reverse_proxy_headers = true
+path = "/incloud/api/"
+plugins = ["incloud_auth"]
+rewrite = "^/incloud/api/(.*) /api/$1"
+upstream = "incloud_admin_backend"
+
+[locations.lyco]
+enable_reverse_proxy_headers = true
+path = "/lyco"
+rewrite = "^/lyco/?(.*)$ /$1"
+upstream = "lyco_backend"
+
+[locations.main]
+enable_reverse_proxy_headers = true
+path = "/"
+plugins = ["studio_dir"]
+rewrite = "^/sub/?$ /sub/index.html"
+upstream = "placeholder"
+
+[locations.panel]
+enable_reverse_proxy_headers = true
+path = "/panel"
+rewrite = "^/panel/?(.*)$ /$1"
+upstream = "panel_backend"
+
+[locations.panel_api]
+enable_reverse_proxy_headers = true
+host = "lain42.top"
+path = "/api"
+upstream = "panel_backend"
+
+[locations.panel_ws]
+enable_reverse_proxy_headers = true
+path = "/panel-ws"
+upstream = "panel_ws_backend"
+
+[locations.pet]
+enable_reverse_proxy_headers = true
+path = "/pet"
+plugins = [
+    "pet_dir",
+    "pet_compress",
+]
+rewrite = "^/pet/?$ /pet/index.html"
+upstream = "placeholder"
+
+[locations.susong]
+enable_reverse_proxy_headers = true
+path = "/game/susong/web"
+rewrite = "^/game/susong/web/?$ /game/susong/web/index.html"
+plugins = ["studio_dir"]
+upstream = "placeholder"
+
+[locations.raid]
+enable_reverse_proxy_headers = true
+path = "/raid"
+plugins = ["studio_dir"]
+rewrite = "^/raid/?$ /raid/index.html"
+upstream = "placeholder"
+
+[locations.studio_api]
+enable_reverse_proxy_headers = true
+path = "/studio/api/"
+rewrite = "^/studio/api/(.*) /api/$1"
+upstream = "studio_billing_backend"
+
+[locations.tool]
+enable_reverse_proxy_headers = true
+path = "/tool"
+plugins = ["studio_dir"]
+rewrite = "^/tool/((?:lyco/[^/]+/)?)$ /tool/${1}index.html"
+upstream = "placeholder"
+
+[locations.workshop]
+enable_reverse_proxy_headers = true
+host = "workshop.lain42.top"
+path = "/"
+plugins = ["workshop_dir"]
+upstream = "placeholder"
+
+[locations.workshop_admin]
+enable_reverse_proxy_headers = true
+host = "workshop.lain42.top"
+path = "/admin"
+plugins = ["workshop_dir"]
+rewrite = "^/admin/?$ /admin/index.html"
+upstream = "placeholder"
+
+[locations.workshop_api]
+enable_reverse_proxy_headers = true
+host = "workshop.lain42.top"
+path = "/api/"
+rewrite = "^/api/(.*) /$1"
+upstream = "workshop_backend"
+
+[locations.workshop_login]
+enable_reverse_proxy_headers = true
+host = "workshop.lain42.top"
+path = "/login"
+plugins = ["workshop_dir"]
+rewrite = "^/login/?$ /login/index.html"
+upstream = "placeholder"
+
+[locations.workshop_plugin]
+enable_reverse_proxy_headers = true
+host = "workshop.lain42.top"
+path = "/plugin"
+plugins = ["workshop_dir"]
+rewrite = "^/plugin(/.*)?$ /index.html"
+upstream = "placeholder"
+
+[plugins.force_https_redirect]
+category = "redirect"
+http_to_https = true
+
+[plugins.game_dir]
+category = "directory"
+charset = "utf-8"
+index = "index.html"
+path = "/var/www/game-turing"
+
+[plugins.game_fwd_auth]
+auth_url = "http://127.0.0.1:3300/game_auth"
+category = "forward_auth"
+
+[plugins.game_jwt]
+category = "jwt"
+cookie = "game_token"
+hide_credentials = true
+secret = "lilyco42"
+
+[plugins.game_live_auth]
+authorizations = ["bHljbzpsYWluNDJMaWx5Y280Mg=="]
+category = "basic_auth"
+hide_credentials = true
+
+[plugins.game_live_dir]
+category = "directory"
+charset = "utf-8"
+index = "index.html"
+path = "/var/www/game-live"
+
+[plugins.game_login_auth]
+authorizations = ["bHljbzpsYWluNDJMaWx5Y280Mg=="]
+category = "basic_auth"
+hide_credentials = true
+
+[plugins.game_login_dir]
+category = "directory"
+charset = "utf-8"
+index = "index.html"
+path = "/var/www/game-login"
+
+[plugins.game_token_auth]
+authorizations = ["bHljbzpsYWluNDJMaWx5Y280Mg=="]
+category = "basic_auth"
+hide_credentials = true
+
+[plugins.incloud_auth]
+authorizations = ["bHljbzpsaWx5Y280Mg=="]
+category = "basic_auth"
+hide_credentials = true
+
+[plugins.incloud_dir]
+category = "directory"
+charset = "utf-8"
+index = "index.html"
+path = "/opt/incloud/web"
+
+[plugins.pet_compress]
+br_level = 11
+category = "compression"
+gzip_level = 9
+min_length = 1024
+
+[plugins.pet_dir]
+category = "directory"
+charset = "utf-8"
+index = "index.html"
+path = "/var/www/pet"
+
+[plugins.studio_dir]
+category = "directory"
+charset = "utf-8"
+index = "index.html"
+path = "/var/www/studio"
+
+[plugins.workshop_dir]
+category = "directory"
+charset = "utf-8"
+index = "index.html"
+path = "/var/www/dsh-workshop/current"
+
+[certificates.lain42]
+acme = "lets_encrypt"
+domains = "lain42.top,www.lain42.top"
+is_default = true
+tls_cert = """
+-----BEGIN CERTIFICATE-----
+MIIDlTCCAxqgAwIBAgISBaUbmbWuW+nrT/+ORk6Tbmm4MAoGCCqGSM49BAMDMDMx
+CzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQDEwNZ
+RTIwHhcNMjYwOTExMTM1NTQ2WhcNMjYxMjEwMTM1NTQ1WjAVMRMwEQYDVQQDEwps
+YWluNDIudG9wMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEiYmxUfmNT0mzKNyl
+7nlKyqZDcwkMlSwC4UMXsQDUyghbr8hvloTbXA3H7RLaIXQg72g94VPGRAGFGkBi
+QPDnh6OCAiowggImMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD
+ATAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBSNb9buGJiY7IBw7u024cCQQI4YezAf
+BgNVHSMEGDAWgBS5WfKOzyLwhtM3SP92FBi6gthVhzAzBggrBgEFBQcBAQQnMCUw
+IwYIKwYBBQUHMAKGF2h0dHA6Ly95ZTIuaS5sZW5jci5vcmcvMCUGA1UdEQQeMByC
+CmxhaW40Mi50b3CCDnd3dy5sYWluNDIudG9wMBMGA1UdIAQMMAowCAYGZ4EMAQIB
+MC4GA1UdHwQnMCUwI6AhoB+GHWh0dHA6Ly95ZTIuYy5sZW5jci5vcmcvNTcuY3Js
+MIIBDgYKKwYBBAHWeQIEAgSB/wSB/AD6AH8AGoudaw/+v4G0eTnG0jEKhtbRAtTw
+RuIYLJ3jX14mJe8AAAGgkPZPOAAIAAAFAD9q6awEAwBIMEYCIQD0dB2XuZrSzwVW
+Fy/xkVEFBlLLKU79qcktXxwJbTtzXwIhANEtCmJ3juFYjAYVM3z1ZsP3H2zQPxJ/
+w0z8i45NlfZjAHcA2AlVO5RPev/IFhlvlE+Fq7D4/F6HVSYPFdEucrtFSxQAAAGg
+kPZebAAABAMASDBGAiEAwcUIBiEnXlW1VTmIp4jIetqs/K+LCOsoRaBii20YPg0C
+IQCBL+iJQeZ6+4Ee8iPRUBb3DyWbQPCgDgJs9qkZsrQenzAKBggqhkjOPQQDAwNp
+ADBmAjEAvNzsXLgLrpuez7YdKUNTavfwkgjELmpmQrYv4Zs5z2wi8OvNx40DSNuB
+aVNiqTzHAjEA7SfKi2wymtNW9P9T6N0UbkxtjLLKc4ZvVikOq9wd+Y9tC5uivREu
+rPyX3qdr3hny
+-----END CERTIFICATE-----
+
+-----BEGIN CERTIFICATE-----
+MIICjDCCAhGgAwIBAgIQTfOxXdbAeExQfNN7WObxFTAKBggqhkjOPQQDAzAuMQsw
+CQYDVQQGEwJVUzENMAsGA1UEChMESVNSRzEQMA4GA1UEAxMHUm9vdCBZRTAeFw0y
+NTA5MDMwMDAwMDBaFw0yODA5MDIyMzU5NTlaMDMxCzAJBgNVBAYTAlVTMRYwFAYD
+VQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQDEwNZRTIwdjAQBgcqhkjOPQIBBgUr
+gQQAIgNiAARxmrQzkdbEEL3MqXt3dJQttYc47axkdDTHud5TPqM2z5uSD5cmk0Wr
+HlWXvnlvqBLqiB34kluxIbmMyAiq3/YD6e80/vV259K8XQIdjFXloYOa0mIU71f7
+HQ09PvYDlw+jge4wgeswDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQMMAoGCCsGAQUF
+BwMBMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFLlZ8o7PIvCG0zdI/3YU
+GLqC2FWHMB8GA1UdIwQYMBaAFKPIJlqOoUzQNWP8myPIOq5W809WMDIGCCsGAQUF
+BwEBBCYwJDAiBggrBgEFBQcwAoYWaHR0cDovL3llLmkubGVuY3Iub3JnLzATBgNV
+HSAEDDAKMAgGBmeBDAECATAnBgNVHR8EIDAeMBygGqAYhhZodHRwOi8veWUuYy5s
+ZW5jci5vcmcvMAoGCCqGSM49BAMDA2kAMGYCMQDIcnw5dcZLN9ffynXnnkLD/itS
+JEycJPb3sRkzeqBowup7vOsAwaqoCnNn/jh9wycCMQCJM6CPlaOC4pQYYbJtVPYb
+DKrIb2EKk5NpOpE6/XttQYZV/3gilB9l+Cc/DOVwmyg=
+-----END CERTIFICATE-----
+
+-----BEGIN CERTIFICATE-----
+MIICpjCCAiugAwIBAgIRAIchZfw0tuX7qK3Vs3BftTowCgYIKoZIzj0EAwMwTzEL
+MAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2VhcmNo
+IEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDIwHhcNMjYwNTEzMDAwMDAwWhcN
+MzIwOTAyMjM1OTU5WjAuMQswCQYDVQQGEwJVUzENMAsGA1UEChMESVNSRzEQMA4G
+A1UEAxMHUm9vdCBZRTB2MBAGByqGSM49AgEGBSuBBAAiA2IABDwS/6vhrcVqcbBo
++wgdI3fwn9x7DNJJOY/lTOti0vkwuRN87RhEhTH17E7XyFjWsPYhIPt/wzOqxTd2
+b+4ZJNy9ID04YywF9U5zasDVyGSNErVNtz8uSGh5izW87j77GaOB6zCB6DAOBgNV
+HQ8BAf8EBAMCAQYwEwYDVR0lBAwwCgYIKwYBBQUHAwEwDwYDVR0TAQH/BAUwAwEB
+/zAdBgNVHQ4EFgQUo8gmWo6hTNA1Y/ybI8g6rlbzT1YwHwYDVR0jBBgwFoAUfEKW
+rt5LSDv6kviejM9ti6lyN5UwMgYIKwYBBQUHAQEEJjAkMCIGCCsGAQUFBzAChhZo
+dHRwOi8veDIuaS5sZW5jci5vcmcvMBMGA1UdIAQMMAowCAYGZ4EMAQIBMCcGA1Ud
+HwQgMB4wHKAaoBiGFmh0dHA6Ly94Mi5jLmxlbmNyLm9yZy8wCgYIKoZIzj0EAwMD
+aQAwZgIxAMU19WCtmxVND8UHBZRoma49Z7jPs64Dma0eTu1OChVbB/2J7GV3nvYK
+Ax54uk1G9QIxAO0miLVJu8PLNiXXXkiE/gsK3CTRTF/aeo4bMX42Zw40csRU6AC2
+6hSW1/IWaas6dg==
+-----END CERTIFICATE-----
+
+-----BEGIN CERTIFICATE-----
+MIIEcDCCAligAwIBAgIQbI8dxyfHEX97r4U6yYD5zTANBgkqhkiG9w0BAQsFADBP
+MQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFy
+Y2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMTAeFw0yNjA1MTMwMDAwMDBa
+Fw0zMjA5MDIyMzU5NTlaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5l
+dCBTZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgy
+MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0H
+ttwW+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7
+AlF9ItgKbppbd9/w+kHsOdx1ymgHDB/qo4H1MIHyMA4GA1UdDwEB/wQEAwIBBjAd
+BgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDwYDVR0TAQH/BAUwAwEB/zAd
+BgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwHwYDVR0jBBgwFoAUebRZ5nu2
+5eQBc4AIiMgaWPbpm24wMgYIKwYBBQUHAQEEJjAkMCIGCCsGAQUFBzAChhZodHRw
+Oi8veDEuaS5sZW5jci5vcmcvMBMGA1UdIAQMMAowCAYGZ4EMAQIBMCcGA1UdHwQg
+MB4wHKAaoBiGFmh0dHA6Ly94MS5jLmxlbmNyLm9yZy8wDQYJKoZIhvcNAQELBQAD
+ggIBAD2/e9frmMxNpCV03qUHegg+MV2wz9644YoXdqtH8RyWYcBO7xfjjGEXdU1e
+/o0OkEFiynUCOSIk/vLLo7ttz6CPAeNlWfC0XNkoGeWgK6jjXvozBaGuGH5n0Ufo
+shMeWTuURqNN5G00sSXDTBrpp2+mgvdZQjb8K11TYMA25QA+YHNfbIEL0BniAhKS
+2gsnJjSzrdZLI+EZ7SEyqdR2rkjd1KutLDU+n3TFyxjniZVGur4YlhMP3mY/dV95
+IruAkkjOZier6hGBdEgZXXvaCz9u9iVEadsIE75pAGL8oHV5vxdARDiotRpul1IN
+/UZwzAbrfUFcw1HkAcYD/mlZfnQ2ieCF2MS7j3Vhv7JPDKp45fmykmzYNSrumRW0
+upFFKDBOoF7hsOb7oLyHS+Uft6jOUfOrogj8YUx38hKb2K20r42OgsSdDdxdeYWc
+MS3Sb6mwJeSZEYxJ2gaXnDSPaKhhrNkYwljyVQyr4Nq+MEJytXNTnHqaAcrNwZlV
+pcJL1KBnMrMjP7eanvUwL3FYj3cF17jtboLt7gLoi4+2rWZFvn+w54jmd/FIuhhZ
+cEaU/wvU6BUNMtcVquVGHp7itQeDth5j+XL3j4WJ2SABwzUl6OeYdgpIt/ITZa+p
+TT0mQ/r5XyA4MEAiabn7XJjvCERlF2dcn2wqJw+CreTkkQ2R
+-----END CERTIFICATE-----
+"""
+tls_key = """
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgEC24Owhu73RJvhvG
+ADrk5hvwMd9njJ1cplodwg0bsJmhRANCAASJibFR+Y1PSbMo3KXueUrKpkNzCQyV
+LALhQxexANTKCFuvyG+WhNtcDcftEtohdCDvaD3hU8ZEAYUaQGJA8OeH
+-----END PRIVATE KEY-----
+"""
+
+[certificates.lycobrain]
+acme = "lets_encrypt"
+domains = "lycobrain.top,www.lycobrain.top"
+tls_cert = """
+-----BEGIN CERTIFICATE-----
+MIIDmjCCAyCgAwIBAgISBRvsTaDoy+lxjgchUYfwZRTBMAoGCCqGSM49BAMDMDMx
+CzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQDEwNZ
+RTIwHhcNMjYwOTA4MDQwODU3WhcNMjYxMjA3MDQwODU2WjAYMRYwFAYDVQQDEw1s
+eWNvYnJhaW4udG9wMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/feHs2G++oxJ
+zmZSaoBPjTm6uecGTwbif55M5poDdzDxukABV45tiIeVjn3PeHKKSneUD375zmY9
+EQxLUtZEH6OCAi0wggIpMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEF
+BQcDATAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBTWy6PBSxkauwvvlr1TC+CDXce9
+5TAfBgNVHSMEGDAWgBS5WfKOzyLwhtM3SP92FBi6gthVhzAzBggrBgEFBQcBAQQn
+MCUwIwYIKwYBBQUHMAKGF2h0dHA6Ly95ZTIuaS5sZW5jci5vcmcvMCsGA1UdEQQk
+MCKCDWx5Y29icmFpbi50b3CCEXd3dy5seWNvYnJhaW4udG9wMBMGA1UdIAQMMAow
+CAYGZ4EMAQIBMC4GA1UdHwQnMCUwI6AhoB+GHWh0dHA6Ly95ZTIuYy5sZW5jci5v
+cmcvNjYuY3JsMIIBCwYKKwYBBAHWeQIEAgSB/ASB+QD3AH0ARq+GPTs+5Z+ld96o
+JF02sNntIqIj9GF3QSKUUu6VUF8AAAGgf2n9iAAIAAAFACfppf0EAwBGMEQCIG1j
+lo4AuRZO29QAT/vLQJ2HXCIDgNsYhPOOZCbIEj4EAiA0WbaAqkHM2GGqfYInEiC7
+FVwZx4yM+Jd22a+N6WG2bQB2ANdtfRDRp/V3wsfpX9cAv/mCyTNaZeHQswFzF8DI
+xWl3AAABoH9qFCIAAAQDAEcwRQIgDIDW00Ipyrotwo7ZktybuKIvi0QP2SutzT97
+ybg6C84CIQDDbuywHciQh6tz9Itz6y668n1epDzR94fg+Ca5byjTZzAKBggqhkjO
+PQQDAwNoADBlAjA3+x7BqBKCgLCxPGMYjSfj/BUuirmzhqvTjoFAnxyYxwuf1nUr
+lbXK/9bJYWLkLCQCMQCYjlWnRUwfUkmGzySQ20ys52MCk6OSSMBUhi/GcZm2Q79l
+LMNohd61Lugi00rkhsE=
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIICjDCCAhGgAwIBAgIQTfOxXdbAeExQfNN7WObxFTAKBggqhkjOPQQDAzAuMQsw
+CQYDVQQGEwJVUzENMAsGA1UEChMESVNSRzEQMA4GA1UEAxMHUm9vdCBZRTAeFw0y
+NTA5MDMwMDAwMDBaFw0yODA5MDIyMzU5NTlaMDMxCzAJBgNVBAYTAlVTMRYwFAYD
+VQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQDEwNZRTIwdjAQBgcqhkjOPQIBBgUr
+gQQAIgNiAARxmrQzkdbEEL3MqXt3dJQttYc47axkdDTHud5TPqM2z5uSD5cmk0Wr
+HlWXvnlvqBLqiB34kluxIbmMyAiq3/YD6e80/vV259K8XQIdjFXloYOa0mIU71f7
+HQ09PvYDlw+jge4wgeswDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQMMAoGCCsGAQUF
+BwMBMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFLlZ8o7PIvCG0zdI/3YU
+GLqC2FWHMB8GA1UdIwQYMBaAFKPIJlqOoUzQNWP8myPIOq5W809WMDIGCCsGAQUF
+BwEBBCYwJDAiBggrBgEFBQcwAoYWaHR0cDovL3llLmkubGVuY3Iub3JnLzATBgNV
+HSAEDDAKMAgGBmeBDAECATAnBgNVHR8EIDAeMBygGqAYhhZodHRwOi8veWUuYy5s
+ZW5jci5vcmcvMAoGCCqGSM49BAMDA2kAMGYCMQDIcnw5dcZLN9ffynXnnkLD/itS
+JEycJPb3sRkzeqBowup7vOsAwaqoCnNn/jh9wycCMQCJM6CPlaOC4pQYYbJtVPYb
+DKrIb2EKk5NpOpE6/XttQYZV/3gilB9l+Cc/DOVwmyg=
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIICpjCCAiugAwIBAgIRAIchZfw0tuX7qK3Vs3BftTowCgYIKoZIzj0EAwMwTzEL
+MAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2VhcmNo
+IEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDIwHhcNMjYwNTEzMDAwMDAwWhcN
+MzIwOTAyMjM1OTU5WjAuMQswCQYDVQQGEwJVUzENMAsGA1UEChMESVNSRzEQMA4G
+A1UEAxMHUm9vdCBZRTB2MBAGByqGSM49AgEGBSuBBAAiA2IABDwS/6vhrcVqcbBo
++wgdI3fwn9x7DNJJOY/lTOti0vkwuRN87RhEhTH17E7XyFjWsPYhIPt/wzOqxTd2
+b+4ZJNy9ID04YywF9U5zasDVyGSNErVNtz8uSGh5izW87j77GaOB6zCB6DAOBgNV
+HQ8BAf8EBAMCAQYwEwYDVR0lBAwwCgYIKwYBBQUHAwEwDwYDVR0TAQH/BAUwAwEB
+/zAdBgNVHQ4EFgQUo8gmWo6hTNA1Y/ybI8g6rlbzT1YwHwYDVR0jBBgwFoAUfEKW
+rt5LSDv6kviejM9ti6lyN5UwMgYIKwYBBQUHAQEEJjAkMCIGCCsGAQUFBzAChhZo
+dHRwOi8veDIuaS5sZW5jci5vcmcvMBMGA1UdIAQMMAowCAYGZ4EMAQIBMCcGA1Ud
+HwQgMB4wHKAaoBiGFmh0dHA6Ly94Mi5jLmxlbmNyLm9yZy8wCgYIKoZIzj0EAwMD
+aQAwZgIxAMU19WCtmxVND8UHBZRoma49Z7jPs64Dma0eTu1OChVbB/2J7GV3nvYK
+Ax54uk1G9QIxAO0miLVJu8PLNiXXXkiE/gsK3CTRTF/aeo4bMX42Zw40csRU6AC2
+6hSW1/IWaas6dg==
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIEcDCCAligAwIBAgIQbI8dxyfHEX97r4U6yYD5zTANBgkqhkiG9w0BAQsFADBP
+MQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFy
+Y2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMTAeFw0yNjA1MTMwMDAwMDBa
+Fw0zMjA5MDIyMzU5NTlaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5l
+dCBTZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgy
+MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0H
+ttwW+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7
+AlF9ItgKbppbd9/w+kHsOdx1ymgHDB/qo4H1MIHyMA4GA1UdDwEB/wQEAwIBBjAd
+BgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDwYDVR0TAQH/BAUwAwEB/zAd
+BgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwHwYDVR0jBBgwFoAUebRZ5nu2
+5eQBc4AIiMgaWPbpm24wMgYIKwYBBQUHAQEEJjAkMCIGCCsGAQUFBzAChhZodHRw
+Oi8veDEuaS5sZW5jci5vcmcvMBMGA1UdIAQMMAowCAYGZ4EMAQIBMCcGA1UdHwQg
+MB4wHKAaoBiGFmh0dHA6Ly94MS5jLmxlbmNyLm9yZy8wDQYJKoZIhvcNAQELBQAD
+ggIBAD2/e9frmMxNpCV03qUHegg+MV2wz9644YoXdqtH8RyWYcBO7xfjjGEXdU1e
+/o0OkEFiynUCOSIk/vLLo7ttz6CPAeNlWfC0XNkoGeWgK6jjXvozBaGuGH5n0Ufo
+shMeWTuURqNN5G00sSXDTBrpp2+mgvdZQjb8K11TYMA25QA+YHNfbIEL0BniAhKS
+2gsnJjSzrdZLI+EZ7SEyqdR2rkjd1KutLDU+n3TFyxjniZVGur4YlhMP3mY/dV95
+IruAkkjOZier6hGBdEgZXXvaCz9u9iVEadsIE75pAGL8oHV5vxdARDiotRpul1IN
+/UZwzAbrfUFcw1HkAcYD/mlZfnQ2ieCF2MS7j3Vhv7JPDKp45fmykmzYNSrumRW0
+upFFKDBOoF7hsOb7oLyHS+Uft6jOUfOrogj8YUx38hKb2K20r42OgsSdDdxdeYWc
+MS3Sb6mwJeSZEYxJ2gaXnDSPaKhhrNkYwljyVQyr4Nq+MEJytXNTnHqaAcrNwZlV
+pcJL1KBnMrMjP7eanvUwL3FYj3cF17jtboLt7gLoi4+2rWZFvn+w54jmd/FIuhhZ
+cEaU/wvU6BUNMtcVquVGHp7itQeDth5j+XL3j4WJ2SABwzUl6OeYdgpIt/ITZa+p
+TT0mQ/r5XyA4MEAiabn7XJjvCERlF2dcn2wqJw+CreTkkQ2R
+-----END CERTIFICATE-----
+"""
+tls_key = """
+-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEICZBdg6QeqfB84yYyOueXSNipOqBq2OjsYMQeldXsxcooAoGCCqGSM49
+AwEHoUQDQgAE/feHs2G++oxJzmZSaoBPjTm6uecGTwbif55M5poDdzDxukABV45t
+iIeVjn3PeHKKSneUD375zmY9EQxLUtZEHw==
+-----END EC PRIVATE KEY-----
+"""
+
+[certificates.workshop]
+acme = "lets_encrypt"
+domains = "workshop.lain42.top"
+tls_cert = """
+-----BEGIN CERTIFICATE-----
+MIIDlDCCAxmgAwIBAgISBdJWfY/u1p0Ee3NjH01F2zVEMAoGCCqGSM49BAMDMDMx
+CzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQDEwNZ
+RTEwHhcNMjYwODE0MDcyNDQ5WhcNMjYxMTEyMDcyNDQ4WjAeMRwwGgYDVQQDExN3
+b3Jrc2hvcC5sYWluNDIudG9wMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEPUnc
+XczY1LFiVr7R5H3XcXJIuD/hHiMgTj/a/FfLJ3Q0i7yLDlSDWXvUNdtWgisSPbx1
+zOpPS9oj001nVoaDz6OCAiAwggIcMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAK
+BggrBgEFBQcDATAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBRNuF7W6duHZEm64LMK
+k3wEtbTUhzAfBgNVHSMEGDAWgBS7IMpHC/7X5Zz5jwkqo4w3RbG82DAzBggrBgEF
+BQcBAQQnMCUwIwYIKwYBBQUHMAKGF2h0dHA6Ly95ZTEuaS5sZW5jci5vcmcvMB4G
+A1UdEQQXMBWCE3dvcmtzaG9wLmxhaW40Mi50b3AwEwYDVR0gBAwwCjAIBgZngQwB
+AgEwLgYDVR0fBCcwJTAjoCGgH4YdaHR0cDovL3llMS5jLmxlbmNyLm9yZy82OS5j
+cmwwggELBgorBgEEAdZ5AgQCBIH8BIH5APcAfgBGr4Y9Oz7ln6V33qgkXTaw2e0i
+oiP0YXdBIpRS7pVQXwAAAZ//XlVYAAgAAAUAE2SxpAQDAEcwRQIhAIBA6Hzf6RYd
+YxYLZOXYLRMKOAt3/0nee+svCdpGOyUdAiBALSR74JyOgXppQD957iZ8i3rTAVX6
+gqJUPTOe1uaq8wB1ANgJVTuUT3r/yBYZb5RPhauw+Pxeh1UmDxXRLnK7RUsUAAAB
+n/9eVSgAAAQDAEYwRAIgfY17/Z1RHQj+YwEMabv84SoHqKxMZSMAyNjpgzw6MpcC
+IFWSfD20cRpiTCHFdtmBd9T+Qw80XAYa2JuGSOI7d5yIMAoGCCqGSM49BAMDA2kA
+MGYCMQDGuVQ+EHTiObGc8uesIWcmBhb7htY32tYIu8a478OUM89mZAsxjoYXiWgP
+wRiPVI8CMQDGVoQLJeMPa17DHVRfuimUsJ2vZIPzB4LQqZvf9XqIpQJg1o17cvtB
+Fb1PCjUJcbE=
+-----END CERTIFICATE-----
+
+-----BEGIN CERTIFICATE-----
+MIICizCCAhGgAwIBAgIQXd1w3TH4AchcGGp6BLgK/jAKBggqhkjOPQQDAzAuMQsw
+CQYDVQQGEwJVUzENMAsGA1UEChMESVNSRzEQMA4GA1UEAxMHUm9vdCBZRTAeFw0y
+NTA5MDMwMDAwMDBaFw0yODA5MDIyMzU5NTlaMDMxCzAJBgNVBAYTAlVTMRYwFAYD
+VQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQDEwNZRTEwdjAQBgcqhkjOPQIBBgUr
+gQQAIgNiAAQHZVB1/mimla2hfSurylScjPMZaOJXLz/NnAc2sylm8WDyhU9Ccp+z
+ASQi5vSwGGJjSGklkD9fdPR8GpyDIOIjCEfrnbt/v+ZSEPLLEGbaM6EccDbN7p9x
+teIm2Avf+ryjge4wgeswDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQMMAoGCCsGAQUF
+BwMBMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFLsgykcL/tflnPmPCSqj
+jDdFsbzYMB8GA1UdIwQYMBaAFKPIJlqOoUzQNWP8myPIOq5W809WMDIGCCsGAQUF
+BwEBBCYwJDAiBggrBgEFBQcwAoYWaHR0cDovL3llLmkubGVuY3Iub3JnLzATBgNV
+HSAEDDAKMAgGBmeBDAECATAnBgNVHR8EIDAeMBygGqAYhhZodHRwOi8veWUuYy5s
+ZW5jci5vcmcvMAoGCCqGSM49BAMDA2gAMGUCMQDgjUEahFT/h3DRakqiPZpLvPgf
+Zwkt6K2EOMmh1nvEzl83eMLYcod4GCl3b0J1Nn0CMBNYmEQJb4CEG5WoOe7aRn/L
+VKu6saHmHEynI7ysIPd8zQsK1HdmhlHKlw9Z5GpGvA==
+-----END CERTIFICATE-----
+
+-----BEGIN CERTIFICATE-----
+MIICpjCCAiugAwIBAgIRAIchZfw0tuX7qK3Vs3BftTowCgYIKoZIzj0EAwMwTzEL
+MAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2VhcmNo
+IEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDIwHhcNMjYwNTEzMDAwMDAwWhcN
+MzIwOTAyMjM1OTU5WjAuMQswCQYDVQQGEwJVUzENMAsGA1UEChMESVNSRzEQMA4G
+A1UEAxMHUm9vdCBZRTB2MBAGByqGSM49AgEGBSuBBAAiA2IABDwS/6vhrcVqcbBo
++wgdI3fwn9x7DNJJOY/lTOti0vkwuRN87RhEhTH17E7XyFjWsPYhIPt/wzOqxTd2
+b+4ZJNy9ID04YywF9U5zasDVyGSNErVNtz8uSGh5izW87j77GaOB6zCB6DAOBgNV
+HQ8BAf8EBAMCAQYwEwYDVR0lBAwwCgYIKwYBBQUHAwEwDwYDVR0TAQH/BAUwAwEB
+/zAdBgNVHQ4EFgQUo8gmWo6hTNA1Y/ybI8g6rlbzT1YwHwYDVR0jBBgwFoAUfEKW
+rt5LSDv6kviejM9ti6lyN5UwMgYIKwYBBQUHAQEEJjAkMCIGCCsGAQUFBzAChhZo
+dHRwOi8veDIuaS5sZW5jci5vcmcvMBMGA1UdIAQMMAowCAYGZ4EMAQIBMCcGA1Ud
+HwQgMB4wHKAaoBiGFmh0dHA6Ly94Mi5jLmxlbmNyLm9yZy8wCgYIKoZIzj0EAwMD
+aQAwZgIxAMU19WCtmxVND8UHBZRoma49Z7jPs64Dma0eTu1OChVbB/2J7GV3nvYK
+Ax54uk1G9QIxAO0miLVJu8PLNiXXXkiE/gsK3CTRTF/aeo4bMX42Zw40csRU6AC2
+6hSW1/IWaas6dg==
+-----END CERTIFICATE-----
+
+-----BEGIN CERTIFICATE-----
+MIIEcDCCAligAwIBAgIQbI8dxyfHEX97r4U6yYD5zTANBgkqhkiG9w0BAQsFADBP
+MQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFy
+Y2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMTAeFw0yNjA1MTMwMDAwMDBa
+Fw0zMjA5MDIyMzU5NTlaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5l
+dCBTZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgy
+MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0H
+ttwW+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7
+AlF9ItgKbppbd9/w+kHsOdx1ymgHDB/qo4H1MIHyMA4GA1UdDwEB/wQEAwIBBjAd
+BgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDwYDVR0TAQH/BAUwAwEB/zAd
+BgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwHwYDVR0jBBgwFoAUebRZ5nu2
+5eQBc4AIiMgaWPbpm24wMgYIKwYBBQUHAQEEJjAkMCIGCCsGAQUFBzAChhZodHRw
+Oi8veDEuaS5sZW5jci5vcmcvMBMGA1UdIAQMMAowCAYGZ4EMAQIBMCcGA1UdHwQg
+MB4wHKAaoBiGFmh0dHA6Ly94MS5jLmxlbmNyLm9yZy8wDQYJKoZIhvcNAQELBQAD
+ggIBAD2/e9frmMxNpCV03qUHegg+MV2wz9644YoXdqtH8RyWYcBO7xfjjGEXdU1e
+/o0OkEFiynUCOSIk/vLLo7ttz6CPAeNlWfC0XNkoGeWgK6jjXvozBaGuGH5n0Ufo
+shMeWTuURqNN5G00sSXDTBrpp2+mgvdZQjb8K11TYMA25QA+YHNfbIEL0BniAhKS
+2gsnJjSzrdZLI+EZ7SEyqdR2rkjd1KutLDU+n3TFyxjniZVGur4YlhMP3mY/dV95
+IruAkkjOZier6hGBdEgZXXvaCz9u9iVEadsIE75pAGL8oHV5vxdARDiotRpul1IN
+/UZwzAbrfUFcw1HkAcYD/mlZfnQ2ieCF2MS7j3Vhv7JPDKp45fmykmzYNSrumRW0
+upFFKDBOoF7hsOb7oLyHS+Uft6jOUfOrogj8YUx38hKb2K20r42OgsSdDdxdeYWc
+MS3Sb6mwJeSZEYxJ2gaXnDSPaKhhrNkYwljyVQyr4Nq+MEJytXNTnHqaAcrNwZlV
+pcJL1KBnMrMjP7eanvUwL3FYj3cF17jtboLt7gLoi4+2rWZFvn+w54jmd/FIuhhZ
+cEaU/wvU6BUNMtcVquVGHp7itQeDth5j+XL3j4WJ2SABwzUl6OeYdgpIt/ITZa+p
+TT0mQ/r5XyA4MEAiabn7XJjvCERlF2dcn2wqJw+CreTkkQ2R
+-----END CERTIFICATE-----
+"""
+tls_key = """
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgyYyBqNrfp2F2FvgD
+xIsGoS2du0BeXoI5EL9vrbZwVn+hRANCAAQ9SdxdzNjUsWJWvtHkfddxcki4P+Ee
+IyBOP9r8V8sndDSLvIsOVINZe9Q121aCKxI9vHXM6k9L2iPTTWdWhoPP
+-----END PRIVATE KEY-----
+"""
+
+[storages.0_S3z7I1lMUtutYYRbqpGIen6wkkv1dVd5W5uZ0u4AM]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "0_S3z7I1lMUtutYYRbqpGIen6wkkv1dVd5W5uZ0u4AM.v3jDFS2RaqjoZq5NR0fejsxKk4spC5eXELUPQP7-bKw"
+
+[storages.8FOKWgmGYgUA3d2NShFnXvSyFhVAsSqF3ckQjGn7vSs]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "8FOKWgmGYgUA3d2NShFnXvSyFhVAsSqF3ckQjGn7vSs.t2oAph4Xm07yCw-PzSWkdM0UAjf3pCakznKlJe8jqlY"
+
+[storages.FMfK9dWWy7wCDb0tMXiWnnf-Vc51EvEPHSWOwJ9bRfU]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "FMfK9dWWy7wCDb0tMXiWnnf-Vc51EvEPHSWOwJ9bRfU.IOekZdbsNkJRC7WPD7XzWVptM9DG_KfWCjyoZX7UG6s"
+
+[storages.JnmzAUaBe2Ar_OhIuLi0Ub7R80LN4SN2LMIatGGVVAI]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "JnmzAUaBe2Ar_OhIuLi0Ub7R80LN4SN2LMIatGGVVAI.vzjR9AMPX_0v7Faz3DQcf1IkIbpNlinrMytdx8omN-w"
+
+[storages.LV9h40__3zavJLIdvm3SbzH-PsElpPLWOxf38D65esI]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "LV9h40__3zavJLIdvm3SbzH-PsElpPLWOxf38D65esI.3g_19gVIde24h5aLYq6pNCPZXmaG6mx_oBOjtkCIzXM"
+
+[storages.MSUxERNDUWaaKkCgmoZymXONgAIcJ5Wia_qIMpgwSes]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "MSUxERNDUWaaKkCgmoZymXONgAIcJ5Wia_qIMpgwSes.3g_19gVIde24h5aLYq6pNCPZXmaG6mx_oBOjtkCIzXM"
+
+[storages.ajvPwm8EQJaZYJav34YQBIrmqG5HZ0ZZ0347WP6AzFQ]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "ajvPwm8EQJaZYJav34YQBIrmqG5HZ0ZZ0347WP6AzFQ.q7_X0S46c3zAEMarCNGA9SPmNCokHfgGKAIBa9IcMGo"
+
+[storages.chXGDBkz3UiBG3KK7YEoSOljBX94-MhUO10acuUWQIs]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "chXGDBkz3UiBG3KK7YEoSOljBX94-MhUO10acuUWQIs.v3jDFS2RaqjoZq5NR0fejsxKk4spC5eXELUPQP7-bKw"
+
+[storages.oxJTwWxay_fgnG0e88ImO0TXWSXwnmgsd1i4nWWYneE]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "oxJTwWxay_fgnG0e88ImO0TXWSXwnmgsd1i4nWWYneE.zBlt67bN6LAeomvyhcS0vCndfbiXlKVBPS9vOOmI6MQ"
+
+[storages.syKL5TWRwIr9ZhTXJydStdmWlh40Vt79NG_8h561UHQ]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "syKL5TWRwIr9ZhTXJydStdmWlh40Vt79NG_8h561UHQ.q7_X0S46c3zAEMarCNGA9SPmNCokHfgGKAIBa9IcMGo"
+
+[storages.yKT-9qpzJWmRiE9LfJ-tmlO0HEZqR_keDVTRt6d5qMs]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "yKT-9qpzJWmRiE9LfJ-tmlO0HEZqR_keDVTRt6d5qMs.IOekZdbsNkJRC7WPD7XzWVptM9DG_KfWCjyoZX7UG6s"
+
+[storages.zF_eJ2TMGY6sAd5291zXqxeBnrPDa2BFtYJah8nZz40]
+category = "config"
+remark = "let's encrypt http-01 token"
+value = "zF_eJ2TMGY6sAd5291zXqxeBnrPDa2BFtYJah8nZz40.vzjR9AMPX_0v7Faz3DQcf1IkIbpNlinrMytdx8omN-w"
+
+[upstreams.signal_backend]
+addrs = ["127.0.0.1:9920"]
+
+[locations.signal]
+path = "/signal/"
+upstream = "signal_backend"

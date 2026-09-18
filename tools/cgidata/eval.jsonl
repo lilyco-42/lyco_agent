@@ -1,0 +1,300 @@
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "cpu 状态"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "看下磁盘"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "磁盘还剩多少"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "读 gpio chip0 line137"}, {"role": "assistant", "content": "hw gpio get 0 137"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "turn on the 蓝色指示灯"}, {"role": "assistant", "content": "hw led blue on"}]}
+{"messages": [{"role": "user", "content": "磁盘还剩多少"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "turn on the green led"}, {"role": "assistant", "content": "hw led green on"}]}
+{"messages": [{"role": "user", "content": "还有多少内存"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "查一下green led状态"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "what is the capital of france"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "存储满了没"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "绿灯关一下"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "gpio0 line34 输出 1"}, {"role": "assistant", "content": "hw gpio set 0 34 1"}]}
+{"messages": [{"role": "user", "content": "fan speed 253"}, {"role": "assistant", "content": "hw fan 253"}]}
+{"messages": [{"role": "user", "content": "推荐一部电影"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "gpio0 line144 输出 0"}, {"role": "assistant", "content": "hw gpio set 0 144 0"}]}
+{"messages": [{"role": "user", "content": "读一下 gpio0 的 126 号脚"}, {"role": "assistant", "content": "hw gpio get 0 126"}]}
+{"messages": [{"role": "user", "content": "内存还剩多少"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "看看电源灯开没开"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "存储满了没"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "蓝色指示灯关一下"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "读 gpio chip0 line298"}, {"role": "assistant", "content": "hw gpio get 0 298"}]}
+{"messages": [{"role": "user", "content": "turn on the 电源灯"}, {"role": "assistant", "content": "hw led green on"}]}
+{"messages": [{"role": "user", "content": "别让green led亮着"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "is the 床头灯 on"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "关电源灯"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "读 gpio chip0 line248"}, {"role": "assistant", "content": "hw gpio get 0 248"}]}
+{"messages": [{"role": "user", "content": "blink the 床头灯 8 times"}, {"role": "assistant", "content": "hw led blue blink 8"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "1 加 1 等于几"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "磁盘还剩多少"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "今天几号"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "green led关一下"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "fan speed 251"}, {"role": "assistant", "content": "hw fan 251"}]}
+{"messages": [{"role": "user", "content": "disk space"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "读 gpio chip0 line248"}, {"role": "assistant", "content": "hw gpio get 0 248"}]}
+{"messages": [{"role": "user", "content": "帮我算 1+1"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "gpio line 202 什么电平"}, {"role": "assistant", "content": "hw gpio get 0 202"}]}
+{"messages": [{"role": "user", "content": "关电源灯"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "讲个笑话"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "turn on the green led"}, {"role": "assistant", "content": "hw led green on"}]}
+{"messages": [{"role": "user", "content": "帮我关掉绿灯"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "负载怎么样"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "gpio0 line157 输出 0"}, {"role": "assistant", "content": "hw gpio set 0 157 0"}]}
+{"messages": [{"role": "user", "content": "磁盘还剩多少"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "关blue led"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "gpio line 321 设为 0"}, {"role": "assistant", "content": "hw gpio set 0 321 0"}]}
+{"messages": [{"role": "user", "content": "看下磁盘"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "turn on the 电源灯"}, {"role": "assistant", "content": "hw led green on"}]}
+{"messages": [{"role": "user", "content": "风扇现在什么速度"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "读一下 gpio0 的 15 号脚"}, {"role": "assistant", "content": "hw gpio get 0 15"}]}
+{"messages": [{"role": "user", "content": "memory"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "blink the 电源灯 11 times"}, {"role": "assistant", "content": "hw led green blink 11"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "green led关一下"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "内存占用"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "存储满了没"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "blink the 电源灯 11 times"}, {"role": "assistant", "content": "hw led green blink 11"}]}
+{"messages": [{"role": "user", "content": "is the green led on"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "看看蓝色指示灯开没开"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "写个爬虫"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "disk space"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "把lamp关了"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "fan speed 255"}, {"role": "assistant", "content": "hw fan 255"}]}
+{"messages": [{"role": "user", "content": "blink the green led 8 times"}, {"role": "assistant", "content": "hw led green blink 8"}]}
+{"messages": [{"role": "user", "content": "存储满了没"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "blink the 电源灯 11 times"}, {"role": "assistant", "content": "hw led green blink 11"}]}
+{"messages": [{"role": "user", "content": "fan speed status"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "turn on the lamp"}, {"role": "assistant", "content": "hw led blue on"}]}
+{"messages": [{"role": "user", "content": "内存还剩多少"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "把 gpio0 的 82 号脚拉0"}, {"role": "assistant", "content": "hw gpio set 0 82 0"}]}
+{"messages": [{"role": "user", "content": "fan speed status"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "查一下蓝灯状态"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "blink the 电源灯 11 times"}, {"role": "assistant", "content": "hw led green blink 11"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "blink the 床头灯 11 times"}, {"role": "assistant", "content": "hw led blue blink 11"}]}
+{"messages": [{"role": "user", "content": "看下磁盘"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "turn on the 蓝色指示灯"}, {"role": "assistant", "content": "hw led blue on"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "fan speed 251"}, {"role": "assistant", "content": "hw fan 251"}]}
+{"messages": [{"role": "user", "content": "gpio line 267 设为 1"}, {"role": "assistant", "content": "hw gpio set 0 267 1"}]}
+{"messages": [{"role": "user", "content": "gpio line 369 什么电平"}, {"role": "assistant", "content": "hw gpio get 0 369"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "读 gpio chip0 line203"}, {"role": "assistant", "content": "hw gpio get 0 203"}]}
+{"messages": [{"role": "user", "content": "cpu 状态"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "turn on the blue led"}, {"role": "assistant", "content": "hw led blue on"}]}
+{"messages": [{"role": "user", "content": "fan rpm"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "fan speed 253"}, {"role": "assistant", "content": "hw fan 253"}]}
+{"messages": [{"role": "user", "content": "唱首歌"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "gpio line 191 设为 0"}, {"role": "assistant", "content": "hw gpio set 0 191 0"}]}
+{"messages": [{"role": "user", "content": "讲个笑话"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "gpio line 156 设为 0"}, {"role": "assistant", "content": "hw gpio set 0 156 0"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "fan speed 253"}, {"role": "assistant", "content": "hw fan 253"}]}
+{"messages": [{"role": "user", "content": "帮我关掉蓝色指示灯"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "绿灯熄灭"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "blink the green led 9 times"}, {"role": "assistant", "content": "hw led green blink 9"}]}
+{"messages": [{"role": "user", "content": "写一首诗"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "还有多少内存"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "cpu 频率"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "你是谁"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "gpio line 262 什么电平"}, {"role": "assistant", "content": "hw gpio get 0 262"}]}
+{"messages": [{"role": "user", "content": "gpio0 line93 输出 0"}, {"role": "assistant", "content": "hw gpio set 0 93 0"}]}
+{"messages": [{"role": "user", "content": "风扇转多快"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "fan speed 252"}, {"role": "assistant", "content": "hw fan 252"}]}
+{"messages": [{"role": "user", "content": "gpio line 189 设为 1"}, {"role": "assistant", "content": "hw gpio set 0 189 1"}]}
+{"messages": [{"role": "user", "content": "gpio line 303 设为 1"}, {"role": "assistant", "content": "hw gpio set 0 303 1"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "turn on the 电源灯"}, {"role": "assistant", "content": "hw led green on"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "写个爬虫"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "唱首歌"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "turn on the green led"}, {"role": "assistant", "content": "hw led green on"}]}
+{"messages": [{"role": "user", "content": "看看lamp开没开"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "帮我算 1+1"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "存储满了没"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "存储满了没"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "turn off the 绿灯"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "电源灯熄灭"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "风扇状态"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "查一下绿灯状态"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "blink the 蓝灯 11 times"}, {"role": "assistant", "content": "hw led blue blink 11"}]}
+{"messages": [{"role": "user", "content": "blink the 蓝色指示灯 8 times"}, {"role": "assistant", "content": "hw led blue blink 8"}]}
+{"messages": [{"role": "user", "content": "今天几号"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "lamp亮着吗"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "gpio line 172 什么电平"}, {"role": "assistant", "content": "hw gpio get 0 172"}]}
+{"messages": [{"role": "user", "content": "内存占用"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "cpu freq"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "cpu 状态"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "查一下电源灯状态"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "cpu 状态"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "disk space"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "电源灯熄灭"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "fan speed 252"}, {"role": "assistant", "content": "hw fan 252"}]}
+{"messages": [{"role": "user", "content": "blink the 蓝灯 12 times"}, {"role": "assistant", "content": "hw led blue blink 12"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "读一下 gpio0 的 103 号脚"}, {"role": "assistant", "content": "hw gpio get 0 103"}]}
+{"messages": [{"role": "user", "content": "cpu 状态"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "cpu 状态"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "gpio line 162 设为 1"}, {"role": "assistant", "content": "hw gpio set 0 162 1"}]}
+{"messages": [{"role": "user", "content": "memory"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "fan rpm"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "fan speed 251"}, {"role": "assistant", "content": "hw fan 251"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "blink the 蓝色指示灯 8 times"}, {"role": "assistant", "content": "hw led blue blink 8"}]}
+{"messages": [{"role": "user", "content": "blink the 床头灯 9 times"}, {"role": "assistant", "content": "hw led blue blink 9"}]}
+{"messages": [{"role": "user", "content": "fan speed 254"}, {"role": "assistant", "content": "hw fan 254"}]}
+{"messages": [{"role": "user", "content": "turn on the blue led"}, {"role": "assistant", "content": "hw led blue on"}]}
+{"messages": [{"role": "user", "content": "别让台灯亮着"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "disk space"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "内存占用"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "帮我订机票"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "gpio line 211 什么电平"}, {"role": "assistant", "content": "hw gpio get 0 211"}]}
+{"messages": [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "gpio0 line350 输出 0"}, {"role": "assistant", "content": "hw gpio set 0 350 0"}]}
+{"messages": [{"role": "user", "content": "磁盘还剩多少"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "is the 电源灯 on"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "把台灯关了"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "把电源灯关了"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "turn on the green led"}, {"role": "assistant", "content": "hw led green on"}]}
+{"messages": [{"role": "user", "content": "gpio line 271 设为 0"}, {"role": "assistant", "content": "hw gpio set 0 271 0"}]}
+{"messages": [{"role": "user", "content": "内存占用"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "fan speed 255"}, {"role": "assistant", "content": "hw fan 255"}]}
+{"messages": [{"role": "user", "content": "blink the green led 10 times"}, {"role": "assistant", "content": "hw led green blink 10"}]}
+{"messages": [{"role": "user", "content": "讲个鬼故事"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "风扇现在什么速度"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "cpu 频率"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "查一下电源灯状态"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "你喜欢什么音乐"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "fan rpm"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "看下磁盘"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "帮我关掉绿灯"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "现在多少主频"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "明天天气如何"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "蓝色指示灯现在什么状态"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "看看蓝色指示灯开没开"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "内存占用"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "fan speed 251"}, {"role": "assistant", "content": "hw fan 251"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "is the 电源灯 on"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "内存还剩多少"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "蓝色指示灯亮着吗"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "帮我关掉lamp"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "memory"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "风扇转多快"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "cpu 频率"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "还有多少内存"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "磁盘还剩多少"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "蓝灯关一下"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "推荐一部电影"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "明天天气如何"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "现在多少主频"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "读 gpio chip0 line243"}, {"role": "assistant", "content": "hw gpio get 0 243"}]}
+{"messages": [{"role": "user", "content": "cpu freq"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "看下磁盘"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "你是谁"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "还有多少内存"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "帮我订机票"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "讲个鬼故事"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "cpu 状态"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "内存还剩多少"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "别让床头灯亮着"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "风扇状态"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "还有多少内存"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "负载怎么样"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "把 gpio0 的 285 号脚拉0"}, {"role": "assistant", "content": "hw gpio set 0 285 0"}]}
+{"messages": [{"role": "user", "content": "帮我关掉蓝色指示灯"}, {"role": "assistant", "content": "hw led blue off"}]}
+{"messages": [{"role": "user", "content": "查风扇转速"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "turn on the lamp"}, {"role": "assistant", "content": "hw led blue on"}]}
+{"messages": [{"role": "user", "content": "cpu 状态"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "读一下 gpio0 的 142 号脚"}, {"role": "assistant", "content": "hw gpio get 0 142"}]}
+{"messages": [{"role": "user", "content": "风扇状态"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "读一下 gpio0 的 303 号脚"}, {"role": "assistant", "content": "hw gpio get 0 303"}]}
+{"messages": [{"role": "user", "content": "turn on the 台灯"}, {"role": "assistant", "content": "hw led blue on"}]}
+{"messages": [{"role": "user", "content": "台灯亮着吗"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "风扇转多快"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "读一下 gpio0 的 213 号脚"}, {"role": "assistant", "content": "hw gpio get 0 213"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "memory"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "blink the 台灯 10 times"}, {"role": "assistant", "content": "hw led blue blink 10"}]}
+{"messages": [{"role": "user", "content": "gpio line 8 什么电平"}, {"role": "assistant", "content": "hw gpio get 0 8"}]}
+{"messages": [{"role": "user", "content": "蓝色指示灯亮着吗"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "风扇转多快"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "读 gpio chip0 line115"}, {"role": "assistant", "content": "hw gpio get 0 115"}]}
+{"messages": [{"role": "user", "content": "turn on the green led"}, {"role": "assistant", "content": "hw led green on"}]}
+{"messages": [{"role": "user", "content": "fan speed 255"}, {"role": "assistant", "content": "hw fan 255"}]}
+{"messages": [{"role": "user", "content": "把 gpio0 的 374 号脚拉1"}, {"role": "assistant", "content": "hw gpio set 0 374 1"}]}
+{"messages": [{"role": "user", "content": "cpu 频率"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "green led现在什么状态"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "fan speed 252"}, {"role": "assistant", "content": "hw fan 252"}]}
+{"messages": [{"role": "user", "content": "存储满了没"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "fan speed status"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "fan rpm now"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "内存占用"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "帮我关掉绿灯"}, {"role": "assistant", "content": "hw led green off"}]}
+{"messages": [{"role": "user", "content": "1 加 1 等于几"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "board info"}, {"role": "assistant", "content": "hw info"}]}
+{"messages": [{"role": "user", "content": "看下磁盘"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "fan rpm"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "turn on the lamp"}, {"role": "assistant", "content": "hw led blue on"}]}
+{"messages": [{"role": "user", "content": "gpio line 234 什么电平"}, {"role": "assistant", "content": "hw gpio get 0 234"}]}
+{"messages": [{"role": "user", "content": "内存还剩多少"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "现在多少主频"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "memory"}, {"role": "assistant", "content": "hw mem"}]}
+{"messages": [{"role": "user", "content": "green led亮着吗"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "disk space"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "把 gpio0 的 251 号脚拉1"}, {"role": "assistant", "content": "hw gpio set 0 251 1"}]}
+{"messages": [{"role": "user", "content": "磁盘还剩多少"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "temperature"}, {"role": "assistant", "content": "hw temp"}]}
+{"messages": [{"role": "user", "content": "fan speed 255"}, {"role": "assistant", "content": "hw fan 255"}]}
+{"messages": [{"role": "user", "content": "fan rpm now"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "负载怎么样"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "你喜欢什么音乐"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "blink the blue led 10 times"}, {"role": "assistant", "content": "hw led blue blink 10"}]}
+{"messages": [{"role": "user", "content": "绿灯现在什么状态"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "磁盘还剩多少"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "绿灯现在什么状态"}, {"role": "assistant", "content": "hw led green status"}]}
+{"messages": [{"role": "user", "content": "读 gpio chip0 line82"}, {"role": "assistant", "content": "hw gpio get 0 82"}]}
+{"messages": [{"role": "user", "content": "负载怎么样"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "gpio line 258 什么电平"}, {"role": "assistant", "content": "hw gpio get 0 258"}]}
+{"messages": [{"role": "user", "content": "fan speed 255"}, {"role": "assistant", "content": "hw fan 255"}]}
+{"messages": [{"role": "user", "content": "blink the 绿灯 9 times"}, {"role": "assistant", "content": "hw led green blink 9"}]}
+{"messages": [{"role": "user", "content": "cpu 状态"}, {"role": "assistant", "content": "hw cpu"}]}
+{"messages": [{"role": "user", "content": "turn on the 电源灯"}, {"role": "assistant", "content": "hw led green on"}]}
+{"messages": [{"role": "user", "content": "gpio line 353 设为 0"}, {"role": "assistant", "content": "hw gpio set 0 353 0"}]}
+{"messages": [{"role": "user", "content": "写一首诗"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "看下磁盘"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "读 gpio chip0 line63"}, {"role": "assistant", "content": "hw gpio get 0 63"}]}
+{"messages": [{"role": "user", "content": "风扇状态"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "存储满了没"}, {"role": "assistant", "content": "hw disk"}]}
+{"messages": [{"role": "user", "content": "fan rpm now"}, {"role": "assistant", "content": "hw fan"}]}
+{"messages": [{"role": "user", "content": "what is the capital of france"}, {"role": "assistant", "content": "(无需调用硬件命令)"}]}
+{"messages": [{"role": "user", "content": "blue led现在什么状态"}, {"role": "assistant", "content": "hw led blue status"}]}
+{"messages": [{"role": "user", "content": "fan rpm now"}, {"role": "assistant", "content": "hw fan"}]}

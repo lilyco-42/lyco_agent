@@ -35,7 +35,8 @@ T = {
         "{obj}闪一闪, {n}次",
     ],
     "temp": ["多少度", "cpu 温度", "现在热不热", "看下温度", "temperature",
-             "板子温度多少", "热吗现在"],
+             "板子温度多少", "热吗现在", "cpu 多少度", "处理器温度",
+             "cpu temp", "cpu 热不热"],
     "cpu": ["cpu 频率", "现在多少主频", "负载怎么样", "cpu 状态", "cpu freq"],
     "mem": ["内存还剩多少", "memory", "内存占用", "还有多少内存"],
     "disk": ["磁盘还剩多少", "disk space", "存储满了没", "看下磁盘"],
@@ -51,7 +52,7 @@ T = {
 }
 
 # 槽位 → 自然语言对象名
-OBJ = {"blue": ["蓝灯", "蓝色指示灯", "blue led"],
+OBJ = {"blue": ["蓝灯", "蓝色指示灯", "blue led", "台灯", "lamp", "床头灯"],
        "green": ["绿灯", "电源灯", "green led"]}
 HEAT = {"blue": "蓝灯", "green": "绿灯"}
 
@@ -149,15 +150,14 @@ def main():
             "写个爬虫", "推荐一部电影", "1 加 1 等于几",
             "你是谁", "讲个鬼故事", "帮我订机票", "明天天气如何", "hello"]
     for t in noop:
-        for _ in range(max(a.train // 300, 1)):
+        for _ in range(max(a.train // 200, 1)):
             train.append({"messages": [{"role": "user", "content": t},
                                        {"role": "assistant",
                                         "content": "(无需调用硬件命令)"}]})
 
     # eval: held-out 表达 + held-out 值域 (250-255 / blink 8-12) + 该不调
-    noop = ["讲个笑话", "今天几号", "你喜欢什么音乐", "写一首诗",
-            "what is the capital of france", "帮我算 1+1"]
-    held = max(a.eval - len(noop), 1)
+    noop_eval = noop * 2  # 30 条: 6 条测不出拒绝率(1 条=17%)
+    held = max(a.eval - len(noop_eval), 1)
     for _ in range(held):
         cap = R.choice(caps)
         if cap.startswith("led"):
@@ -177,7 +177,7 @@ def main():
                                    "v": R.choice([0, 1])}, heldout=True))
         else:
             ev.append(sample(cap, {}, heldout=True))
-    for t in noop:
+    for t in noop_eval:
         ev.append({"messages": [{"role": "user", "content": t},
                                 {"role": "assistant",
                                  "content": "(无需调用硬件命令)"}]})

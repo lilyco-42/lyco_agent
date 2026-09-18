@@ -228,6 +228,19 @@ class H(BaseHTTPRequestHandler):
                         break
             t0 = time.time()
             text = ""
+            # 保存最近一次音频为 16k 单声道 WAV —— 供板上 NPU 唤醒词引擎复检
+            try:
+                from faster_whisper.audio import decode_audio
+                import wave
+                pcm = decode_audio(io.BytesIO(audio), sampling_rate=16000)
+                with wave.open("/home/radxa/last_audio.wav", "wb") as w:
+                    w.setnchannels(1)
+                    w.setsampwidth(2)
+                    w.setframerate(16000)
+                    w.writeframes((pcm * 32767).astype("int16").tobytes())
+                print(f"[asr] 已保存 last_audio.wav ({len(pcm)/16000:.2f}s)", flush=True)
+            except Exception as e:
+                print(f"[asr] 保存音频失败: {e}", flush=True)
             try:
                 # tiny int8 是这块 CPU 的上限 (base 实测 16x 实时率, 不可用);
                 # 准确率靠 hotwords 领域词 + initial_prompt 简体偏置, 不靠换大模型

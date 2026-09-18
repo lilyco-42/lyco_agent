@@ -228,26 +228,31 @@ class H(BaseHTTPRequestHandler):
                         break
             t0 = time.time()
             text = ""
-            # 保存最近一次音频为 16k 单声道 WAV —— 供板上 NPU 唤醒词引擎复检
+            # 先把上传音频解码成 16k 单声道 WAV, 再对该 WAV 转写。
+            # 踩坑: 直接把原始上传字节(BytesIO)喂 transcribe 时 PyAV 有时解不出音频
+            # (返回空且极快), 而 decode_audio + WAV 文件这条路径稳定。
+            WAV = "/home/radxa/last_audio.wav"
             try:
                 from faster_whisper.audio import decode_audio
                 import wave
                 pcm = decode_audio(io.BytesIO(audio), sampling_rate=16000)
-                with wave.open("/home/radxa/last_audio.wav", "wb") as w:
+                with wave.open(WAV, "wb") as w:
                     w.setnchannels(1)
                     w.setsampwidth(2)
                     w.setframerate(16000)
                     w.writeframes((pcm * 32767).astype("int16").tobytes())
-                print(f"[asr] 已保存 last_audio.wav ({len(pcm)/16000:.2f}s)", flush=True)
+                print(f"[asr] 已保存 {WAV} ({len(pcm)/16000:.2f}s)", flush=True)
             except Exception as e:
-                print(f"[asr] 保存音频失败: {e}", flush=True)
+                print(f"[asr] 解码/保存失败: {e}", flush=True)
             try:
                 # tiny int8 是这块 CPU 的上限 (base 实测 16x 实时率, 不可用);
                 # 准确率靠 hotwords 领域词 + initial_prompt 简体偏置, 不靠换大模型
                 segs, info = model.transcribe(
-                    io.BytesIO(audio), language="zh",
+                    WAV, language="zh",
                     initial_prompt="以下是普通话的句子。打开台灯。把蓝灯关掉。风扇调到一百五。",
                     hotwords="台灯 蓝灯 绿灯 风扇 温度 内存 磁盘 打开 关闭 亮 灯 调到")
+                # ⚠️ 必须迭代 segs 才会真正执行转写 (transcribe 返回生成器)
+                text = "".join(s.text for s in segs).strip()
                 try:
                     from opencc import OpenCC
                     text = OpenCC("t2s").convert(text)

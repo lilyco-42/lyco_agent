@@ -12,46 +12,25 @@ models/
 *.gguf
 pack_merged.tar.gz
 
-# 冒烟测试中间产物 (保留 pack 与最终视频作演示)
-smoke/pack_tts*/
-smoke/pack_tts2/
-smoke/audio20*.wav
-smoke/mix20.wav
-smoke/m1.wav
-smoke/e2_16k.wav
-smoke/extracted.wav
-smoke/t*.wav
-smoke/p[1-4].mp4
-smoke/dbg*
-smoke/t_out*
+# 冒烟测试夹具: 全部出库走 Release 分发 (hygiene review 2026-09-20, 原 21 条精细
+# ignore 规则塌缩为 2 行)。恢复: bash scripts/fetch_fixtures.sh; 清单+校验和: smoke/fixtures.lock
+# (源素材大视频 adb_scrpy.mp4 138MB 从未入库, 不在夹具包内; pack 内已有其转写产物)
+smoke/*
+!smoke/fixtures.lock
+
+# vnn CNN 权重 (2×1.2MB JSON): 运行时由 vnn_cnn.rs resolve() 按位置解析,
+# 出库走同一 Release, fetch_fixtures.sh 会放回 lycore/assets/
+lycore/assets/vnn_cnn_v2_weights.json
+lycore/assets/vnn_cnn_v3_weights.json
 
 # OS
 .DS_Store
 Thumbs.db
-smoke/demo_pack/
 
 # ARM 二进制由 CI 构建并挂到 release (releases/latest/download/lycore-aarch64),
 # 不再入库 —— 避免 git 里的 stale 副本被误取 (曾是手工重编 3 次的漂移源)
 dist/
 
-# e2e 测试产物 (agent loop 生成, 非资产)
-smoke/agent_*.html
-smoke/agent_*.mp4
-smoke/f*_v[0-9]*.png
-
-# 会话调试知识包 (learn 出来的临时 pack, 非资产)
-smoke/jj_pack/
-smoke/lilyco_pack/
-
-# 注: smoke/pack_merged/learning_queue.jsonl 是**真实队列样本**(非忽略) ——
-#     lernen 的 NO_HIT 二次分类回归测试直接引用其中的 "队名"×7 / "起个标题"。
 # 本地交叉编译 hack (CI 用 env 注入链接器, 不依赖 .cargo/config.toml)
 lycore/.cargo/
 lycore/zigcc-linker.sh
-
-# 源素材视频 (138MB, GitHub 硬拒 >100MB; 学习产物 SRT+pack 入库, 视频本身留在本地)
-smoke/adb_scrcpy/adb_scrpy.mp4
-smoke/adb_scrcpy/pack/source.mp4
-
-# ask 探测产生的本地学习队列 (测试残留, 非素材知识)
-smoke/adb_scrcpy/pack/learning_queue.jsonl

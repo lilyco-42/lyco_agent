@@ -1,0 +1,13 @@
+# 出库资产清单（hygiene review 2026-09-20，替代入库二进制）
+# 恢复方式: bash scripts/fetch_fixtures.sh
+# 来源 Release: https://github.com/lilyco-42/lyco_agent/releases/tag/fixtures-2026-09-20
+#
+# [资产名]  解压目标  sha256  文件数
+smoke-fixtures.tar.gz  .  5a3f905188b501bffe24172c1bb2967b17d5149d76ede2b62973bfc6c4a86e2c  174
+vnn-weights.tar.gz  .  ab2c0a0b87ed7a8b5e0ba5f9d25ae05ba35739e76ba322cd75db36622d751d39  2
+#
+# 注意:
+# - smoke/ 源素材大视频 (smoke/adb_scrcpy/adb_scrpy.mp4, 138MB) 从未入库，本包不含；
+#   pack 内已含其转写/帧/SRT 产物，测试不依赖原始视频本体。
+# - vnn-weights 解压出 lycore/assets/vnn_cnn_v{2,3}_weights.json，
+#   由 lycore/src/vnn_cnn.rs resolve() 按 env LYCO_VNN_CNN > lycore/assets > assets > models > exe_dir 顺序解析。

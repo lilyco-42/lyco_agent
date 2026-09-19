@@ -40,6 +40,8 @@ jobs:
             cargo-${{ runner.os }}
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Fetch out-of-repo fixtures (smoke + vnn weights)
+        run: bash scripts/fetch_fixtures.sh
       - name: Build (deps cache warm)
         run: cargo build --release
       - name: Test

@@ -1,7 +1,0 @@
-{
- "format": "LYV 0.1",
- "video": "demo.mp4",
- "duration": 20.0,
- "asr_src": "srt",
- "units": 4
-}

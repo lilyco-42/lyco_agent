@@ -1,5 +1,8 @@
 # 端侧模型产物（Qwen3-0.6B 派生，GGUF Q4_K_M）
 
+> 📦 **已发布到 HuggingFace**：<https://huggingface.co/lyco42/lyco-agent-qwen3-0.6b-ondevice>
+> （HTTP 上可直接下载；本目录下的 `.gguf` 是同一份文件的本地副本）
+
 由 `cloudstudio/` 下的管线在 CloudStudio A10 上训练 + 量化得到。**不要把这些 .gguf 提交进 git**（已在 .gitignore 内）。
 
 | 文件 | 角色 | 大小 | 参数量 | 来源 |

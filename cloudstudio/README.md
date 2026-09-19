@@ -101,3 +101,34 @@ stage2 结束会打印 `VERSIONS` 与 `API reward_funcs= True processing_class= 
 - `tools/fc_grpo_v4.py` 顶部会 `import vllm`；stage2 **没装 vllm**，所以 v4 不能直接跑（要跑需先装 vllm）。
 - GRPO 未开 vLLM（`use_vllm=False`），generation 走 HF `generate`，200 步偏慢，用 4 小时超时那版执行器。
 - 方案文档见 `docs/ondevice-training-plan-2026-09-18.md`。
+
+## 7. 把大文件（GGUF 等）拉回本机
+
+**关键点：Jupyter server 的 root 与内核的 `$HOME` 不是同一个目录。**
+
+- JPS 的 root_dir 是 **`/workspace`**（启动参数是 `--notebook-dir=/workspace`，**不是** `--ServerApp.root_dir=`，
+  按后者去解析会得到空值）。
+- 内核里 `$HOME=/root`，训练产物默认写在 `/root/...` 和 `/workspace/...`。
+  **`/root` 下的文件用 contents API 下不到** → 先复制到 `/workspace`（见 `a10_stage_gguf.py`）。
+- 大文件**必须**用 `cs_download_raw.mjs`（走 `/files/` 原始字节端点）；
+  `cs_download.mjs` 走的 contents API 会把文件塞进 base64 JSON，大文件会 `ERR_STRING_TOO_LONG`。
+
+```bash
+export CS_COOKIE='cloudstudio-session=<值>; cloudstudio-session-team=gh'
+export CS_JPS=$(node cs_auth.mjs <spaceKey> | head -1 | awk '{print $2}')
+
+# 1) 内核里先把产物复制到 /workspace
+node cs_exec_long.mjs --file a10_stage_gguf.py
+# 2) 原始字节下载（大文件）
+node cs_download_raw.mjs "grpo-Q4_K_M.gguf" "../lyco_agent/models/grpo-Q4_K_M.gguf"
+```
+
+下载后**校验文件头**是 `GGUF`（`od -A x -t x1z -N 8 file` → `47 47 55 46`）。
+
+## 8. 推理时的两个坑（量化模型实测）
+
+1. **必须关 thinking**：训练用 `enable_thinking=False`；推理若开着思考，模型会先长篇推理而不输出命令。
+   CLI 加 `--chat-template-kwargs '{"enable_thinking": false}'`，或预渲染时传 `enable_thinking=False`。
+2. **新版 llama.cpp 已移除 `-no-cnv`**（0.4.1-dev, commit 60081bb）→ 单轮退出用 **`-st`**。
+
+验证脚本：`a10_gguf_validate5.py`（只在 `assistant` 标记之后判定，避免 prompt 回显污染）。

@@ -79,7 +79,7 @@ echo "判定"
 if [ "$VIPCORE" = yes ]; then
   echo "  G0 设备节点      : PASS"
 else
-  echo "  G0 设备节点      : FAIL  -> 见 NPU_SETUP.md §1, 大概率要刷 5.15 内核"
+  echo "  G0 设备节点      : FAIL  -> 见 lyco-ops 仓 NPU_SETUP.md §1 (github.com/lilyco-42/lyco-ops), 大概率要刷 5.15 内核"
 fi
 if [ -n "$VIPHAL" ] && [ -n "$VPM" ]; then
   echo "  G1 VIPLite 运行时: PASS  -> 可以跑现成 NBG 了"

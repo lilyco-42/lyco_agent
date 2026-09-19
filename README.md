@@ -1,3 +1,5 @@
+> 运维/部署脚本已迁至 [lyco-ops](https://github.com/lilyco-42/lyco-ops)（2026-09-19 拆仓，见 lilyco 生态路线图 P2）
+
 <div align="center">
 
 # lyco_agent

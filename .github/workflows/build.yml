@@ -7,7 +7,7 @@ name: Build & Test
 #   test    — 主机 cargo test (16 个 ignored 测试需真知识包/llama-server, 跳过)
 #   build   — x86_64 + aarch64 Linux 矩阵, 产物 upload-artifact
 #   release — 打 tag (v*.*.*) 时: 构建 aarch64 + 源码包, 上传到 GitHub Release
-#             (release 附件是 RADXA_SETUP 路径 A/B 的权威来源, CI 构建即杜绝与源码漂移)
+#             (release 附件是 lyco-ops/RADXA_SETUP.md 路径 A/B 的权威来源, CI 构建即杜绝与源码漂移)
 
 on:
   push:
@@ -179,7 +179,7 @@ jobs:
         run: |
           # tag push 时 Release 尚不存在: 先 create (无资产, 直接发布), 已存在则跳过
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
-            --notes "自动构建: lycore-aarch64 (gnu) + lycore-aarch64-static (musl, 任意 aarch64 Linux 可跑) + 源码包。详见 RADXA_SETUP.md" \
+            --notes "自动构建: lycore-aarch64 (gnu) + lycore-aarch64-static (musl, 任意 aarch64 Linux 可跑) + 源码包。部署步骤详见 lyco-ops 仓 RADXA_SETUP.md (https://github.com/lilyco-42/lyco-ops)" \
             2>/dev/null || echo "release 已存在, 直接上传"
           gh release upload "$GITHUB_REF_NAME" \
             out/lycore-aarch64 out/lycore-aarch64-static out/lyco_radxa_src.tar.gz --clobber

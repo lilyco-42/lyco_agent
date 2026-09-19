@@ -26,6 +26,7 @@ Rust 实现的轻量化 Agent 运行时(`lycore`) + 分工模型训练实验平�
 |---|---|
 | 底座模型选型调研 | `docs/research-base-model-2026-09-10.md` |
 | 训练指南 | `docs/deepseek-training-guide-2026-09-10.md` |
+| 云/板端运维脚本（CloudStudio A10 编排、RADXA/NPU 部署） | [lilyco-42/lyco-ops](https://github.com/lilyco-42/lyco-ops)（2026-09-19 自本仓拆出） |
 
 ## 当前底座决策(2026-09-10)
 

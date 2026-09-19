@@ -71,3 +71,35 @@
 - **读 traceback 要读 `File line N, in <fn>` 指向的最后一帧**，不要拿上下文行猜。
   本次曾据此误判为 `from_pretrained` 参数问题，实际是数据形态不一致
   （`gen_pair` 返回 `{"messages":[...]}`，HF 侧已剥成 list，`msgs[0]` 对 dict 取下标 → `KeyError: 0`）。
+
+
+---
+
+## 7. 模型合并：零成本的大幅提升（2026-09-19 追加）
+
+依据：DeepSeek-V4.1-Flash 技术报告 §5.1.2 ——
+> we use **model merging to reinitialize successive RL runs** ... combining improvements acquired along different
+> optimization paths ... a simple and practical way to aggregate parallel RL compute.
+
+**实测**（同一 run、同一评测集，独立复现两次结果完全一致）：
+
+| 模型 | heldA（未见说法） | heldB（弱线索） | 拒绝率 |
+|---|---|---|---|
+| v4 | 91.7% (477/520) | 74.8% (247/330) | 100% |
+| **v3 ⊕ v4（权重平均 0.5/0.5）** | **98.5%** (512/520) | **79.7%** (263/330) | 100% |
+
+- **+6.8pp / +4.9pp，双双超出 ±3pp 噪声带**；两次独立评测给出**完全相同的命中数**（512/520、263/330）。
+- **零训练成本**：只是把两条不同优化路径的 checkpoint 逐张量平均。
+  合并后**同时优于 v3 和 v4 各自**（v3 强于 heldA、v4 强于 heldB）—— 正是报告所说"把不同优化路径的改进叠加"。
+
+### 实现要点（内存安全）
+用 `safetensors.safe_open` **惰性逐张量**读取后平均。
+⚠️ 不要直接 `state_dict()` 两份再合并：会同时驻留两份 float32（每个 ~2.4GB）+ 结果 dict（再 ~2.4GB），
+**曾把 CloudStudio 工作空间直接打崩**（状态变 `Error`，只能人工重启）。惰性版峰值只有 1~2 个张量。
+
+### 本轮踩坑（写代码时请先对照仓库既有注释）
+1. **`make_cmd` 用了 dict 字面量**按 cap 返回不同表达式 → dict 中**所有值都会被立即求值**，
+   于是 `cap="temp"`（无槽位）时也会去算 `kw['v']` → `KeyError: 'v'`。
+   `tools/cli_datagen.py` 第 64 行**已明文警告过这条**，仍被踩。→ **必须用 if/elif 惰性分支**。
+2. `trl.GRPOTrainer(train_dataset=...)` 要求 `datasets.Dataset`，**传 list 会 TypeError**（需 `Dataset.from_list`）。
+3. 变量批量改名后要全局 grep：`V5`→`V6` 漏了 `GRPOConfig(output_dir=V5)` → `NameError`。

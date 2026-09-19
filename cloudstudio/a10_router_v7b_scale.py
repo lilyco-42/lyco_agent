@@ -241,14 +241,14 @@ def evaluate(model, tok, cases):
 
 
 def mcnemar(a, b):
-    """a,b: 同长 bool 列表; 双侧精确 McNemar"""
-    n01 = sum(1 for x, y in zip(a, b) if (not x) and y)
-    n10 = sum(1 for x, y in zip(a, b) if x and (not y))
-    n = n01 + n10
-    if n == 0: return n01, n10, 1.0
-    k = min(n01, n10)
+    """a=0.6B, b=1.7B 的逐条布尔; 返回 (b 独对, a 独对, 双侧精确 p)"""
+    b_only = sum(1 for x, y in zip(a, b) if (not x) and y)   # a 错 b 对 -> 1.7B 独对
+    a_only = sum(1 for x, y in zip(a, b) if x and (not y))   # a 对 b 错 -> 0.6B 独对
+    n = b_only + a_only
+    if n == 0: return b_only, a_only, 1.0
+    k = min(b_only, a_only)
     p = 2 * sum(math.comb(n, i) for i in range(0, k + 1)) * (0.5 ** n)
-    return n01, n10, min(1.0, p)
+    return b_only, a_only, min(1.0, p)
 
 
 def report(tag, res, label="A"):
@@ -324,7 +324,7 @@ except Exception:
 
 print("\n=== 配对检验 (McNemar 精确) ===", flush=True)
 for name, a, b in (("heldA", A_heldA, B_heldA), ("heldB", A_heldB, B_heldB)):
-    n01, n10, p = mcnemar(a, b)
-    print(f"  {name}: 1.7B独对={n10}  0.6B独对={n01}  p={p:.4f}  "
+    b_only, a_only, p = mcnemar(a, b)
+    print(f"  {name}: 1.7B独对={b_only}  0.6B独对={a_only}  p={p:.4f}  "
           f"{'显著' if p < 0.05 else '不显著'}", flush=True)
 print("V7_DONE", flush=True)

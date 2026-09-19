@@ -11,8 +11,14 @@ use std::path::Path;
 
 /// intent 词典: (正则, intent) — 与 lyv.py RULES 同步
 pub const RULES: &[(&str, &str)] = &[
-    (r"(创建|新建|建立|create|new).{0,8}(项目|project)", "rust.project.create"),
-    (r"(运行|跑|run).{0,8}(项目|project|程序)", "rust.project.run"),
+    (
+        r"(创建|新建|建立|create|new).{0,8}(项目|project)",
+        "rust.project.create",
+    ),
+    (
+        r"(运行|跑|run).{0,8}(项目|project|程序)",
+        "rust.project.run",
+    ),
     (r"进入|chdir|\bcd\b", "fs.chdir"),
 ];
 
@@ -69,10 +75,8 @@ impl Pack {
     /// 若 pack/rules.json 存在则加载为领域规则, 否则用内置 RULES。
     pub fn open(pack_dir: &Path) -> rusqlite::Result<Self> {
         let db_path = pack_dir.join("index").join("knowledge.sqlite");
-        let conn = Connection::open_with_flags(
-            db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )?;
+        let conn =
+            Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         let rules = Self::load_rules(pack_dir);
         Ok(Self { conn, rules })
     }
@@ -109,7 +113,10 @@ impl Pack {
         )?;
         let mut rows = stmt.query([intent])?;
         match rows.next()? {
-            Some(row) => Ok(Some(Self::row_to_evidence(row, &format!("intent-dict:{intent}")))),
+            Some(row) => Ok(Some(Self::row_to_evidence(
+                row,
+                &format!("intent-dict:{intent}"),
+            ))),
             None => Ok(None),
         }
     }
@@ -185,36 +192,6 @@ fn parse_legacy_rule(pat: &str, intent: &str) -> Rule {
     }
 }
 
-/// 规则匹配: 每条规则独立判断 (对应 Python re.search(pat, q, re.I))
-/// RULES 模式都是 "(词A|词B|wordC).{0,8}(词D|词E)" 形状 → 拆解为词对共现判定:
-/// 两侧任选一词, 同时出现 (顺序无关近似, 距离限制由词典语义保证)
-fn match_rule(pat: &str, q: &str) -> bool {
-    // 粗解析: 按 | 拆 alternation, 取每侧的词字面量
-    let words: Vec<&str> = pat.split('|')
-        .flat_map(|alt| {
-            // 去掉正则元字符残留 (.{0,8} 等), 只留 CJK/ASCII 词根
-            alt.split(|c: char| !c.is_alphanumeric() && (c as u32) < 0x4e00)
-                .filter(|s| !s.is_empty() && *s != "0" && *s != "8")
-        })
-        .collect();
-    if words.len() < 2 {
-        // 单词规则: 直接包含即命中 (如单侧 alternation 只剩一个有效词)
-        let (left, right) = split_alternations(pat);
-        if right.is_empty() {
-            return left.iter().any(|l| q.contains(l));
-        }
-        return false;
-    }
-    // (A|B).{0,8}(C|D): 前半 alternation 与后半 alternation 各命中一词
-    // 词典结构固定: 前侧 = 前 N1 个词, 后侧 = 剩余 (由 | 分组直接对应)
-    let (left, right) = split_alternations(pat);
-    if right.is_empty() {
-        // 单侧 alternation (如 "进入|chdir|\bcd\b"): 任一词命中即可
-        return left.iter().any(|l| q.contains(l));
-    }
-    left.iter().any(|l| q.contains(l)) && right.iter().any(|r| q.contains(r))
-}
-
 /// 把 "w1|w2.{0,8}w3|w4" 拆成 (前侧词, 后侧词)
 fn split_alternations(pat: &str) -> (Vec<&str>, Vec<&str>) {
     // 找 '.{0,8}' 分隔
@@ -261,7 +238,10 @@ mod tests {
         let pack = Pack::open(dir.path()).unwrap();
         // rules.json 叠加在内置 RULES 之上 (不替换): 一个学习/领域 pack 不得挤掉内置 rust 路由
         assert_eq!(pack.rules.len(), 1 + RULES.len(), "领域规则 + 内置规则都在");
-        assert_eq!(pack.rules[0].intent, "art.draw", "领域规则在前 (first-match-wins 优先)");
+        assert_eq!(
+            pack.rules[0].intent, "art.draw",
+            "领域规则在前 (first-match-wins 优先)"
+        );
         // 内置规则仍在尾部兜底
         assert!(pack.rules.iter().any(|r| r.intent == "rust.project.create"));
     }

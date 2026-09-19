@@ -122,9 +122,7 @@ impl<E: Embedder> ToolRag<E> {
             .iter()
             .map(|e| (cosine(&q, &e.vec), e))
             .collect();
-        scored.sort_by(|a, b| {
-            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored
             .into_iter()
             .take(k)
@@ -141,8 +139,7 @@ impl<E: Embedder> ToolRag<E> {
     /// 产出喂给小模型的「裁剪版 tools_openai.json」(TinyAgent ToolRAG 范式)。
     pub fn to_openai_tools_schema(&self, hits: &[RecallHit]) -> serde_json::Value {
         let full = crate::llamacpp::chat_tools();
-        let names: std::collections::HashSet<&str> =
-            hits.iter().map(|h| h.name).collect();
+        let names: std::collections::HashSet<&str> = hits.iter().map(|h| h.name).collect();
         let arr = full
             .as_array()
             .map(|tools| {
@@ -165,10 +162,7 @@ impl<E: Embedder> ToolRag<E> {
 
 /// 余弦相似度 (向量已 L2 归一 → 返回点积 ∈ [-1, 1])
 fn cosine(a: &[f32], b: &[f32]) -> f64 {
-    a.iter()
-        .zip(b)
-        .map(|(x, y)| *x as f64 * *y as f64)
-        .sum()
+    a.iter().zip(b).map(|(x, y)| *x as f64 * *y as f64).sum()
 }
 
 #[cfg(test)]

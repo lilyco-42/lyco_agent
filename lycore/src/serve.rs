@@ -42,21 +42,31 @@ fn handle_ask(
     } else {
         // 第一跳: 直查
         if let Some(ev) = executor.pack_lookup(question) {
-            return (200, json!({"route": "retrieval",
+            return (
+                200,
+                json!({"route": "retrieval",
                                 "intent": ev.intent, "text": ev.text,
                                 "t0": ev.t0, "t1": ev.t1,
-                                "keyframe": ev.frame}));
+                                "keyframe": ev.frame}),
+            );
         }
         // 第二跳: rewrite 专训后端改写 → 二次检索 (分工模型: 改写走独立后端)
         if let Some(rurl) = &cfg.rewrite_url {
             let mut backend = LlamaCppBackend::new(rurl, &cfg.rewrite_model);
             match crate::rewrite::lookup_with_rewrite(executor, &mut backend, question) {
                 Ok((Some(ev), rewritten)) => {
-                    let route = if rewritten { "retrieval-rewritten" } else { "retrieval" };
-                    return (200, json!({"route": route,
+                    let route = if rewritten {
+                        "retrieval-rewritten"
+                    } else {
+                        "retrieval"
+                    };
+                    return (
+                        200,
+                        json!({"route": route,
                                         "intent": ev.intent, "text": ev.text,
                                         "t0": ev.t0, "t1": ev.t1,
-                                        "keyframe": ev.frame}));
+                                        "keyframe": ev.frame}),
+                    );
                 }
                 Ok((None, _)) => { /* 落到学习队列 */ }
                 Err(e) => {
@@ -65,8 +75,11 @@ fn handle_ask(
             }
         }
         let _ = queue.push(question, "NO_HIT: 知识库没有这个操作");
-        (200, json!({"route": "learning_queue",
-                     "answer": "抱歉，我还没学会这个操作，已加入学习队列。"}))
+        (
+            200,
+            json!({"route": "learning_queue",
+                     "answer": "抱歉，我还没学会这个操作，已加入学习队列。"}),
+        )
     }
 }
 
@@ -87,10 +100,19 @@ pub fn serve(cfg: ServeConfig) -> anyhow::Result<()> {
     let queue = std::sync::Arc::new(LearningQueue::open(&cfg.pack_dir));
     let served = Arc::new(AtomicUsize::new(0));
     let cfg = Arc::new(cfg);
-    println!("[lycore] serving on http://{addr}  pack={}", cfg.pack_dir.display());
-    println!("[lycore] mode: {}  workers: {}",
-             if cfg.llama_url.is_some() { "agent+llama" } else { "retrieval-only" },
-             WORKERS);
+    println!(
+        "[lycore] serving on http://{addr}  pack={}",
+        cfg.pack_dir.display()
+    );
+    println!(
+        "[lycore] mode: {}  workers: {}",
+        if cfg.llama_url.is_some() {
+            "agent+llama"
+        } else {
+            "retrieval-only"
+        },
+        WORKERS
+    );
 
     // 多并发: worker 线程池共享 Arc<Server> (tiny_http 官方多线程模式)
     let mut handles = Vec::new();
@@ -101,7 +123,9 @@ pub fn serve(cfg: ServeConfig) -> anyhow::Result<()> {
         let cfg = cfg.clone();
         // rusqlite Connection 非 Sync → 每 worker 在线程内独立开 Executor
         let pack_dir = cfg.pack_dir.clone();
-        handles.push(std::thread::spawn(move || worker_loop(w, server, queue, served, cfg, pack_dir)));
+        handles.push(std::thread::spawn(move || {
+            worker_loop(w, server, queue, served, cfg, pack_dir)
+        }));
     }
     for h in handles {
         let _ = h.join();
@@ -122,7 +146,10 @@ fn worker_loop(
     loop {
         let executor = match Executor::open(Path::new(pack_dir.as_os_str())) {
             Ok(e) => e,
-            Err(e) => { eprintln!("[lycore:w{id}] executor open fail: {e}"); return; }
+            Err(e) => {
+                eprintln!("[lycore:w{id}] executor open fail: {e}");
+                return;
+            }
         };
         let mut request = match server.recv() {
             Ok(r) => r,
@@ -141,10 +168,7 @@ fn worker_loop(
                 200,
                 json!({"ok": true, "served": served.load(Ordering::Relaxed)}),
             ),
-            ("GET", "/queue") => (
-                200,
-                json!({"pending": queue.len()}),
-            ),
+            ("GET", "/queue") => (200, json!({"pending": queue.len()})),
             ("POST", "/harvest") => {
                 let out = serde_json::from_str::<serde_json::Value>(&body)
                     .ok()

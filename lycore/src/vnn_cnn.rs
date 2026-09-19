@@ -17,7 +17,9 @@ pub const CLASSES: &[&str] = &["terminal", "gui_window", "nature", "document"];
 #[derive(Deserialize)]
 struct WeightsFile {
     classes: Vec<String>,
+    /// 权重文件格式版本: 反序列化后当前不读, 保留供未来版本分派
     #[serde(default)]
+    #[allow(dead_code)]
     version: u32,
     weights: std::collections::BTreeMap<String, TensorData>,
     /// V9+ 权重带数据驱动神经元库 (fc1 嵌入空间 K-means 原型); v2 无此字段 → 空
@@ -68,12 +70,18 @@ impl CnnClassifier {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("VNN CNN 权重读取失败: {}", path.display()))?;
-        let f: WeightsFile =
-            serde_json::from_str(&raw).context("VNN CNN 权重 JSON 解析失败")?;
+        let f: WeightsFile = serde_json::from_str(&raw).context("VNN CNN 权重 JSON 解析失败")?;
         let get = |name: &str| -> anyhow::Result<Vec<f32>> {
-            let t = f.weights.get(name).with_context(|| format!("缺少张量 {name}"))?;
+            let t = f
+                .weights
+                .get(name)
+                .with_context(|| format!("缺少张量 {name}"))?;
             let expect: usize = t.shape.iter().product();
-            anyhow::ensure!(t.data.len() == expect, "张量 {name} 数据量 {} ≠ shape 积 {expect}", t.data.len());
+            anyhow::ensure!(
+                t.data.len() == expect,
+                "张量 {name} 数据量 {} ≠ shape 积 {expect}",
+                t.data.len()
+            );
             Ok(t.data.clone())
         };
         Ok(Self {
@@ -167,7 +175,9 @@ impl CnnClassifier {
         }
         // 优先 v3 (含 V9 神经元库 → 分歧升级生效), 回退 v2 (fc2-only)。
         // 每个位置先 v3 后 v2; 两版权重 fc2 在 terminal 类同为 9/9, v3 额外给可解释投票。
-        let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.to_path_buf()));
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|d| d.to_path_buf()));
         let bases: [Option<PathBuf>; 4] = [
             Some(PathBuf::from("lycore/assets")),
             Some(PathBuf::from("assets")),
@@ -184,9 +194,7 @@ impl CnnClassifier {
                 ]
             })
             .collect();
-        candidates
-            .into_iter()
-            .find(|p| p.exists())
+        candidates.into_iter().find(|p| p.exists())
     }
 
     /// 单张 64x64 灰度 (0..255) → softmax 概率 (与 CLASSES/classes 对齐)
@@ -196,7 +204,11 @@ impl CnnClassifier {
         let mut logits = [0f64; 4];
         for (o, ob) in self.fc2_b.iter().enumerate() {
             let row = &self.fc2_w[o * 32..(o + 1) * 32];
-            logits[o] = h1.iter().zip(row).map(|(a, b)| (*a * *b) as f64).sum::<f64>()
+            logits[o] = h1
+                .iter()
+                .zip(row)
+                .map(|(a, b)| (*a * *b) as f64)
+                .sum::<f64>()
                 + *ob as f64;
         }
         let max = logits.iter().cloned().fold(f64::MIN, f64::max);
@@ -240,13 +252,16 @@ fn conv2d_relu_pool(
                         let ix = (ox * 2 + px) as isize;
                         let mut acc = bias;
                         for ic in 0..in_ch {
-                            let plane = &input[ic * in_size * in_size..(ic + 1) * in_size * in_size];
+                            let plane =
+                                &input[ic * in_size * in_size..(ic + 1) * in_size * in_size];
                             let wb = &wbase[ic * 9..(ic + 1) * 9];
                             for ky in 0..3isize {
                                 for kx in 0..3isize {
                                     let sy = iy + ky - 1; // pad=1
                                     let sx = ix + kx - 1;
-                                    if sy >= 0 && sy < in_size as isize && sx >= 0
+                                    if sy >= 0
+                                        && sy < in_size as isize
+                                        && sx >= 0
                                         && sx < in_size as isize
                                     {
                                         acc += plane[(sy as usize) * in_size + sx as usize]
@@ -333,14 +348,17 @@ mod tests {
         std::fs::write(&p, doc.to_string()).unwrap();
         let clf = CnnClassifier::load(&p).expect("v2 应能加载");
         assert!(!clf.has_neurons(), "v2 无神经元库");
-        assert!(clf.neuron_vote(&[0.0f32; 32], 5).is_empty(), "无库投票应为空");
+        assert!(
+            clf.neuron_vote(&[0.0f32; 32], 5).is_empty(),
+            "无库投票应为空"
+        );
     }
 
     /// V9 神经元库接入: v3 权重 (12 原型) → 暗底亮行嵌入投票, terminal 应得票
     #[test]
     fn v3_neuron_vote_prefers_terminal() {
-        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("assets/vnn_cnn_v3_weights.json");
+        let p =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/vnn_cnn_v3_weights.json");
         let clf = match CnnClassifier::load(&p) {
             Ok(c) => c,
             Err(_) => return, // v3 权重不在则跳过 (非必需资产)
@@ -364,11 +382,11 @@ mod tests {
     fn conv_pool_shapes_consistent() {
         // 单通道全 0 输入: 只验证形状与无 panic
         let input = vec![0f32; 64 * 64];
-        let w = vec![0.1f32; 8 * 1 * 9];
+        let w = vec![0.1f32; 8 * 9];
         let b = vec![0f32; 8];
         let out = conv2d_relu_pool(&input, &w, &b, 1, 8, 64, 2);
         assert_eq!(out.len(), 8 * 32 * 32);
-        let out2 = conv2d_relu_pool(&out, &vec![0.1f32; 16 * 8 * 9], &vec![0f32; 16], 8, 16, 32, 2);
+        let out2 = conv2d_relu_pool(&out, &vec![0.1f32; 16 * 8 * 9], &[0f32; 16], 8, 16, 32, 2);
         assert_eq!(out2.len(), 16 * 16 * 16);
     }
 }

@@ -9,23 +9,23 @@
 
 pub mod agent;
 pub mod capability; // P0: 能力层 (Capability Layer) 一等公民组件
-pub mod executor;
-pub mod skill; // P0: 技能描述符 { capabilities, risk, verifier, executor }
-pub mod toolrag; // P1: ToolRAG 语义召回层 (embedding Top-K + 裁剪 tools_openai.json)
 pub mod datagen; // P1: 训练语料生成 (answer-first / ToolGrad 式, 学习队列→SFT 语料)
-pub mod npu_runtime; // P2: A733 VIP9000 NPU 串行调度器 (租约+优先级队列+超时; 纯设计+mock 单测)
-pub mod project; // 项目目录扫描 + 启动脚本生成 (识别 paper.jar → 关联知识 → 时间窗启动脚本)
-pub mod trace; // agent 执行过程事件流 (ndjson) — 回放/可视化/打包三用 (对齐 mpkg trace-as-commits)
-pub mod search; // agent 自主检索 (SearXNG/离线占位) + 检索结果学习进知识包
-pub mod lernen;
-pub mod llamacpp;
+pub mod executor;
 pub mod learn;
 pub mod learn_cli;
+pub mod lernen;
+pub mod llamacpp;
+pub mod npu_runtime; // P2: A733 VIP9000 NPU 串行调度器 (租约+优先级队列+超时; 纯设计+mock 单测)
 pub mod pack;
+pub mod project; // 项目目录扫描 + 启动脚本生成 (识别 paper.jar → 关联知识 → 时间窗启动脚本)
 pub mod rewrite;
+pub mod search; // agent 自主检索 (SearXNG/离线占位) + 检索结果学习进知识包
 pub mod serve;
+pub mod skill; // P0: 技能描述符 { capabilities, risk, verifier, executor }
 pub mod tokens;
+pub mod toolrag; // P1: ToolRAG 语义召回层 (embedding Top-K + 裁剪 tools_openai.json)
 pub mod tools_runtime;
+pub mod trace; // agent 执行过程事件流 (ndjson) — 回放/可视化/打包三用 (对齐 mpkg trace-as-commits)
 pub mod verify;
 pub mod vnn;
 pub mod vnn_cnn;

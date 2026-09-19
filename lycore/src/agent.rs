@@ -25,7 +25,10 @@ pub struct Message {
 
 impl Message {
     pub fn new(role: &str, content: impl Into<String>) -> Self {
-        Self { role: role.into(), content: content.into() }
+        Self {
+            role: role.into(),
+            content: content.into(),
+        }
     }
 }
 
@@ -134,10 +137,10 @@ impl<'a> Agent<'a> {
                     // 「不确定」压塌成字面量 "None" (同权重 f16 输出正常) → 绝不能外泄给用户。
                     // 按 lyco「诚实降级」语义: 入学习队列, 不编造。
                     if is_degenerate(&answer) {
-                        let _ = self.executor.learning_queue().push(
-                            question,
-                            "DEGENERATE_OUTPUT: 模型未产出有效回答",
-                        );
+                        let _ = self
+                            .executor
+                            .learning_queue()
+                            .push(question, "DEGENERATE_OUTPUT: 模型未产出有效回答");
                         let honest = "抱歉，我没能理解这个请求，已加入学习队列。".to_string();
                         self.trace_final(&honest);
                         return Ok(Turn {
@@ -148,7 +151,12 @@ impl<'a> Agent<'a> {
                         });
                     }
                     self.trace_final(&answer);
-                    return Ok(Turn { rounds: round, answer, tool_calls, learning_queue_used });
+                    return Ok(Turn {
+                        rounds: round,
+                        answer,
+                        tool_calls,
+                        learning_queue_used,
+                    });
                 }
                 Some((name, arguments)) => {
                     // 复读已失败的工具 → 不再空执行, 直接诚实收束 (省轮次, 避免 max_rounds 兜底)
@@ -181,12 +189,12 @@ impl<'a> Agent<'a> {
                     }
                     messages.push(Message::new(
                         "assistant",
-                        format!("<tool_call>\n{}\n</tool_call>", serde_json::to_string(&call_value(&name, &arguments))?),
+                        format!(
+                            "<tool_call>\n{}\n</tool_call>",
+                            serde_json::to_string(&call_value(&name, &arguments))?
+                        ),
                     ));
-                    messages.push(Message::new(
-                        "tool",
-                        serde_json::to_string(&result)?,
-                    ));
+                    messages.push(Message::new("tool", serde_json::to_string(&result)?));
                 }
             }
         }
@@ -205,7 +213,13 @@ fn call_value(name: &str, arguments: &serde_json::Value) -> serde_json::Value {
 
 fn strip_tags(text: &str) -> String {
     let mut s = text.to_string();
-    for tag in ["<|im_end|>", "<tool_call>", "</tool_call>", "<error>", "</error>"] {
+    for tag in [
+        "<|im_end|>",
+        "<tool_call>",
+        "</tool_call>",
+        "<error>",
+        "</error>",
+    ] {
         s = s.replace(tag, "");
     }
     // 从 im_end 后截断的语义由 replace 保留 (删掉标记后可能留尾部) — 与 Python 正则版近似
@@ -223,7 +237,11 @@ pub fn is_degenerate(s: &str) -> bool {
 }
 
 fn log_result(r: &ToolResult) {
-    let summary = if r.ok { "ok" } else { r.error.as_deref().unwrap_or("fail") };
+    let summary = if r.ok {
+        "ok"
+    } else {
+        r.error.as_deref().unwrap_or("fail")
+    };
     eprintln!("[agent] tool={} result={}", r.tool, summary);
 }
 
@@ -231,7 +249,6 @@ fn log_result(r: &ToolResult) {
 mod tests {
     use super::*;
     use crate::executor::LearningQueue;
-    use std::path::Path;
 
     /// 回放后端: 按预设脚本依次输出 (对应真实 GRPO 模型今天在 A10 上的输出)
     struct Scripted {
@@ -240,7 +257,10 @@ mod tests {
     }
     impl Scripted {
         fn new(steps: Vec<&str>) -> Self {
-            Self { steps: steps.iter().map(|s| s.to_string()).collect(), i: 0 }
+            Self {
+                steps: steps.iter().map(|s| s.to_string()).collect(),
+                i: 0,
+            }
         }
     }
     impl ModelBackend for Scripted {
@@ -357,7 +377,10 @@ mod tests {
         assert!(is_degenerate("undefined"));
         assert!(is_degenerate("nan"));
         assert!(!is_degenerate("你好"));
-        assert!(!is_degenerate("Nonexistent tool"), "含 None 但不是纯 None → 保留");
+        assert!(
+            !is_degenerate("Nonexistent tool"),
+            "含 None 但不是纯 None → 保留"
+        );
     }
 
     /// 退化输出 (Q4_K_M 实测的 "None") → 诚实降级 + 入学习队列, 绝不外泄给用户
@@ -368,7 +391,11 @@ mod tests {
         crate::learn_cli::append_cues(
             tmp.path(),
             "test",
-            &[crate::learn::Cue { t0: 0.0, t1: 0.0, text: "dummy".to_string() }],
+            &[crate::learn::Cue {
+                t0: 0.0,
+                t1: 0.0,
+                text: "dummy".to_string(),
+            }],
         )
         .unwrap();
         let ex = Executor::open(tmp.path()).expect("open pack");

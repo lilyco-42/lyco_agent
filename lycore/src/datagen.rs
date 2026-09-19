@@ -53,7 +53,10 @@ pub fn build_samples<E: Embedder>(tasks: &[TrainingTask], rag: &ToolRag<E>) -> V
     let mut out = Vec::with_capacity(tasks.len());
     for t in tasks {
         let top = rag.recall(&t.query, 1).into_iter().next();
-        let rag_confirms = top.as_ref().map(|h| h.name == t.expected_tool).unwrap_or(false);
+        let rag_confirms = top
+            .as_ref()
+            .map(|h| h.name == t.expected_tool)
+            .unwrap_or(false);
         out.push(SftSample {
             query: t.query.clone(),
             tool: t.expected_tool,
@@ -189,9 +192,15 @@ mod tests {
         let tasks = crate::lernen::digest(&q).unwrap();
         let samples = build_samples(&tasks, &rag());
         assert_eq!(samples.len(), 2);
-        let nginx = samples.iter().find(|s| s.query == "怎么配置 nginx").unwrap();
+        let nginx = samples
+            .iter()
+            .find(|s| s.query == "怎么配置 nginx")
+            .unwrap();
         assert_eq!(nginx.tool, "lyv_knowledge", "权威工具来自 classify");
-        assert_eq!(nginx.arguments["query"], "怎么配置 nginx", "answer-first 合成参数");
+        assert_eq!(
+            nginx.arguments["query"], "怎么配置 nginx",
+            "answer-first 合成参数"
+        );
         assert!(nginx.rag_top.is_some(), "应挂上 ToolRAG 复核信号");
         assert_eq!(nginx.source, "learning_queue");
 

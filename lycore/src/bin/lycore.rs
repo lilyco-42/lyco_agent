@@ -126,7 +126,7 @@ fn cmd_ask(args: &[String]) -> i32 {
         .iter()
         .filter(|a| !a.starts_with('-'))
         .cloned()
-        .last()
+        .next_back()
         .unwrap_or_default();
     if question.is_empty() {
         eprintln!("缺少问题");
@@ -228,9 +228,7 @@ fn cmd_learn(args: &[String]) -> i32 {
             }
         }
     } else {
-        match lycore::learn::asr_local(
-            std::path::Path::new(&video), &ffmpeg, &lang,
-        ) {
+        match lycore::learn::asr_local(std::path::Path::new(&video), &ffmpeg, &lang) {
             Ok(segs) => segs
                 .into_iter()
                 .map(|(t0, t1, text)| lycore::learn::Cue { t0, t1, text })
@@ -280,7 +278,8 @@ fn cmd_serve(args: &[String]) -> i32 {
         port,
         llama_url: llama,
         llama_model: model,
-        rewrite_url: flag(args, "--rewrite").or_else(|| flag(args, "--llama").map(|_| format!("http://127.0.0.1:8082"))),
+        rewrite_url: flag(args, "--rewrite")
+            .or_else(|| flag(args, "--llama").map(|_| "http://127.0.0.1:8082".to_string())),
         rewrite_model: flag(args, "--rewrite-model").unwrap_or_else(|| "qwen3-rewrite".into()),
     };
     if let Err(e) = lycore::serve::serve(cfg) {
@@ -377,8 +376,14 @@ fn cmd_project(args: &[String]) -> i32 {
     };
     println!("[project] {}", scan.dir);
     println!("  服务端类型: {}", scan.kind.as_str());
-    println!("  服务端 jar: {}", scan.server_jar.as_deref().unwrap_or("(未发现)"));
-    println!("  eula.txt: {}   plugins/: {}", scan.eula_present, scan.plugins_dir);
+    println!(
+        "  服务端 jar: {}",
+        scan.server_jar.as_deref().unwrap_or("(未发现)")
+    );
+    println!(
+        "  eula.txt: {}   plugins/: {}",
+        scan.eula_present, scan.plugins_dir
+    );
     for a in &scan.artifacts {
         println!("   - {} [{}]", a.name, a.kind);
     }

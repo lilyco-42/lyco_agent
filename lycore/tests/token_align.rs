@@ -8,8 +8,7 @@ fn align_with_python_reference() {
         eprintln!("skip: 参考文件不存在");
         return;
     };
-    let cases: std::collections::HashMap<String, Vec<String>> =
-        serde_json::from_str(&raw).unwrap();
+    let cases: std::collections::HashMap<String, Vec<String>> = serde_json::from_str(&raw).unwrap();
     let mut mismatches = 0;
     for (input, expected) in &cases {
         let got = tokens(input);

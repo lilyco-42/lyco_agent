@@ -60,7 +60,11 @@ impl ToolResult {
         self.clip = Some(format!("conf={conf:.2}"));
         self
     }
-    fn with_learning_queue(mut self, queue: Vec<String>, _experts: Vec<crate::vnn::ExpertScore>) -> Self {
+    fn with_learning_queue(
+        mut self,
+        queue: Vec<String>,
+        _experts: Vec<crate::vnn::ExpertScore>,
+    ) -> Self {
         if !queue.is_empty() {
             self.strong = Some(queue);
         }
@@ -70,9 +74,7 @@ impl ToolResult {
 
 /// 模型 tool_call 解析 (宽松两级: <tool_call> 包裹 → 裸 JSON name 字段)
 pub fn parse_call(text: &str) -> Option<(String, serde_json::Value)> {
-    let candidate = if let Some(m) =
-        re_find(text, "<tool_call>", "</tool_call>")
-    {
+    let candidate = if let Some(m) = re_find(text, "<tool_call>", "</tool_call>") {
         m
     } else {
         // 裸 JSON: 找第一个 { 到最后一个 }
@@ -85,7 +87,7 @@ pub fn parse_call(text: &str) -> Option<(String, serde_json::Value)> {
     Some((name, v.get("arguments").cloned().unwrap_or_default()))
 }
 
-fn re_find<'a>(text: &'a str, open: &str, close: &str) -> Option<String> {
+fn re_find(text: &str, open: &str, close: &str) -> Option<String> {
     let start = text.find(open)? + open.len();
     let end = text[start..].find(close)? + start;
     Some(text[start..end].trim().to_string())
@@ -163,10 +165,7 @@ impl Executor {
                     Ok(Some(ev)) => ToolResult::ok(name, &ev),
                     Ok(None) => {
                         // 诚实降级: 入学习队列, 不编造
-                        let _ = self.queue.push(
-                            query,
-                            "NO_HIT: 知识库没有这个操作",
-                        );
+                        let _ = self.queue.push(query, "NO_HIT: 知识库没有这个操作");
                         ToolResult::err(
                             name,
                             "NO_HIT: 我还没学会这个操作。请诚实告诉用户你还不会, 已加入学习队列。",
@@ -202,17 +201,32 @@ impl Executor {
                 }
             }
             "rembg_remove" => {
-                let input = arguments.get("image").and_then(|v| v.as_str()).unwrap_or("");
+                let input = arguments
+                    .get("image")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let output = arguments
                     .get("output")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 if input.is_empty() || output.is_empty() {
-                    ToolResult::err(name, "参数需 {\"image\": \"输入图\", \"output\": \"输出png\"}")
+                    ToolResult::err(
+                        name,
+                        "参数需 {\"image\": \"输入图\", \"output\": \"输出png\"}",
+                    )
                 } else {
                     let o = crate::tools_runtime::rembg_remove(Path::new(input), Path::new(output));
                     if o.ok {
-                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                        ToolResult {
+                            ok: true,
+                            tool: name.to_string(),
+                            answer: Some(o.summary),
+                            command: None,
+                            clip: None,
+                            keyframe: None,
+                            strong: None,
+                            error: None,
+                        }
                     } else {
                         let _ = self.queue.push(input, "rembg_remove: 执行失败");
                         ToolResult::err(name, &o.summary)
@@ -220,15 +234,33 @@ impl Executor {
                 }
             }
             "html_gen" => {
-                let prompt = arguments.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-                let out = arguments.get("output").and_then(|v| v.as_str()).unwrap_or("");
+                let prompt = arguments
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let out = arguments
+                    .get("output")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if prompt.is_empty() || out.is_empty() {
-                    ToolResult::err(name, "参数需 {\"prompt\": \"页面描述\", \"output\": \"输出.html 路径\"}")
+                    ToolResult::err(
+                        name,
+                        "参数需 {\"prompt\": \"页面描述\", \"output\": \"输出.html 路径\"}",
+                    )
                 } else {
                     let full = format!("请生成完整单文件 HTML (内联 CSS/JS, 无外部依赖)。需求: {prompt}\n只输出 HTML 代码本身。");
                     let o = crate::tools_runtime::llm_generate(&full, Some(Path::new(out)));
                     if o.ok {
-                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                        ToolResult {
+                            ok: true,
+                            tool: name.to_string(),
+                            answer: Some(o.summary),
+                            command: None,
+                            clip: None,
+                            keyframe: None,
+                            strong: None,
+                            error: None,
+                        }
                     } else {
                         let _ = self.queue.push(prompt, "html_gen: LLM 调用失败");
                         ToolResult::err(name, &o.summary)
@@ -236,13 +268,25 @@ impl Executor {
                 }
             }
             "llm_generate" => {
-                let prompt = arguments.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let prompt = arguments
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if prompt.is_empty() {
                     ToolResult::err(name, "参数需 {\"prompt\": \"...\"}")
                 } else {
                     let o = crate::tools_runtime::llm_generate(prompt, None);
                     if o.ok {
-                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                        ToolResult {
+                            ok: true,
+                            tool: name.to_string(),
+                            answer: Some(o.summary),
+                            command: None,
+                            clip: None,
+                            keyframe: None,
+                            strong: None,
+                            error: None,
+                        }
                     } else {
                         ToolResult::err(name, &o.summary)
                     }
@@ -250,15 +294,39 @@ impl Executor {
             }
             "html_render_video" => {
                 let html = arguments.get("html").and_then(|v| v.as_str()).unwrap_or("");
-                let out = arguments.get("output").and_then(|v| v.as_str()).unwrap_or("");
-                let secs = arguments.get("seconds").and_then(|v| v.as_u64()).unwrap_or(3).min(30) as u32;
+                let out = arguments
+                    .get("output")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let secs = arguments
+                    .get("seconds")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(3)
+                    .min(30) as u32;
                 if html.is_empty() || out.is_empty() {
-                    ToolResult::err(name, "参数需 {\"html\": \"页面路径\", \"output\": \"输出.mp4\", \"seconds\": 3}")
+                    ToolResult::err(
+                        name,
+                        "参数需 {\"html\": \"页面路径\", \"output\": \"输出.mp4\", \"seconds\": 3}",
+                    )
                 } else {
                     let chrome = std::env::var("LYCO_CHROME").unwrap_or_else(|_| "chrome".into());
-                    let o = crate::tools_runtime::html_render_video(Path::new(html), Path::new(out), secs, &chrome);
+                    let o = crate::tools_runtime::html_render_video(
+                        Path::new(html),
+                        Path::new(out),
+                        secs,
+                        &chrome,
+                    );
                     if o.ok {
-                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                        ToolResult {
+                            ok: true,
+                            tool: name.to_string(),
+                            answer: Some(o.summary),
+                            command: None,
+                            clip: None,
+                            keyframe: None,
+                            strong: None,
+                            error: None,
+                        }
                     } else {
                         let _ = self.queue.push(html, "html_render_video: 执行失败");
                         ToolResult::err(name, &o.summary)
@@ -266,20 +334,35 @@ impl Executor {
                 }
             }
             "video_info" => {
-                let video = arguments.get("video").and_then(|v| v.as_str()).unwrap_or("");
+                let video = arguments
+                    .get("video")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if video.is_empty() {
                     ToolResult::err(name, "参数需 {\"video\": \"路径\"}")
                 } else {
                     let o = crate::tools_runtime::video_info(Path::new(video));
                     if o.ok {
-                        ToolResult { ok: true, tool: name.to_string(), answer: Some(o.summary), command: None, clip: None, keyframe: None, strong: None, error: None }
+                        ToolResult {
+                            ok: true,
+                            tool: name.to_string(),
+                            answer: Some(o.summary),
+                            command: None,
+                            clip: None,
+                            keyframe: None,
+                            strong: None,
+                            error: None,
+                        }
                     } else {
                         ToolResult::err(name, &o.summary)
                     }
                 }
             }
             "shell_exec" => {
-                let command = arguments.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                let command = arguments
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let cwd = arguments.get("cwd").and_then(|v| v.as_str());
                 if command.is_empty() {
                     ToolResult::err(name, "参数需 {\"command\": \"...\"} (可选 cwd)")
@@ -287,9 +370,14 @@ impl Executor {
                     let o = crate::tools_runtime::shell_exec(command, cwd.map(Path::new));
                     if o.ok {
                         ToolResult {
-                            ok: true, tool: name.to_string(), answer: Some(o.summary),
-                            command: Some(command.to_string()), clip: None, keyframe: None,
-                            strong: None, error: None,
+                            ok: true,
+                            tool: name.to_string(),
+                            answer: Some(o.summary),
+                            command: Some(command.to_string()),
+                            clip: None,
+                            keyframe: None,
+                            strong: None,
+                            error: None,
                         }
                     } else {
                         let _ = self.queue.push(command, "shell_exec: 执行失败");
@@ -299,15 +387,24 @@ impl Executor {
             }
             "file_write" => {
                 let path = arguments.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                let content = arguments.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let content = arguments
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if path.is_empty() {
                     ToolResult::err(name, "参数需 {\"path\": \"...\", \"content\": \"...\"}")
                 } else {
                     let o = crate::tools_runtime::file_write(Path::new(path), content);
                     if o.ok {
                         ToolResult {
-                            ok: true, tool: name.to_string(), answer: Some(o.summary),
-                            command: None, clip: None, keyframe: None, strong: None, error: None,
+                            ok: true,
+                            tool: name.to_string(),
+                            answer: Some(o.summary),
+                            command: None,
+                            clip: None,
+                            keyframe: None,
+                            strong: None,
+                            error: None,
                         }
                     } else {
                         let _ = self.queue.push(path, "file_write: 执行失败");
@@ -317,17 +414,31 @@ impl Executor {
             }
             "schedule" => {
                 let spec = arguments.get("spec").and_then(|v| v.as_str()).unwrap_or("");
-                let command = arguments.get("command").and_then(|v| v.as_str()).unwrap_or("");
-                let apply = arguments.get("apply").and_then(|v| v.as_bool()).unwrap_or(false);
+                let command = arguments
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let apply = arguments
+                    .get("apply")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 if spec.is_empty() || command.is_empty() {
-                    ToolResult::err(name, "参数需 {\"spec\": \"0 8 * * *\", \"command\": \"...\", \"apply\": false}")
+                    ToolResult::err(
+                        name,
+                        "参数需 {\"spec\": \"0 8 * * *\", \"command\": \"...\", \"apply\": false}",
+                    )
                 } else {
                     let o = crate::tools_runtime::schedule(spec, command, apply);
                     if o.ok {
                         ToolResult {
-                            ok: true, tool: name.to_string(), answer: Some(o.summary),
-                            command: Some(format!("{spec} {command}")), clip: None, keyframe: None,
-                            strong: None, error: None,
+                            ok: true,
+                            tool: name.to_string(),
+                            answer: Some(o.summary),
+                            command: Some(format!("{spec} {command}")),
+                            clip: None,
+                            keyframe: None,
+                            strong: None,
+                            error: None,
                         }
                     } else {
                         ToolResult::err(name, &o.summary)

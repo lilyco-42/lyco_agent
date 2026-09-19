@@ -26,11 +26,20 @@ fn chat_tools_matches_executor_dispatch() {
         "file_write",
         "schedule",
     ];
-    assert_eq!(names, expected, "schema 漂移: 导出工具集 ≠ 期望 (与 executor match 对齐)");
+    assert_eq!(
+        names, expected,
+        "schema 漂移: 导出工具集 ≠ 期望 (与 executor match 对齐)"
+    );
     // 每个工具都得有参数 schema (OpenAI 要求), 且 name 唯一
-    assert_eq!(names.iter().collect::<std::collections::HashSet<_>>().len(), expected.len());
+    assert_eq!(
+        names.iter().collect::<std::collections::HashSet<_>>().len(),
+        expected.len()
+    );
     for t in tools.as_array().unwrap() {
-        assert!(t["function"]["parameters"]["type"] == "object", "缺 parameters");
+        assert!(
+            t["function"]["parameters"]["type"] == "object",
+            "缺 parameters"
+        );
     }
 
     // 真正的三方一致性: 每个 schema 工具都必须在 executor 的 match 分支里出现。
@@ -67,7 +76,10 @@ fn no_hit_pushes_learning_queue() {
     )
     .unwrap();
     let ex = Executor::open(tmp.path()).unwrap();
-    let r = ex.execute("lyv_knowledge", &serde_json::json!({"query": "怎么配置防火墙"}));
+    let r = ex.execute(
+        "lyv_knowledge",
+        &serde_json::json!({"query": "怎么配置防火墙"}),
+    );
     assert!(!r.ok);
     assert!(r.error.unwrap().contains("学习队列"));
     assert_eq!(ex.learning_queue().len(), 1, "NO_HIT 应入学习队列");
@@ -79,7 +91,9 @@ fn parse_call_two_level() {
     let a = parse_call("<tool_call>\n{\"name\": \"lyv_knowledge\", \"arguments\": {\"query\": \"cargo new\"}}\n</tool_call>");
     assert_eq!(a.as_ref().unwrap().0, "lyv_knowledge");
     // 裸 JSON
-    let b = parse_call("前置文字 {\"name\": \"vnn_identify\", \"arguments\": {\"image\": \"x.png\"}} 后缀");
+    let b = parse_call(
+        "前置文字 {\"name\": \"vnn_identify\", \"arguments\": {\"image\": \"x.png\"}} 后缀",
+    );
     assert_eq!(b.as_ref().unwrap().0, "vnn_identify");
     // 非 JSON
     assert!(parse_call("你好呀").is_none());

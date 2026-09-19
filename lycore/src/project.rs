@@ -102,9 +102,15 @@ pub fn scan(dir: &Path) -> std::io::Result<ProjectScan> {
         if path.is_dir() {
             if name.eq_ignore_ascii_case("plugins") {
                 plugins_dir = true;
-                artifacts.push(Artifact { name, kind: "plugins-dir" });
+                artifacts.push(Artifact {
+                    name,
+                    kind: "plugins-dir",
+                });
             } else if matches!(name.as_str(), "world" | "world_nether" | "world_the_end") {
-                artifacts.push(Artifact { name, kind: "world" });
+                artifacts.push(Artifact {
+                    name,
+                    kind: "world",
+                });
             }
             continue;
         }
@@ -112,19 +118,31 @@ pub fn scan(dir: &Path) -> std::io::Result<ProjectScan> {
         if lower.ends_with(".jar") {
             let k = ServerKind::from_jar(&name);
             if k != ServerKind::Unknown {
-                let better = best.as_ref().map(|(bk, _)| k.rank() > bk.rank()).unwrap_or(true);
+                let better = best
+                    .as_ref()
+                    .map(|(bk, _)| k.rank() > bk.rank())
+                    .unwrap_or(true);
                 if better {
                     best = Some((k, name.clone()));
                 }
-                artifacts.push(Artifact { name, kind: "server-jar" });
+                artifacts.push(Artifact {
+                    name,
+                    kind: "server-jar",
+                });
             } else {
                 artifacts.push(Artifact { name, kind: "jar" });
             }
         } else if lower == "eula.txt" {
             eula_present = true;
-            artifacts.push(Artifact { name, kind: "config" });
+            artifacts.push(Artifact {
+                name,
+                kind: "config",
+            });
         } else if lower == "server.properties" {
-            artifacts.push(Artifact { name, kind: "config" });
+            artifacts.push(Artifact {
+                name,
+                kind: "config",
+            });
         }
     }
 
@@ -188,7 +206,10 @@ pub fn knowledge_cues(scan: &ProjectScan) -> Vec<Cue> {
         cues.push(Cue {
             t0: 0.0,
             t1: 0.0,
-            text: format!("项目 {} : 未发现服务端 jar : 需下载 paper.jar 后放入目录", scan.dir),
+            text: format!(
+                "项目 {} : 未发现服务端 jar : 需下载 paper.jar 后放入目录",
+                scan.dir
+            ),
         });
     }
     if !scan.eula_present {
@@ -221,7 +242,10 @@ fn hhmm_num(t: &str) -> u32 {
 
 /// 生成跨平台启停脚本 (含时间窗守卫 + cron/schtasks 片段)
 pub fn launch_script(scan: &ProjectScan, start: &str, end: &str) -> String {
-    let jar = scan.server_jar.clone().unwrap_or_else(|| "paper.jar".to_string());
+    let jar = scan
+        .server_jar
+        .clone()
+        .unwrap_or_else(|| "paper.jar".to_string());
     let ram = scan.ram_mb;
     let sh = hhmm_num(start);
     let eh = hhmm_num(end);
@@ -275,14 +299,21 @@ mod tests {
     #[test]
     fn scan_detects_paper_server() {
         let t = tempfile::tempdir().unwrap();
-        mk(t.path(), &["paper.jar", "eula.txt", "server.properties"], &["plugins", "world"]);
+        mk(
+            t.path(),
+            &["paper.jar", "eula.txt", "server.properties"],
+            &["plugins", "world"],
+        );
         let s = scan(t.path()).unwrap();
         assert_eq!(s.kind, ServerKind::Paper);
         assert_eq!(s.server_jar.as_deref(), Some("paper.jar"));
         assert!(s.eula_present, "eula.txt 应被识别");
         assert!(s.plugins_dir, "plugins/ 应被识别");
         assert_eq!(s.ram_mb, 2048);
-        assert!(s.artifacts.iter().any(|a| a.name == "world" && a.kind == "world"));
+        assert!(s
+            .artifacts
+            .iter()
+            .any(|a| a.name == "world" && a.kind == "world"));
     }
 
     #[test]
@@ -331,9 +362,15 @@ mod tests {
         assert!(sh.contains("-Xmx2048M"), "须含内存参数");
         assert!(sh.contains("nogui"), "须含 nogui");
         assert!(sh.contains("java"), "须是 java 启动");
-        assert!(sh.contains("800") && sh.contains("2200"), "守卫用十进制 HHMM");
+        assert!(
+            sh.contains("800") && sh.contains("2200"),
+            "守卫用十进制 HHMM"
+        );
         assert!(sh.contains("10#$H"), "HHMM 须按十进制解析, 防 octal 坑");
-        assert!(sh.contains("crontab") || sh.contains("schtasks"), "须含调度片段");
+        assert!(
+            sh.contains("crontab") || sh.contains("schtasks"),
+            "须含调度片段"
+        );
         assert!(sh.contains("eula=true"), "首次自动同意 EULA");
     }
 
@@ -343,7 +380,11 @@ mod tests {
         mk(t.path(), &["paper.jar"], &[]); // 无 eula.txt
         let s = scan(t.path()).unwrap();
         let cues = knowledge_cues(&s);
-        let joined: String = cues.iter().map(|c| c.text.clone()).collect::<Vec<_>>().join("\n");
+        let joined: String = cues
+            .iter()
+            .map(|c| c.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(joined.contains("paper minecraft"), "须含 paper 领域知识");
         assert!(joined.contains("paper.jar"), "须含项目 jar 事实");
         assert!(joined.contains("eula.txt"), "缺 eula 须提示");

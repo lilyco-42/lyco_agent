@@ -45,7 +45,11 @@ pub const TOOL_CAPS: &[(&str, &[Capability])] = &[
     ("vnn_identify", &[Capability::FileRead, Capability::Camera]),
     (
         "rembg_remove",
-        &[Capability::FileRead, Capability::FileWrite, Capability::Shell],
+        &[
+            Capability::FileRead,
+            Capability::FileWrite,
+            Capability::Shell,
+        ],
     ),
     ("html_gen", &[Capability::FileWrite]),
     ("llm_generate", &[Capability::Network]),

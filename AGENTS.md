@@ -2,6 +2,15 @@
 
 Rust 实现的轻量化 Agent 运行时(`lycore`) + 分工模型训练实验平台。
 
+## 🗺️ Agent 工作区域(2026-09-19 划定, 多 agent 并行防踩线)
+
+- **本仓 `lyco_agent`**(`lycore/` `tools/` `docs/` `scripts/` `smoke/` `models/`)=
+  **lyco_agent 负责 agent 的工作区域**。
+- **`lilyco` 主框架仓**(本机 `D:/Code/lilyco`, 21 crate, CLI/Web/MCP/TUI 四端)=
+  **另一 agent 维护**——本仓任务不碰其代码, 跨仓需求走沟通, 勿直接改对方文件。
+- **`lyco-ops`**(本机 `D:/Code/p2-lyco_ops`, remote `github.com/lilyco-42/lyco-ops`)=
+  lyco_agent 侧运维脚本仓(lain42 计费 / CloudStudio 训练脚本 / 板端部署), 归本 agent。
+
 ## ⛔ 算力约束(硬性, 2026-09-10 用户明确指令)
 
 **验证只允许占用云端算力; 本地 ASR / 训练 / 大批量推理是禁止的。**
@@ -11,7 +20,7 @@ Rust 实现的轻量化 Agent 运行时(`lycore`) + 分工模型训练实验平�
 - 本地**允许**: `cargo check` / `cargo build` / `cargo test`、代码编辑、
   轻量校验、产物下载与归档。
 - 训练 / 推理 / ASR 一律走 **CloudStudio 云端 GPU**
-  (spaceKey 与 JWT 获取流程见 `D:\Code\cute_box\docs\cloudstudio-access.md`)。
+  (spaceKey 与 JWT 获取流程见 [cute-pet/docs/cloudstudio-access.md](https://github.com/lilyco-42/cute-pet/blob/main/docs/cloudstudio-access.md))。
 
 ## 仓库约定
 

@@ -12,7 +12,6 @@
 //!   LYCO_LLM_KEY (nvapi-... / sk-or-...)
 //!   LYCO_LLM_MODEL (默认 meta/llama-3.2-11b-vision-instruct (NIM 实测可用))
 
-use anyhow::Context;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -24,16 +23,20 @@ pub struct RunOutcome {
 }
 
 fn run_cmd(bin: &str, args: &[&str], _timeout: Duration) -> RunOutcome {
-    match std::process::Command::new(bin)
-        .args(args)
-        .output()
-    {
+    match std::process::Command::new(bin).args(args).output() {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
             let ok = out.status.success();
             let tail = |s: &str, n: usize| {
-                s.lines().rev().take(n).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")
+                s.lines()
+                    .rev()
+                    .take(n)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join(" | ")
             };
             RunOutcome {
                 ok,
@@ -52,7 +55,6 @@ fn run_cmd(bin: &str, args: &[&str], _timeout: Duration) -> RunOutcome {
         },
     }
 }
-
 
 /// ring CryptoProvider 安装 (rustls-no-provider 必需, 交叉编译友好)。
 /// 任何 reqwest Client 构造前都需调用 (llamacpp backend / llm_generate)。
@@ -84,8 +86,7 @@ pub fn rembg_remove(input: &Path, output: &Path) -> RunOutcome {
     } else if !o.ok {
         o.summary = format!(
             "rembg 失败 ({}). 需 pip install \"rembg[cpu]\"; {}",
-            o.summary,
-            "或 LYCO_REMBG_BIN 指定路径"
+            o.summary, "或 LYCO_REMBG_BIN 指定路径"
         );
     }
     o
@@ -98,8 +99,8 @@ pub fn llm_generate(prompt: &str, out_path: Option<&Path>) -> RunOutcome {
     let url = std::env::var("LYCO_LLM_URL")
         .unwrap_or_else(|_| "https://integrate.api.nvidia.com/v1/chat/completions".into());
     let key = std::env::var("LYCO_LLM_KEY").unwrap_or_default();
-    let model =
-        std::env::var("LYCO_LLM_MODEL").unwrap_or_else(|_| "meta/llama-3.2-11b-vision-instruct".into());
+    let model = std::env::var("LYCO_LLM_MODEL")
+        .unwrap_or_else(|_| "meta/llama-3.2-11b-vision-instruct".into());
     if key.is_empty() {
         return RunOutcome {
             ok: false,
@@ -120,7 +121,11 @@ pub fn llm_generate(prompt: &str, out_path: Option<&Path>) -> RunOutcome {
     {
         Ok(c) => c,
         Err(e) => {
-            return RunOutcome { ok: false, summary: format!("http client: {e}"), artifact: None }
+            return RunOutcome {
+                ok: false,
+                summary: format!("http client: {e}"),
+                artifact: None,
+            }
         }
     };
     let resp = client
@@ -138,7 +143,10 @@ pub fn llm_generate(prompt: &str, out_path: Option<&Path>) -> RunOutcome {
                 if content.is_empty() {
                     return RunOutcome {
                         ok: false,
-                        summary: format!("LLM 空回复: {}", v.to_string().chars().take(200).collect::<String>()),
+                        summary: format!(
+                            "LLM 空回复: {}",
+                            v.to_string().chars().take(200).collect::<String>()
+                        ),
                         artifact: None,
                     };
                 }
@@ -193,7 +201,11 @@ pub fn html_render_video(html: &Path, out_mp4: &Path, seconds: u32, chrome: &str
     let tmp = std::env::temp_dir().join(format!("lyco_frames_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&tmp);
     // file:/// URL: 直接绝对路径, 正斜杠 (不 canonicalize — Windows 会加 \\?\ UNC 前缀)
-    let abs = if html.is_absolute() { html.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(html) };
+    let abs = if html.is_absolute() {
+        html.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(html)
+    };
     let url = format!("file:///{}", abs.to_string_lossy().replace('\\', "/"));
     let mut shot_fail = 0;
     for i in 0..seconds {
@@ -251,14 +263,22 @@ pub fn html_render_video(html: &Path, out_mp4: &Path, seconds: u32, chrome: &str
             artifact: Some(out_mp4.to_path_buf()),
         }
     } else {
-        RunOutcome { ok: false, summary: format!("ffmpeg 合成失败: {}", o.summary), artifact: None }
+        RunOutcome {
+            ok: false,
+            summary: format!("ffmpeg 合成失败: {}", o.summary),
+            artifact: None,
+        }
     }
 }
 
 /// 视频元信息: ffprobe 时长/分辨率
 pub fn video_info(video: &Path) -> RunOutcome {
     if !video.exists() {
-        return RunOutcome { ok: false, summary: format!("文件不存在: {}", video.display()), artifact: None };
+        return RunOutcome {
+            ok: false,
+            summary: format!("文件不存在: {}", video.display()),
+            artifact: None,
+        };
     }
     let ffprobe = std::env::var("LYV_FFPROBE").unwrap_or_else(|_| "ffprobe".into());
     let o = run_cmd(
@@ -277,7 +297,11 @@ pub fn video_info(video: &Path) -> RunOutcome {
         Duration::from_secs(60),
     );
     if o.ok {
-        RunOutcome { ok: true, summary: format!("{} → {}", video.display(), o.summary), artifact: None }
+        RunOutcome {
+            ok: true,
+            summary: format!("{} → {}", video.display(), o.summary),
+            artifact: None,
+        }
     } else {
         o
     }
@@ -365,7 +389,11 @@ fn tail_n(s: &str, n: usize) -> String {
 /// shell_exec: 执行一条命令 (brush/nu/平台默认), 返回 exit code + 输出摘要
 pub fn shell_exec(command: &str, cwd: Option<&Path>) -> RunOutcome {
     if command.trim().is_empty() {
-        return RunOutcome { ok: false, summary: "空命令".to_string(), artifact: None };
+        return RunOutcome {
+            ok: false,
+            summary: "空命令".to_string(),
+            artifact: None,
+        };
     }
     let (prog, dash_c) = pick_shell();
     let mut c = std::process::Command::new(&prog);
@@ -408,7 +436,11 @@ pub fn file_write(path: &Path, content: &str) -> RunOutcome {
     if let Some(p) = path.parent() {
         if !p.as_os_str().is_empty() {
             if let Err(e) = std::fs::create_dir_all(p) {
-                return RunOutcome { ok: false, summary: format!("建目录失败: {e}"), artifact: None };
+                return RunOutcome {
+                    ok: false,
+                    summary: format!("建目录失败: {e}"),
+                    artifact: None,
+                };
             }
         }
     }
@@ -418,7 +450,11 @@ pub fn file_write(path: &Path, content: &str) -> RunOutcome {
             summary: format!("写入 {} 字节 → {}", content.len(), path.display()),
             artifact: Some(path.to_path_buf()),
         },
-        Err(e) => RunOutcome { ok: false, summary: format!("写文件失败: {e}"), artifact: None },
+        Err(e) => RunOutcome {
+            ok: false,
+            summary: format!("写文件失败: {e}"),
+            artifact: None,
+        },
     }
 }
 
@@ -426,7 +462,11 @@ pub fn file_write(path: &Path, content: &str) -> RunOutcome {
 /// **安全默认**: 只返回配置片段 (dry-run); 传 `apply=true` 才真正登记。
 pub fn schedule(spec: &str, command: &str, apply: bool) -> RunOutcome {
     if spec.trim().is_empty() || command.trim().is_empty() {
-        return RunOutcome { ok: false, summary: "需 {spec, command}".to_string(), artifact: None };
+        return RunOutcome {
+            ok: false,
+            summary: "需 {spec, command}".to_string(),
+            artifact: None,
+        };
     }
     #[cfg(windows)]
     let snippet = format!(
@@ -446,7 +486,16 @@ pub fn schedule(spec: &str, command: &str, apply: bool) -> RunOutcome {
     #[cfg(windows)]
     let result = {
         let mut c = std::process::Command::new("schtasks");
-        c.args(["/Create", "/SC", "DAILY", "/TN", "lyco_task", "/TR", command, "/F"]);
+        c.args([
+            "/Create",
+            "/SC",
+            "DAILY",
+            "/TN",
+            "lyco_task",
+            "/TR",
+            command,
+            "/F",
+        ]);
         run_with_timeout(c, 30)
     };
     #[cfg(not(windows))]
@@ -457,7 +506,7 @@ pub fn schedule(spec: &str, command: &str, apply: bool) -> RunOutcome {
         run_with_timeout(c, 30)
     };
     match result {
-        Ok((ok, so, se)) => RunOutcome {
+        Ok((ok, _so, se)) => RunOutcome {
             ok,
             summary: if ok {
                 format!("已登记定时任务: {spec} {command}")
@@ -466,7 +515,11 @@ pub fn schedule(spec: &str, command: &str, apply: bool) -> RunOutcome {
             },
             artifact: None,
         },
-        Err(e) => RunOutcome { ok: false, summary: format!("登记失败: {e}"), artifact: None },
+        Err(e) => RunOutcome {
+            ok: false,
+            summary: format!("登记失败: {e}"),
+            artifact: None,
+        },
     }
 }
 
@@ -474,7 +527,6 @@ pub fn schedule(spec: &str, command: &str, apply: bool) -> RunOutcome {
 mod tests {
     use super::*;
 
-    #[test]
     #[test]
     fn file_write_creates_file_and_parents() {
         let t = tempfile::tempdir().unwrap();
@@ -500,6 +552,7 @@ mod tests {
         assert!(o.summary.contains("dry-run"), "默认不落地: {}", o.summary);
     }
 
+    #[test]
     fn llm_generate_requires_key() {
         // 无 key 时诚实失败, 不编造
         std::env::remove_var("LYCO_LLM_KEY");

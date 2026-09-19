@@ -40,7 +40,14 @@ jobs:
             cargo-${{ runner.os }}
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Rustfmt check
+        run: cargo fmt --check
+      - name: Clippy (deny warnings)
+        run: cargo clippy --release --all-targets -- -D warnings
       - name: Fetch out-of-repo fixtures (smoke + vnn weights)
+        # 脚本在仓库根 scripts/, 而 job defaults 把 working-directory 设为 lycore/
+        # → 必须显式覆盖回仓库根, 否则 CI 找不到脚本 (2026-09-20 修复)
+        working-directory: .
         run: bash scripts/fetch_fixtures.sh
       - name: Build (deps cache warm)
         run: cargo build --release

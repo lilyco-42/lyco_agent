@@ -25,7 +25,6 @@ pub struct Ocr {
     bin: PathBuf,
 }
 
-
 impl Ocr {
     pub fn new() -> Self {
         Self {
@@ -346,7 +345,10 @@ impl Verifier for FfprobeVerifier {
         };
         let has_video = v["streams"]
             .as_array()
-            .map(|s| s.iter().any(|x| x["codec_type"] == serde_json::json!("video")))
+            .map(|s| {
+                s.iter()
+                    .any(|x| x["codec_type"] == serde_json::json!("video"))
+            })
             .unwrap_or(false);
         let dur: f64 = v["format"]["duration"]
             .as_str()
@@ -420,7 +422,11 @@ impl Verifier for FileExistsVerifier {
         let pass = len > 0;
         VerifierResult {
             pass,
-            route: if pass { "file_exists" } else { "learning_queue" },
+            route: if pass {
+                "file_exists"
+            } else {
+                "learning_queue"
+            },
             score: if pass { 1.0 } else { 0.0 },
             detail: format!("{} = {} bytes", p.display(), len),
         }

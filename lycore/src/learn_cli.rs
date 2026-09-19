@@ -28,7 +28,9 @@ pub fn parse_commands(help_text: &str) -> Vec<(String, String)> {
     }
     let mut commands = Vec::new();
     let mut mode = Mode::Off;
-    const OFF: &[&str] = &["usage", "variable", "example", "argument", "shortcut", "status"];
+    const OFF: &[&str] = &[
+        "usage", "variable", "example", "argument", "shortcut", "status",
+    ];
     let lines: Vec<&str> = help_text.lines().collect();
     let mut skip_next = false;
     for (idx, raw) in lines.iter().enumerate() {
@@ -150,8 +152,8 @@ fn run_help(tool: &str, args: &[&str]) -> Option<String> {
 
 /// 索引 CLI 工具: --help → 子命令 → help 全文 → Cue 列表
 pub fn index_tool(tool: &str) -> anyhow::Result<Vec<Cue>> {
-    let help_text = run_help(tool, &["--help"])
-        .ok_or_else(|| anyhow::anyhow!("{} --help 执行失败", tool))?;
+    let help_text =
+        run_help(tool, &["--help"]).ok_or_else(|| anyhow::anyhow!("{} --help 执行失败", tool))?;
 
     let mut cues = vec![Cue {
         t0: 0.0,
@@ -204,7 +206,11 @@ fn collect_schema(schema: &serde_json::Value, path: &str, cues: &mut Vec<Cue>) {
     for arg in schema["args"].as_array().unwrap_or(&vec![]) {
         let aname = arg["name"].as_str().unwrap_or("");
         let aabout = arg["about"].as_str().unwrap_or("");
-        let req = if arg["required"].as_bool().unwrap_or(false) { "必填" } else { "可选" };
+        let req = if arg["required"].as_bool().unwrap_or(false) {
+            "必填"
+        } else {
+            "可选"
+        };
         cues.push(Cue {
             t0: 0.0,
             t1: 0.0,
@@ -259,12 +265,14 @@ pub fn build_cli_pack(cues: &[Cue], pack_dir: &Path) -> anyhow::Result<usize> {
                 u["id"].as_str().unwrap_or(""),
                 u["t0"].as_f64().unwrap_or(0.0),
                 u["t1"].as_f64().unwrap_or(0.0),
-                text, intent,
+                text,
+                intent,
                 u["command"].as_str().unwrap_or(""),
                 u["frame"].as_str().unwrap_or(""),
                 u["ocr"].as_str().unwrap_or(""),
                 u["ocr_conf"].as_f64().unwrap_or(0.0),
-                "", "",
+                "",
+                "",
             ],
         )?;
         // 索引侧分词与查询侧 tokens() 同一实现 (与 learn.rs build_cues 对齐)
@@ -285,8 +293,8 @@ pub fn build_cli_pack(cues: &[Cue], pack_dir: &Path) -> anyhow::Result<usize> {
 /// 无任何 reader 查询它 (Python 侧亦只写不读)。
 pub fn index_and_build(tool: &str, pack_dir: &Path) -> anyhow::Result<usize> {
     use rusqlite::Connection;
-    let help_text = run_help(tool, &["--help"])
-        .ok_or_else(|| anyhow::anyhow!("{} --help 执行失败", tool))?;
+    let help_text =
+        run_help(tool, &["--help"]).ok_or_else(|| anyhow::anyhow!("{} --help 执行失败", tool))?;
     let commands = parse_commands(&help_text);
 
     // (sub, desc, full_help): sub="" 表示工具主条目
@@ -367,7 +375,11 @@ pub fn index_and_build(tool: &str, pack_dir: &Path) -> anyhow::Result<usize> {
         let command = s.executor;
         let text = format!(
             "{} : {} : 能力 {:?} 风险 {} 验证器 {:?}",
-            s.name, s.desc, s.capabilities, s.risk.as_str(), s.verifier
+            s.name,
+            s.desc,
+            s.capabilities,
+            s.risk.as_str(),
+            s.verifier
         );
         let strong = crate::tokens::tokens(command).join(" ");
         let fts_text = crate::tokens::tokens(&format!("{command} {}", s.desc)).join(" ");
@@ -459,9 +471,14 @@ mod tests {
         let texts: Vec<&str> = cues.iter().map(|c| c.text.as_str()).collect();
         // 顶层 + 顶层参数 + 一级子命令 + 其参数 + 二级子命令 = 5 条
         assert_eq!(cues.len(), 5, "递归应展开所有层级, got {texts:?}");
-        assert!(texts.iter().any(|t| t.starts_with("imgpress crop :")), "子命令须入, got {texts:?}");
         assert!(
-            texts.iter().any(|t| t.contains("imgpress crop rect") && t.contains("必填")),
+            texts.iter().any(|t| t.starts_with("imgpress crop :")),
+            "子命令须入, got {texts:?}"
+        );
+        assert!(
+            texts
+                .iter()
+                .any(|t| t.contains("imgpress crop rect") && t.contains("必填")),
             "子命令参数带路径前缀+必填, got {texts:?}"
         );
         assert!(
@@ -491,14 +508,26 @@ mod tests {
         let help = "scrcpy 4.1\n\nOptions:\n\n    --always-on-top\n        Make scrcpy window always on top.\n\n    --angle=degrees\n        Rotate the video content.\n        suffixes are supported: 'K' (x1000).\n\nShortcuts:\n    MOD+q\n        Quit.\n";
         let cmds = parse_commands(help);
         let names: Vec<&str> = cmds.iter().map(|c| c.0.as_str()).collect();
-        assert!(names.contains(&"--always-on-top"), "长 flag 应命中, got {names:?}");
+        assert!(
+            names.contains(&"--always-on-top"),
+            "长 flag 应命中, got {names:?}"
+        );
         assert!(
             names.contains(&"--angle"),
             "--angle=degrees 应去 =value, got {names:?}"
         );
-        assert!(!names.contains(&"Make"), "prose 词不应成命令, got {names:?}");
-        assert!(!names.contains(&"suffixes"), "续行 prose 不应成命令, got {names:?}");
-        assert!(!names.contains(&"MOD+q"), "Shortcuts 段应整段排除, got {names:?}");
+        assert!(
+            !names.contains(&"Make"),
+            "prose 词不应成命令, got {names:?}"
+        );
+        assert!(
+            !names.contains(&"suffixes"),
+            "续行 prose 不应成命令, got {names:?}"
+        );
+        assert!(
+            !names.contains(&"MOD+q"),
+            "Shortcuts 段应整段排除, got {names:?}"
+        );
         assert_eq!(
             cmds.iter().find(|c| c.0 == "--always-on-top").unwrap().1,
             "Make scrcpy window always on top."
@@ -512,7 +541,11 @@ mod tests {
         let cmds = parse_commands(help);
         assert_eq!(cmds.len(), 3, "got {cmds:?}");
         assert_eq!(cmds[0].0, "build", "逗号别名应剥离, got {:?}", cmds[0].0);
-        assert!(cmds[0].1.starts_with("Compile"), "短别名 b 不应进描述, got {:?}", cmds[0].1);
+        assert!(
+            cmds[0].1.starts_with("Compile"),
+            "短别名 b 不应进描述, got {:?}",
+            cmds[0].1
+        );
         assert_eq!(cmds[2].0, "clean", "无别名行也应正常");
     }
 
@@ -524,9 +557,18 @@ mod tests {
         let cmds = parse_commands(help);
         let names: Vec<&str> = cmds.iter().map(|c| c.0.as_str()).collect();
         // general commands + networking 段命中; global options(-a/-d) 与 env vars 排除
-        assert!(names.contains(&"devices"), "adb general 段应命中, got {names:?}");
-        assert!(names.contains(&"connect"), "adb networking 段应命中, got {names:?}");
+        assert!(
+            names.contains(&"devices"),
+            "adb general 段应命中, got {names:?}"
+        );
+        assert!(
+            names.contains(&"connect"),
+            "adb networking 段应命中, got {names:?}"
+        );
         assert!(!names.contains(&"-a"), "选项行不应进命令, got {names:?}");
-        assert!(!names.contains(&"ANDROID_SERIAL"), "env var 段应排除, got {names:?}");
+        assert!(
+            !names.contains(&"ANDROID_SERIAL"),
+            "env var 段应排除, got {names:?}"
+        );
     }
 }

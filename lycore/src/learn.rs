@@ -109,32 +109,47 @@ pub fn asr_local(
     ffmpeg: &str,
     lang: &str,
 ) -> anyhow::Result<Vec<(f64, f64, String)>> {
-    use std::io::Write;
     let work = tempfile_dir()?;
     std::fs::create_dir_all(&work)?;
     let wav = work.join("lyv_audio.wav");
     let status = std::process::Command::new(ffmpeg)
         .args([
-            "-y", "-v", "error", "-i", &video.to_string_lossy(),
-            "-vn", "-ar", "16000", "-ac", "1",
+            "-y",
+            "-v",
+            "error",
+            "-i",
+            &video.to_string_lossy(),
+            "-vn",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
             &wav.to_string_lossy(),
         ])
         .status()?;
     anyhow::ensure!(status.success(), "ffmpeg 音频提取失败");
 
     let bin = std::env::var("LYV_WHISPER_BIN").unwrap_or_else(|_| "whisper-cli".into());
-    let model = std::env::var("LYV_WHISPER_MODEL")
-        .unwrap_or_else(|_| "ggml-base.bin".into());
+    let model = std::env::var("LYV_WHISPER_MODEL").unwrap_or_else(|_| "ggml-base.bin".into());
     let out_base = work.join("lyv_asr");
     let output = std::process::Command::new(&bin)
         .args([
-            "-m", &model,
-            "-f", &wav.to_string_lossy(),
-            "-l", lang,
-            "-oj", "-of", &out_base.to_string_lossy(),
+            "-m",
+            &model,
+            "-f",
+            &wav.to_string_lossy(),
+            "-l",
+            lang,
+            "-oj",
+            "-of",
+            &out_base.to_string_lossy(),
         ])
         .output()?;
-    anyhow::ensure!(output.status.success(), "whisper-cli 失败: {}", String::from_utf8_lossy(&output.stderr));
+    anyhow::ensure!(
+        output.status.success(),
+        "whisper-cli 失败: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let json_path = out_base.with_extension("json");
     let raw = std::fs::read_to_string(&json_path)?;
@@ -320,7 +335,14 @@ pub fn build_cues(
                 u["ocr"].as_str().unwrap_or(""),
                 u["ocr_conf"].as_f64().unwrap_or(0.0),
                 strong_str.join(" "),
-                u["weak"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(" ")).unwrap_or_default(),
+                u["weak"]
+                    .as_array()
+                    .map(|a| a
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" "))
+                    .unwrap_or_default(),
             ],
         )?;
         // 索引侧分词: 与查询侧 tokens() 同一实现 (对齐保证)
@@ -331,19 +353,26 @@ pub fn build_cues(
         let fts_ocr = tokenize(u["ocr"].as_str().unwrap_or("")).join(" ");
         db.execute(
             "INSERT INTO seg_fts VALUES(?1,?2,?3,?4,?5,?6)",
-            rusqlite::params![u["id"].as_str().unwrap_or(""), fts_text, fts_entities,
-                              u["intent"].as_str().unwrap_or(""), fts_strong, fts_ocr],
+            rusqlite::params![
+                u["id"].as_str().unwrap_or(""),
+                fts_text,
+                fts_entities,
+                u["intent"].as_str().unwrap_or(""),
+                fts_strong,
+                fts_ocr
+            ],
         )?;
     }
-    db.execute_batch(
-        "CREATE INDEX idx_intent ON segments(intent);",
-    )?;
+    db.execute_batch("CREATE INDEX idx_intent ON segments(intent);")?;
 
     let meta = serde_json::json!({
         "format": "LYV 0.1", "units": units.len(),
         "builder": "lycore-learn-rs",
     });
-    std::fs::write(pack_dir.join("meta.json"), serde_json::to_string_pretty(&meta)?)?;
+    std::fs::write(
+        pack_dir.join("meta.json"),
+        serde_json::to_string_pretty(&meta)?,
+    )?;
     Ok(units.len())
 }
 
@@ -351,13 +380,15 @@ pub fn build_cues(
 /// 1) 候选 = ASCII、≥2 字符、非纯数字、跨 ≥2 段互证 (单段共现易巧合);
 /// 2) 仅重打内置词典未覆盖 (misc.talk) 的单元 → `{实体}.misc`;
 /// 3) 每实体产一条 left-only 规则供检索侧 rules.json。
-/// 平票取字典序小者 (确定性; 工具名通常短于动词, 如 adb < install)。
+///    平票取字典序小者 (确定性; 工具名通常短于动词, 如 adb < install)。
 pub fn learn_vocabulary(units: &mut [serde_json::Value]) -> Vec<serde_json::Value> {
     use std::collections::HashMap;
     let mut freq: HashMap<String, usize> = HashMap::new();
     for u in units.iter() {
         let mut seen: std::collections::HashSet<String> = Default::default();
-        let Some(strong) = u["strong"].as_array() else { continue };
+        let Some(strong) = u["strong"].as_array() else {
+            continue;
+        };
         for s in strong.iter().filter_map(|v| v.as_str()) {
             let t = s.trim().to_lowercase();
             if t.len() >= 2 && t.is_ascii() && !t.chars().all(|c| c.is_ascii_digit()) {
@@ -377,7 +408,9 @@ pub fn learn_vocabulary(units: &mut [serde_json::Value]) -> Vec<serde_json::Valu
         if u["intent"].as_str() != Some("misc.talk") {
             continue;
         }
-        let Some(strong) = u["strong"].as_array() else { continue };
+        let Some(strong) = u["strong"].as_array() else {
+            continue;
+        };
         let mut cands: Vec<(usize, String)> = strong
             .iter()
             .filter_map(|v| v.as_str())
@@ -410,8 +443,16 @@ pub fn detect_intent(text: &str) -> (String, Option<String>) {
         let idx = loop {
             let i = lower[search..].find(tool)?;
             let i = search + i;
-            let before = lower[..i].chars().last().map(|c| !c.is_ascii_alphanumeric()).unwrap_or(true);
-            let after = lower[i + tool.len()..].chars().next().map(|c| c.is_ascii_whitespace() || c.is_ascii_uppercase() || c == '_').unwrap_or(false);
+            let before = lower[..i]
+                .chars()
+                .last()
+                .map(|c| !c.is_ascii_alphanumeric())
+                .unwrap_or(true);
+            let after = lower[i + tool.len()..]
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_whitespace() || c.is_ascii_uppercase() || c == '_')
+                .unwrap_or(false);
             if before && after {
                 break i + tool.len();
             }
@@ -426,7 +467,11 @@ pub fn detect_intent(text: &str) -> (String, Option<String>) {
     };
     // (工具, [子命令集], intent 前缀)
     const TOOLS: &[(&str, &[&str], &str)] = &[
-        ("cargo", &["new", "run", "build", "test", "init"], "rust.project"),
+        (
+            "cargo",
+            &["new", "run", "build", "test", "init"],
+            "rust.project",
+        ),
         ("git", &["clone", "push", "pull", "commit", "init"], "git"),
         ("pip", &["install"], "py.pkg"),
         ("npm", &["install"], "node.pkg"),
@@ -569,7 +614,11 @@ mod tests {
             // 单段孤词 (仅 1 次) → 不达阈值, 保持 misc.talk
             mk("hello_world 一下", "misc.talk", &["hello_world"]),
             // 内置词典已命中 (rust.project.create) → 不得被重打, 也不得发 cargo 规则
-            mk("cargo new demo", "rust.project.create", &["cargo", "new", "demo"]),
+            mk(
+                "cargo new demo",
+                "rust.project.create",
+                &["cargo", "new", "demo"],
+            ),
         ];
         let rules = learn_vocabulary(&mut units);
 

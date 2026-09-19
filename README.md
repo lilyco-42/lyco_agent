@@ -1,4 +1,6 @@
 > 运维/部署脚本已迁至 [lyco-ops](https://github.com/lilyco-42/lyco-ops)（2026-09-19 拆仓，见 lilyco 生态路线图 P2）
+>
+> **Agent 工作区域**（2026-09-19 划定）：本仓 `lyco_agent`（`lycore/` `tools/` `docs/` `scripts/` `smoke/`）由 **lyco_agent 负责 agent** 维护；`lilyco` 主框架仓（21 crate，CLI/Web/MCP/TUI 四端）由**另一 agent** 维护——跨仓需求走沟通，勿直接改对方代码。云端运维脚本在 [lyco-ops](https://github.com/lilyco-42/lyco-ops)（归 lyco_agent 侧）。
 
 <div align="center">
 

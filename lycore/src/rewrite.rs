@@ -67,7 +67,9 @@ mod tests {
         let ex = Executor::open(Path::new("../smoke/pack_final")).unwrap();
         let _q = LearningQueue::open(Path::new("../smoke/pack_final"));
         // '我想写个Rust程序第一步干啥' 直查误判 run → 改写为 '新建 rust 项目' 后 create
-        let mut backend = RewriteOnce { rewritten: "新建 rust 项目".to_string() };
+        let _backend = RewriteOnce {
+            rewritten: "新建 rust 项目".to_string(),
+        };
         // 直查会命中 run (FTS) — 两阶段策略: 直查结果也交给调用方复核
         // 这里直接测改写路径: 只查改写后的
         let ev = ex.pack_lookup("新建 rust 项目");

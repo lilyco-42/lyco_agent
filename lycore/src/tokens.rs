@@ -40,7 +40,13 @@ fn ascii_tokens(text: &str) -> Vec<String> {
 fn cjk_bigrams(text: &str) -> Vec<String> {
     let spaced: Vec<char> = text
         .chars()
-        .map(|c| if ('\u{4e00}'..='\u{9fff}').contains(&c) { c } else { ' ' })
+        .map(|c| {
+            if ('\u{4e00}'..='\u{9fff}').contains(&c) {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect();
     if spaced.len() < 2 {
         return Vec::new();

@@ -10,8 +10,8 @@
 //!   1. load:   读队列 jsonl (query/reason/ts)
 //!   2. dedupe: 相同 query+reason 合并, 计数 (频次 = 优先级信号)
 //!   3. tasks:  生成训练任务 — GRPO 奖励环境需要的 (prompt, expected_tool) 对
-//!              reason 含 "NO_HIT" → lyv_knowledge 任务
-//!              reason 含 "vnn"    → vnn_identify 任务 (VNN 训练队列)
+//!      reason 含 "NO_HIT" → lyv_knowledge 任务
+//!      reason 含 "vnn"    → vnn_identify 任务 (VNN 训练队列)
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -73,7 +73,11 @@ pub fn digest(queue_path: &Path) -> std::io::Result<Vec<TrainingTask>> {
             });
     }
     let mut tasks: Vec<TrainingTask> = merged.into_values().collect();
-    tasks.sort_by(|a, b| b.frequency.cmp(&a.frequency).then(b.last_seen.cmp(&a.first_seen)));
+    tasks.sort_by(|a, b| {
+        b.frequency
+            .cmp(&a.frequency)
+            .then(b.last_seen.cmp(&a.first_seen))
+    });
     Ok(tasks)
 }
 
@@ -92,7 +96,11 @@ fn is_noise(query: &str) -> bool {
         return true;
     }
     // 重复字符比例过高 (如 "胡说八道xyz" 的 xyz 模式 — 无信息量的 ASCII 尾巴)
-    let ascii_tail = q.chars().rev().take_while(|c| c.is_ascii_alphanumeric()).count();
+    let ascii_tail = q
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .count();
     // 包含常见无意义测试词
     for noise in ["xyz", "abc", "test123", "asdf", "aaaa"] {
         if q.to_lowercase().contains(noise) {
@@ -126,7 +134,10 @@ fn classify(query: &str, reason: &str) -> Option<(&'static str, &'static str)> {
             "直接 llm_generate 生成, 不调 lyv_knowledge (短创作请求) (+1)",
         ));
     }
-    Some(("lyv_knowledge", "调用 lyv_knowledge 且知识包应包含该操作 (+1)"))
+    Some((
+        "lyv_knowledge",
+        "调用 lyv_knowledge 且知识包应包含该操作 (+1)",
+    ))
 }
 
 /// 创作型请求检测 (高精度, 宁漏勿错 —— 漏判只是少一条训练数据,
@@ -141,7 +152,16 @@ fn is_creative_request(query: &str) -> bool {
     }
     // 疑问词开头 = 在问"怎么做", 归知识查询
     for w in [
-        "怎么", "如何", "怎样", "什么", "为什么", "哪里", "哪个", "是否", "能不能", "可以",
+        "怎么",
+        "如何",
+        "怎样",
+        "什么",
+        "为什么",
+        "哪里",
+        "哪个",
+        "是否",
+        "能不能",
+        "可以",
     ] {
         if q.starts_with(w) {
             return false;
@@ -149,9 +169,27 @@ fn is_creative_request(query: &str) -> bool {
     }
     // 创作动词
     for v in [
-        "起个", "起一个", "想个", "想一个", "取个", "取一个", "编个", "来个", "帮我起", "帮我想",
-        "帮我写", "给我起", "给我写", "写一首", "写一段", "写个", "生成一个", "创作一首",
-        "作一首", "拟一个", "slogan",
+        "起个",
+        "起一个",
+        "想个",
+        "想一个",
+        "取个",
+        "取一个",
+        "编个",
+        "来个",
+        "帮我起",
+        "帮我想",
+        "帮我写",
+        "给我起",
+        "给我写",
+        "写一首",
+        "写一段",
+        "写个",
+        "生成一个",
+        "创作一首",
+        "作一首",
+        "拟一个",
+        "slogan",
     ] {
         if q.to_lowercase().contains(v) {
             return true;
@@ -160,8 +198,20 @@ fn is_creative_request(query: &str) -> bool {
     // 创作名词 (仅短请求算 —— 回归队列里 "队名" 单条出现 7 次, 系测试残留非有机流量)
     if q.chars().count() <= 8 {
         for n in [
-            "队名", "笔名", "店名", "昵称", "网名", "标题", "文案", "情书", "段子", "歌词",
-            "口号", "简介", "广告语", "藏头诗",
+            "队名",
+            "笔名",
+            "店名",
+            "昵称",
+            "网名",
+            "标题",
+            "文案",
+            "情书",
+            "段子",
+            "歌词",
+            "口号",
+            "简介",
+            "广告语",
+            "藏头诗",
         ] {
             if q.contains(n) {
                 return true;
@@ -226,7 +276,11 @@ mod tests {
             ],
         );
         let tasks = digest(&q).unwrap();
-        assert_eq!(tasks.len(), 1, "4 个工具执行失败应全排除, 仅剩 1 个知识缺口");
+        assert_eq!(
+            tasks.len(),
+            1,
+            "4 个工具执行失败应全排除, 仅剩 1 个知识缺口"
+        );
         assert_eq!(tasks[0].query, "怎么配置 nginx");
         assert_eq!(tasks[0].expected_tool, "lyv_knowledge");
     }
@@ -256,7 +310,10 @@ mod tests {
     #[test]
     fn harvest_writes_jsonl() {
         let dir = tempfile::tempdir().unwrap();
-        let q = write_queue(dir.path(), &[r#"{"query":"如何配置测试环境","reason":"NO_HIT","ts":1}"#]);
+        let q = write_queue(
+            dir.path(),
+            &[r#"{"query":"如何配置测试环境","reason":"NO_HIT","ts":1}"#],
+        );
         let out = dir.path().join("training_tasks.jsonl");
         let n = harvest(&q, &out).unwrap();
         assert_eq!(n, 1);
@@ -278,7 +335,10 @@ mod tests {
         assert!(!is_noise("怎么配置 nginx"), "中英混合真查询保留");
         assert!(!is_noise("build the project"), "多词英文真查询保留");
         // 已知残留 (记录而非假装解决): 纯中文参数名无法与自然语言区分
-        assert!(!is_noise("图片路径"), "CJK 占位符是已知残留 (需上下文才能判)");
+        assert!(
+            !is_noise("图片路径"),
+            "CJK 占位符是已知残留 (需上下文才能判)"
+        );
 
         let dir = tempfile::tempdir().unwrap();
         let q = write_queue(
@@ -311,8 +371,14 @@ mod tests {
         );
         let tasks = digest(&q).unwrap();
         let creative = tasks.iter().find(|t| t.query == "队名").unwrap();
-        assert_eq!(creative.expected_tool, "llm_generate", "短创作应标 llm_generate");
-        assert_eq!(creative.frequency, 2, "重复出现的创作请求 = 强信号, 保留计数");
+        assert_eq!(
+            creative.expected_tool, "llm_generate",
+            "短创作应标 llm_generate"
+        );
+        assert_eq!(
+            creative.frequency, 2,
+            "重复出现的创作请求 = 强信号, 保留计数"
+        );
         let title = tasks.iter().find(|t| t.query == "起个标题").unwrap();
         assert_eq!(title.expected_tool, "llm_generate");
         let know = tasks.iter().find(|t| t.query == "怎么配置 nginx").unwrap();
@@ -329,7 +395,10 @@ mod tests {
         assert!(is_creative_request("写一首诗"));
         // 不误伤: 疑问词开头的知识查询 (含 DESIGN 记录的 "怎么做X" 语言模糊)
         assert!(!is_creative_request("怎么配置 nginx"));
-        assert!(!is_creative_request("如何起标题"), "疑问词优先归知识查询 (已知边界)");
+        assert!(
+            !is_creative_request("如何起标题"),
+            "疑问词优先归知识查询 (已知边界)"
+        );
         assert!(!is_creative_request("怎么新建 rust 项目"));
         assert!(!is_creative_request("帮我看看这张截图"));
     }

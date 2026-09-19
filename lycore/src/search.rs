@@ -144,12 +144,14 @@ impl StubSearch {
                 SearchResult {
                     title: format!("{query} — PaperMC 官方文档"),
                     url: "https://docs.papermc.io/".to_string(),
-                    snippet: "Paper 服务端启动: java -Xmx2G -jar paper.jar nogui; 首次须 eula=true".to_string(),
+                    snippet: "Paper 服务端启动: java -Xmx2G -jar paper.jar nogui; 首次须 eula=true"
+                        .to_string(),
                 },
                 SearchResult {
                     title: format!("{query} — Minecraft Wiki: Server"),
                     url: "https://minecraft.wiki/w/Server".to_string(),
-                    snippet: "服务端 jar 须匹配 Java 版本 (1.20.5+ 用 Java 21); 内存按在线人数调整".to_string(),
+                    snippet: "服务端 jar 须匹配 Java 版本 (1.20.5+ 用 Java 21); 内存按在线人数调整"
+                        .to_string(),
                 },
             ],
         }
@@ -186,7 +188,8 @@ pub fn search_and_learn<B: SearchBackend>(
     if cues.is_empty() {
         return Ok(0);
     }
-    crate::learn_cli::append_cues(pack_dir, "search", &cues).map_err(|e| SearchError::Io(e.to_string()))
+    crate::learn_cli::append_cues(pack_dir, "search", &cues)
+        .map_err(|e| SearchError::Io(e.to_string()))
 }
 
 #[cfg(test)]
@@ -211,7 +214,10 @@ mod tests {
 
     #[test]
     fn parse_searxng_rejects_bad_json() {
-        assert!(matches!(parse_searxng("not json", 3), Err(SearchError::Parse(_))));
+        assert!(matches!(
+            parse_searxng("not json", 3),
+            Err(SearchError::Parse(_))
+        ));
         assert!(matches!(parse_searxng("{}", 3), Err(SearchError::Parse(_))));
     }
 
@@ -245,7 +251,13 @@ mod tests {
     #[test]
     fn search_and_learn_writes_pack() {
         let t = tempfile::tempdir().unwrap();
-        let n = search_and_learn(t.path(), "paper minecraft 怎么启动", &StubSearch::demo("x"), 5).unwrap();
+        let n = search_and_learn(
+            t.path(),
+            "paper minecraft 怎么启动",
+            &StubSearch::demo("x"),
+            5,
+        )
+        .unwrap();
         assert_eq!(n, 2);
         // 入库后 FTS 表可查 (segments 有 search.* 条目)
         let db = rusqlite::Connection::open(t.path().join("index/knowledge.sqlite")).unwrap();
@@ -267,7 +279,11 @@ mod tests {
         search_and_learn(t.path(), "q", &s, 5).unwrap(); // 重复 → 幂等, 不翻倍
         let db = rusqlite::Connection::open(t.path().join("index/knowledge.sqlite")).unwrap();
         let cnt: i64 = db
-            .query_row("SELECT COUNT(*) FROM segments WHERE intent LIKE 'search.%'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM segments WHERE intent LIKE 'search.%'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(cnt, 2, "幂等: 重复摄取不累积");
     }

@@ -28,10 +28,38 @@
 
 ## 跑法（llama.cpp）
 
+⚠️ **两个必须注意的点（实测踩过）**：
+1. **必须关掉 thinking**。训练用的是 `enable_thinking=False`；若推理时开着思考，模型会先长篇"思考"
+   （`好的，用户问的是…`）而在有限 token 内不输出命令 → 看起来"模型不会用"。
+2. **新版 llama.cpp（本机 0.4.1-dev, commit 60081bb）已移除 `-no-cnv`**（用会直接
+   `error: invalid argument`）。要单轮退出用 **`-st` / `--single-turn`**。
+
 ```bash
-llama-cli    -m router_v4-Q4_K_M.gguf --jinja -sys "<上面的 router system prompt>" -p "现在多少主频"
-llama-server -m router_v4-Q4_K_M.gguf --jinja -c 2048 --port 8080   # OpenAI 兼容接口
+# 路由器（无需 tools，最简写法）
+llama-cli -m router_v4-Q4_K_M.gguf \
+  -sys "你是 lyco_agent 的命令路由器。把用户的日常意图翻译成**一条**本地 CLI 命令。只输出命令本身，不要解释；与硬件无关的请求输出 (无需调用硬件命令)。" \
+  -p "现在多少主频" -n 48 --temp 0 -st \
+  --chat-template-kwargs '{"enable_thinking": false}'
+
+# 路由器（服务化，OpenAI 兼容）
+llama-server -m router_v4-Q4_K_M.gguf -c 2048 --port 8080 \
+  --chat-template-kwargs '{"enable_thinking": false}'
+
+# grpo 工具调用：tools schema 无法从命令行传，需先用 transformers 预渲染
+#   tok.apply_chat_template(msgs, tools=TOOLS, add_generation_prompt=True, enable_thinking=False)
+# 再：
+llama-cli -m grpo-Q4_K_M.gguf -f prompt.txt -n 96 --temp 0 -st
 ```
+
+## 已验证（llama.cpp 端到端，服务器 CPU）
+
+- **router_v4：9/9**（两轮共 9 个用例全中）—— 含弱线索困难样本与"该不调"拒绝：
+  `现在多少主频→hw cpu`、`板子烫不烫→hw temp`、`读一下 gpio0 的 97 号脚→hw gpio get 0 97`、
+  `gpio line 12 什么电平→hw gpio get 0 12`、`把风扇调到 200→hw fan 200`、`板子什么型号→hw info`、
+  `讲个笑话→(无需调用硬件命令)`
+- **grpo：工具调用可用**（`怎么新建 rust 项目` 产出 `lyv_knowledge` 调用；`你好呀` 不调工具）。
+  权威质量指标是训练期评测：FC 遵循度 **80%**（基线 60%）。
+- 吞吐：Prompt ~670–700 t/s，Generation ~121 t/s（CPU，8 线程）。
 
 ## 实测吞吐（llama-bench，**服务器 CPU** / 8 线程 / Q4_K_M）
 

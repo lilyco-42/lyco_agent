@@ -53,3 +53,27 @@ node cloudstudio/cs_exec_train.mjs --file cloudstudio/a10_cli_router_v4.py # CLI
 node cloudstudio/cs_exec_long.mjs  --file cloudstudio/a10_quantize.py      # GGUF Q4_K_M
 node cloudstudio/cs_exec_long.mjs  --file cloudstudio/a10_quantize_fix.py  # 修 tokenizer 后补量化
 ```
+
+## 6. 端到端验证（llama.cpp 实跑，非仅文件存在）
+
+| 模型 | 用例 | 结果 |
+|---|---|---|
+| `router_v4` | 现在多少主频→`hw cpu`；板子烫不烫→`hw temp`；读一下 gpio0 的 97 号脚→`hw gpio get 0 97`；gpio line 12 什么电平→`hw gpio get 0 12`；把风扇调到 200→`hw fan 200`；板子什么型号→`hw info`；讲个笑话→`(无需调用硬件命令)` | **9/9**（两轮） |
+| `grpo` | 怎么新建 rust 项目→调 `lyv_knowledge`；你好呀→不调工具 | 2/2 |
+
+吞吐（CPU / 8 线程）：Prompt ≈ 670–700 t/s，Generation ≈ 121 t/s。
+
+### 两个必须知道的操作要点（排查时踩过）
+
+1. **推理必须关 thinking**：训练用 `enable_thinking=False`；推理若开着思考，模型会先长篇推理
+   （`好的，用户问的是…`）而在 `-n 48` 内不输出命令，表现为"模型不会用"。
+   用 `--chat-template-kwargs '{"enable_thinking": false}'`，或预渲染时传 `enable_thinking=False`。
+   **只用 `-sys/-p` 而不加该参数时，实测会退化为长篇思考**（`gpio line 12 什么电平` 一例即因此首轮判 FAIL）。
+2. **新版 llama.cpp 已移除 `-no-cnv`**（本机 0.4.1-dev, commit 60081bb）→ 单轮退出用 **`-st`**。
+
+### 验证方法学上的两个纠正（避免自欺）
+
+- 用 `-f` 喂 prompt 时 **stdout 会回显 prompt**，而 tools schema 里天然含 `"name"` / `<tool_call>` 字样，
+  所以"是否调工具"不能用 `in stdout` 判断 —— 必须只取 `assistant` 标记**之后**的文本。
+- 判定"该不调"类用例时不能用"空输出"当通过（空输出天然不含 tool_call）；且必须保留 **stderr**，
+  否则 CLI 参数错误（如 `-no-cnv` 不兼容）会被误读成"模型全错"。

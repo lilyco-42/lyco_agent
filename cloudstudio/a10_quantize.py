@@ -8,11 +8,13 @@ LLAMA = os.path.join(HOME, "llama.cpp")
 REPO = os.path.join(HOME, "lyco_agent")
 PY = os.path.join(REPO, ".venv", "bin", "python")
 
-# trained outputs from the repo's own trainers
+# trained outputs to quantize.
+# grpo  = 工具调用/驾驶模型 (tools/qwen_grpo_train.py, FC 80%)
+# v4    = CLI 路由器 v4 (拒绝率 100%, 与 v1 准确率持平但不再乱吐命令) <- 采用版
 TARGETS = [
     ("grpo", "/workspace/qwen3_lyco_grpo/final"),
     ("grpo", "/workspace/qwen3_lyco_grpo"),
-    ("sft",  "/workspace/qwen3_router_v1"),
+    ("router_v4", "/workspace/qwen3_router_v4"),
 ]
 
 def run(cmd, cwd=None, timeout=2400):

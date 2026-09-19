@@ -103,3 +103,58 @@
    `tools/cli_datagen.py` 第 64 行**已明文警告过这条**，仍被踩。→ **必须用 if/elif 惰性分支**。
 2. `trl.GRPOTrainer(train_dataset=...)` 要求 `datasets.Dataset`，**传 list 会 TypeError**（需 `Dataset.from_list`）。
 3. 变量批量改名后要全局 grep：`V5`→`V6` 漏了 `GRPOConfig(output_dir=V5)` → `NameError`。
+
+## 5. v8→v11：泛化边界测绘与真实语料（2026-09-19 下午，CloudStudio A10）
+
+### 5.1 v8 系列方法论收获
+- **优化器**：torch≥2.10 原生 Adafactor 有效步长比 HF 版小 ~200 倍 → 必须用 `transformers.Adafactor`（lr=2e-5, scale_parameter=False, relative_step=False）。优化器「语义等价」必须实测步长。
+- **比数据成分必须固定训练总体积**（v8 四臂 N=1300）：纯堆重复无效。
+- **heldA vs heldB 是反向指标**：heldA（有线索换说法）靠说法多样性驱动；heldB（弱线索）加数据**显著变差**（p=0.0010/0.0003，机理 invalid_syntax 2→10，越训越依赖关键词）→ heldB 只能靠定向数据。
+- **跨 run 不可比**：换过留出模板集就只能同 run 内比。
+
+### 5.2 v9b：Tool-RAG 零训练接入证伪（范式 I 出局）
+lb 域完全 holdout（训练 0 条），运行时把 lb 只读 schema 注入 system prompt：
+- **lb 注入增益 +0.0pp**（plain/rag 双 0%）——schema 注入只教会拒绝（noop 88.9%→100%），教不会使用；
+- lb_write（schema 外写操作）双模式 100% 拒绝（安全红线成立）；
+- hw_A 98.4% 无回归，gh_A 71.0%，ff_A 52.0%（wrong_slot 主导）。
+- **结论**：0.6B「没训过就是不会」，推理时注入救不了；转向训练时内化（范式 II / IWL）。
+
+### 5.3 v10：NL2SH-ALFA 真实语料 → brush 域
+数据：v9b 配方 2800 + ALFA train 下采样 8000（分层 cap 250/命令词头，seed 42），域前缀 `brush`（对接内嵌 Rust shell）。bash_held = ALFA 官方 test 300 条过滤后 264 条（论文已去重划分）。
+
+| 读数 | 结果 | 解读 |
+|---|---|---|
+| bash_held 精确匹配 | **8.3%**（22/264） | 表面很低，但见下 |
+| invalid_syntax | **1 个** | **格式学习完全成功**——<7B 失败主因是格式（NL2SH 论文判断）被证实 |
+| wrong_capability / wrong_slot | 146 / 95 | 能力级命中 = 22+95 = **44.3%** |
+| gh_A | 71.0 → **52.7** | **稀释效应**：bash 份额 23%→6%，老域被挤 |
+| hw_B | 81 → 75.9；ff_A 52 → 59.0 | 其余域小幅波动 |
+| lb_A / lb_B | 0 / 0 | bash 底料也带不动 lb——0.6B 泛化边界定案 |
+| noop / lb_write | 100% / 100% | 拒绝语义无回归；hw_A 99.2% |
+
+- 精确匹配严重低估 bash 能力（8.3% vs 能力级 44.3%）：`cp -a`vs`cp`、`printf`vs`echo` 这类**语义等价**被判错——正是 IC-ALFA「执行式功能等价评测」的动机。
+- **教训**：训练脚本模板必须默认带 `model.save_pretrained()`（v10 首跑漏掉，跑完模型即丢，止损重启）。
+
+### 5.4 v10b：置信度门（Jev 形态落地，对接 T0/T1/T2）
+方法：greedy 生成 + 生成序列平均 max-logprob 当置信度 conf（0=完全确定，越负越不确定），对 router_v10_brush 全评测集提取。
+
+- **✅ conf 对「执行正确性」分离成功**：正确样本中位 **-0.001**（n=465）vs 错误 **-0.177**（n=404）；难集显著更不自信（bash_held p50 -0.213、ff_B -0.157）。
+- **❌ conf 对「命令 vs 拒绝」分离失败**：命令集中位 -0.020 vs 拒绝集中位 -0.000——模型拒绝（noop）时反而最自信（28/28 拒绝样本 conf≥-0.05）。**拒绝判断必须靠语义层（schema/规则），不能靠 conf**。
+- θ 扫描（命令类 n=869，无门基线 acc 53.5%）：
+
+| θ_exec | 覆盖 | 自动执行 acc | 错误拦截 |
+|---|---|---|---|
+| -0.02 | 49.8% | **86.8%** | 79.6% |
+| -0.05 | 58.3% | 82.8% | 87.6% |
+| -0.20 | 78.1% | 67.7% | 97.4% |
+
+- **三态门推荐**（对接 lyco 安全分级）：`conf ≥ -0.02` → auto-execute（约一半流量，acc 87%，+33pp）；`-0.20 ≤ conf < -0.02` → confirm（转 T1 人工确认）；`conf < -0.20` → reject（97% 是错的）。Rust 侧复现 = llama.cpp greedy + 逐 token logprob 平均。
+
+### 5.5 v11：两阶段课程（训练中，结果待回填）
+设计——直接回应 v10 两个问题（①稀释 ②bash 量不足）：
+- **S1**：bash 20,000 × 1ep（ALFA 过滤+分层下采样全量）——shell 先验进底；
+- **S2**：v9b 配方等比放大 **4100** × 4ep（hw 1464/gh 952/ff 952/noop 732）——域内精度固化；
+- 变量控制：底座/优化器/评测集与 v10 完全一致；预算 ~2280 步 ≈ 60min。
+- 三条核心读数：lb 注入增益、bash_held（v10=8.3%）、gh_A 稀释修复（v10=52.7，预期 ≥65）。
+- 后续：v11b 置信度门（脚本就绪 `a10_v11b_confgate.py`）；执行式/能力级评测（IC-ALFA 思路）；Qwen3.5-0.8B 底座对照（QAT+GDN，HF 已实查 GGUF 全套）。
+- 工程脚本与日志：`p2-lyco_ops`（lyco-ops 仓）`cloudstudio/` 下 `_clean_and_v1*.py` / `a10_*_confgate.py` / `v1*.log`。

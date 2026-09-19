@@ -1,5 +1,7 @@
 # lyco_agent 端侧小模型：调研与训练方案
 
+> 🗺️ **路径注记（2026-09-20 tools/ 重组）**：本文写于 tools/ 平铺时代。现按线分组：FC 线 → `tools/training/fc/`，改写线 → `tools/training/rewrite/`，VNN → `tools/training/vnn/`，评测/知识包 → `tools/training/bench/`，`lyv.py` 及 agent 原型 → `tools/runtime/`，板端 NPU/KWS → `tools/native_npu/`，systemd 单元 → `tools/deploy/`；`tools/cgidata/` 原地未动。文中旧路径按此映射，平铺快照见 tag `tools-flat-archive-2026-09-20`。
+
 > 目标：为 lilyco / lyco_agent 框架训练一个**端侧可跑的小模型**，用于"驾驶"agent（规划、工具/技能选择、调用、错误恢复）。要求低功耗、可部署到手机 / 边缘（CPU 或 NPU）。
 > 约束：**本机（Win）不编译任何 lyco_agent 模块**；统一在 CloudStudio（腾讯云 GPU）构建与训练。开发在 **A10** 工作空间进行。
 

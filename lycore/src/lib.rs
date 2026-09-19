@@ -1,6 +1,6 @@
 //! lycore — lyco_agent 的 Rust 核心库
 //!
-//! Python 原型 (tools/lyv.py) 已验证的检索逻辑移植。原子化构建:
+//! Python 原型 (tools/runtime/lyv.py) 已验证的检索逻辑移植。原子化构建:
 //!   - `pack::Lookup`: LVK 知识包 sqlite 检索 (intent 词典优先, FTS 兜底) — 对应 lyv.lookup
 //!   - 后续原子单元: tokenizer (seg_zh 字级/ASCII 词级)、verifier cascade、tool executor
 //!

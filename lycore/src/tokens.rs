@@ -69,7 +69,7 @@ pub fn tokens(text: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    // Python 参考输出 (tools/token_ref.py 实测, 逐字节对齐)
+    // Python 参考输出 (tools/training/fc/token_ref.py 实测, 逐字节对齐)
     #[test]
     fn python_alignment_cases() {
         // 含跨空格 bigram: " 建" "先 " 等 (Python zh 替换空格后的滑窗产物, FTS 索引含这些)

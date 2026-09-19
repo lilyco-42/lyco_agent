@@ -4,7 +4,7 @@ use lycore::tokens::tokens;
 #[test]
 #[ignore = "需要 Python 生成的参考文件"]
 fn align_with_python_reference() {
-    let Ok(raw) = std::fs::read_to_string("../../tools/token_ref_expected.json") else {
+    let Ok(raw) = std::fs::read_to_string("../../tools/training/fc/token_ref_expected.json") else {
         eprintln!("skip: 参考文件不存在");
         return;
     };

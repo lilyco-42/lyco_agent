@@ -5,7 +5,14 @@
 | 文件 | 角色 | 大小 | 参数量 | 来源 |
 |---|---|---|---|---|
 | `grpo-Q4_K_M.gguf` | **工具调用 / 驾驶模型** | 396.7 MB | 596.05 M（lm_head 绑定） | `tools/qwen_grpo_train.py`，200 步 GRPO，FC 遵循度 **80%**（基线 60%） |
-| `router_v4-Q4_K_M.gguf` | **意图 → CLI 路由器** | 484.2 MB | 751.63 M（含 lm_head） | `cloudstudio/a10_cli_router_v4.py`，拒绝率 **100%**，heldA **90%** / heldB **80.3%** |
+| `router_v4-Q4_K_M.gguf` | 意图 → CLI 路由器（已被合并版取代） | 484.2 MB | 751.63 M（含 lm_head） | `cloudstudio/a10_cli_router_v4.py`，拒绝率 **100%**，heldA **90%** / heldB **80.3%** |
+| **`router_merged-Q4_K_M.gguf`** | **意图 → CLI 路由器（推荐用这个）** | 484.2 MB | 751.63 M（含 lm_head） | **v3 ⊕ v4 权重平均（模型合并）**，heldA **98.5%** / heldB **79.7%** / 拒绝 **100%** |
+
+> **为什么推荐 `router_merged`**：把 v3 与 v4 两条优化路径的 checkpoint 逐张量平均（各 0.5），
+> **零训练成本**却同时超过两者（heldA 91.7%→98.5%，heldB 74.8%→79.7%），两次独立评测命中数完全一致。
+> 依据 DeepSeek-V4.1-Flash 报告 §5.1.2「model merging reinitializes successive RL runs」。
+> 详见 `docs/cli-router-experiments-2026-09-19.md` 第 7 节。
+> 实测吞吐：pp64 556.7 t/s、tg32 128.2 t/s（CPU/8 线程）。
 
 > ⚠️ `router_v4` 比 `grpo` 大约 83 MB，原因是它**存了未绑定的 `lm_head`**（训练中 `lm_head.weight` 与
 > `embed_tokens.weight` 已解绑，maxdiff ≈ 0.0087）。这是**忠实产物**，不要事后强行绑定（会改变模型输出）。

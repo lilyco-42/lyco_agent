@@ -136,7 +136,7 @@ pub fn probe(b: &Backend) -> bool {
             cfg!(target_os = "linux") && (exists("/dev/accel/accel0") || exists("/dev/dri"))
         }
         "npu-qnn" => cfg!(target_os = "android") || exists("/dev/npu"),
-        "gpu-vulkan" => exists("/dev/dri") || cfg!(target_vendor = "pc-windows-msvc"),
+        "gpu-vulkan" => exists("/dev/dri") || cfg!(windows),
         "gpu-cuda" => exists("/dev/nvidiactl") || exists("/dev/nvidia0"),
         _ => false,
     }
@@ -184,6 +184,14 @@ pub struct RunMeta {
     pub elapsed_ms: u64,
     /// 是否因偏好项不可用而降级 (排障用: 用户以为在跑 NPU, 实际是 CPU)
     pub degraded: bool,
+}
+
+/// 环境变量覆盖: `LYCO_BACKEND=<id>` (空/空白视为未设置)
+pub fn prefer_from_env() -> Option<String> {
+    match std::env::var("LYCO_BACKEND") {
+        Ok(v) if !v.trim().is_empty() => Some(v),
+        _ => None,
+    }
 }
 
 /// 按偏好选后端并给出 RunMeta 骨架
@@ -250,6 +258,15 @@ mod tests {
         let (b, meta) = resolve(Some("cpu"));
         assert_eq!(b.device, DeviceClass::Cpu);
         assert!(!meta.degraded);
+    }
+
+    #[test]
+    fn env_override_is_read_when_non_empty() {
+        std::env::set_var("LYCO_BACKEND", "npu-coreml");
+        assert_eq!(prefer_from_env().as_deref(), Some("npu-coreml"));
+        std::env::set_var("LYCO_BACKEND", "   ");
+        assert_eq!(prefer_from_env(), None, "空白视为未设置, 走自动探测");
+        std::env::remove_var("LYCO_BACKEND");
     }
 
     #[test]

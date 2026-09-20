@@ -30,6 +30,7 @@ fn main() {
         "doctor" => cmd_doctor(&args[1..]),
         "serve" => cmd_serve(&args[1..]),
         "tools" => cmd_tools(&args[1..]),
+        "backend" => cmd_backend(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -40,7 +41,8 @@ fn main() {
                  lycore datagen --pack <dir> [--out <file>]  (学习队列→answer-first SFT 语料)\n  \
                  lycore project --dir <path> [--pack <dir>] [--out <script>] [--start 08:00] [--end 22:00]\n  \
                  lycore search --query <...> [--pack <dir>] [--url <searxng>] [--k 5]\n  \
-                 lycore doctor --pack <dir>"
+                 lycore doctor --pack <dir>\n  \
+                 lycore backend [--prefer <id>] [--json]  (列可用后端 / 解析偏好)"
             );
             2
         }
@@ -477,6 +479,60 @@ fn cmd_doctor(args: &[String]) -> i32 {
             Err(e) => println!("  服务健康: ✗ ({e})"),
         }
     }
+    0
+}
+
+/// backend — 本机会话可用的执行后端
+///
+/// 普惠承诺的对外窗口: 让用户/排障一眼看到**这台机器能跑什么**,
+/// 以及某个偏好是否被静默降级 (`LYCO_BACKEND` / `--prefer`)。
+/// 能力层日后统一从这里取后端, 而不是各自 probe 一遍。
+fn cmd_backend(args: &[String]) -> i32 {
+    use lycore::backend::{self, DeviceClass};
+    let prefer = flag(args, "--prefer").or_else(backend::prefer_from_env);
+    let (chosen, meta) = backend::resolve(prefer.as_deref());
+    let avail = backend::available();
+
+    if args.iter().any(|a| a == "--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "available": avail,
+                "preferred": prefer,
+                "chosen": chosen,
+                "degraded": meta.degraded,
+            }))
+            .unwrap()
+        );
+        return 0;
+    }
+
+    let class_name = |c: DeviceClass| match c {
+        DeviceClass::Cpu => "CPU",
+        DeviceClass::Gpu => "GPU",
+        DeviceClass::Npu => "NPU",
+    };
+    println!("本机可用后端 ({} 个, 优先级降序):", avail.len());
+    for b in &avail {
+        println!(
+            "  {:<14} {:<4} P{:<3} {}",
+            b.id,
+            class_name(b.device),
+            b.priority,
+            b.display
+        );
+    }
+    println!("\n本次解析 → {} ({})", chosen.id, chosen.display);
+    if let Some(p) = &prefer {
+        println!("  偏好来源: LYCO_BACKEND/--prefer = {p}");
+    }
+    if meta.degraded {
+        println!(
+            "  ⚠ 偏好项本机不可用, 已降级到 {} — 功能不受影响, 仅快慢之别",
+            chosen.id
+        );
+    }
+    println!("\n普惠不变量: 上面必定有一行叫 cpu。加速是锦上添花, 不是能不能用的前提。");
     0
 }
 

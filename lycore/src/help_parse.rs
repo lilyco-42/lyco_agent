@@ -764,6 +764,28 @@ const DIALECT_HINTS: &[(&str, &str, &str)] = &[
     ("kubectl", "exec", "<POD>"),
 ];
 
+/// **术语同义词/缩写表** —— v18c 消融定性的第二条确定性修复。
+///
+/// v18c 逐题核对发现：命令名对了但卡在「用户说的词」与「CLI 要的词」不一致上。
+/// 典型 `有哪些服务在跑` → gold `kubectl get svc`，模型输出 `kubectl get services`。
+///
+/// **为什么 help 里拿不到**：`kubectl --help` 只写 `get`，不写它的参数可以是
+/// `svc`/`service`/`services` —— 缩写关系在 help 文本里**结构上不可见**。
+/// 因此这是「零人工」的真实边界：版式与参数槽可全自动，术语同义词不可。
+///
+/// 做法刻意保守：**只在注入时附加一行提示**，不改写任何命令，不下判断。
+/// 表极小（每 CLI 一行），成本可忽略，且不引入任何评分/概率成分。
+const SYNONYMS: &[(&str, &str)] = &[
+    ("kubectl", "svc=service, po=pod, ns=namespace, no=node, deploy=deployment, cm=configmap, ing=ingress"),
+    ("docker", "container=容器, image=镜像; `images` 用于列出本地镜像, `ps` 只列容器"),
+    ("npm", "install/i=安装并写入依赖; `npm run <脚本名>` 的脚本名来自 package.json, help 里看不到"),
+];
+
+/// 取该 CLI 的同义词提示（无则 None）
+pub fn synonym_hint(cli: &str) -> Option<&'static str> {
+    SYNONYMS.iter().find(|(c, _)| *c == cli).map(|(_, h)| *h)
+}
+
 /// 无子命令 CLI 的回退解析：把「有说明文本的 flag 行」抽成动作。
 fn parse_flags_as_actions(cli: &str, raw: &str) -> Vec<HelpAction> {
     let mut out = Vec::new();
@@ -860,6 +882,11 @@ pub fn render_schema(cli: &str, actions: &[HelpAction], max_n: usize) -> String 
             None if a.desc.is_empty() => s.push_str(&format!("- {}。示例：{}\n", a.full_cmd, a.full_cmd)),
             None => s.push_str(&format!("- {} ：{}。示例：{}\n", a.full_cmd, a.desc, a.full_cmd)),
         }
+    }
+    // v18c：术语同义词只能靠声明式补（help 文本里结构上不可见）。
+    // 这是「零人工接入」的真实边界，但代价仅一行，且完全不改命令、不下判断。
+    if let Some(hint) = synonym_hint(cli) {
+        s.push_str(&format!("术语提示：{hint}。\n"));
     }
     s.push_str(&format!(
         "只使用上面列出的命令；与上面命令无关的请求输出 (无需调用硬件命令)。"
@@ -1181,6 +1208,25 @@ Commands:
         // 只输出 max_n 条
         let n = s.lines().filter(|l| l.starts_with("- docker ")).count();
         assert!(n <= 5, "超过 max_n: {n}");
+    }
+
+    /// v18c：术语同义词提示必须出现在 schema 里（help 文本拿不到，只能声明式补）
+    #[test]
+    fn schema_carries_synonym_hint_for_known_cli() {
+        let acts = readonly_only(&parse_help(
+            "kubectl",
+            "  get         Display one or many resources\n  logs        Print the logs\n",
+        ));
+        let s = render_schema("kubectl", &acts, 8);
+        assert!(s.contains("术语提示："), "kubectl schema 缺同义词提示:\n{s}");
+        assert!(s.contains("svc=service"), "缩写对照缺失:\n{s}");
+        // 未登记的 CLI 不应凭空造提示
+        let s2 = render_schema(
+            "ffmpeg",
+            &readonly_only(&parse_help("ffmpeg", "  -i  input file\n")),
+            8,
+        );
+        assert!(!s2.contains("术语提示："), "未登记 CLI 不该有提示:\n{s2}");
     }
 
     /// Usage 行本身不该被当成动作（防噪声）

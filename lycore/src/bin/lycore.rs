@@ -582,9 +582,14 @@ fn cmd_help_parse(args: &[String]) -> i32 {
         eprintln!("用法: lycore help-parse --cli <name> [--help-text <file>] [--top N] [--json]");
         return 2;
     };
+    // **v18c 实测：截断注入是净损失。** top-12 → top-5（对齐人工 schema 条数）
+    // 后保真度反而 62.7% → 54.7%，因为排在前 5 之外的命令（docker images、
+    // cargo tree、npm outdated）根本没被注入，模型只能在已注入项里做最近邻替代。
+    // 6 个 CLI 的只读动作最坏不过 49 条，对 4k+ 上下文无压力 → **默认全量**，
+    // 只有显式传 --top 才截断。
     let top: usize = flag(args, "--top")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(8);
+        .unwrap_or(usize::MAX);
     let json = args.iter().any(|a| a == "--json");
     let include_writes = args.iter().any(|a| a == "--include-writes");
 

@@ -122,8 +122,44 @@ pub struct Plan {
 
 /// 主入口: 问一句 → 出一份执行计划 (不执行)
 pub fn plan(model: &mut dyn CommandModel, nl: &str) -> anyhow::Result<Plan> {
+    plan_with_help(model, nl, 0)
+}
+
+/// 带「出域自动接入」的入口 —— **v18 产品闭环**。
+///
+/// 流程：
+///   1. 先用域内 system prompt 问一次（覆盖 hw/gh/ff/lb/brush 五个已训域）
+///   2. 若模型判定「无需调用」（= 出域），且 `help_top_n > 0`，
+///      则尝试 `help_aware_schema` 自动接入：猜 CLI → 抓 --help → 确定性解析 → 二次询问
+///   3. 二次询问若给出命令，用它；否则保留第一次的原判定
+///
+/// `help_top_n` = 注入条数；**传 0 可关闭自动接入**。v18c 实测截断是净损失，
+/// 故生产调用应传 `usize::MAX`（全量）。
+///
+/// 为什么二次询问而不是「一开始就注入」：域内五个域有手写 schema，形态更准；
+/// 自动接入只在出域时生效，**不干扰任何已训域的行为**（域内零回归）。
+pub fn plan_with_help(
+    model: &mut dyn CommandModel,
+    nl: &str,
+    help_top_n: usize,
+) -> anyhow::Result<Plan> {
     let raw = model.infer(V13_SYS, nl)?;
-    Ok(plan_from_raw(nl, &raw))
+    let p = plan_from_raw(nl, &raw);
+
+    // 只有「模型自己说出域了」才触发自动接入 —— 域内行为零改动
+    if p.decision == Decision::Noop && help_top_n > 0 {
+        if let Some(h) = help_aware_schema(nl, help_top_n) {
+            let sys = format!("{V13_SYS}{}", h.schema);
+            if let Ok(raw2) = model.infer(&sys, nl) {
+                let p2 = plan_from_raw(nl, &raw2);
+                // 二次询问给出了真命令（非 noop）才采纳，否则不劣化原结果
+                if p2.decision != Decision::Noop {
+                    return Ok(p2);
+                }
+            }
+        }
+    }
+    Ok(p)
 }
 
 /// 从已知模型输出构造计划 (远端批量跑模型 → 本地分诊时用这个)
@@ -355,6 +391,49 @@ mod tests {
         let _ = plan(&mut m, "列出没关的 issue").unwrap();
         assert_eq!(m.seen_system, V13_SYS);
         assert!(V13_SYS.contains("brush(shell 通用命令)"), "brush 域必须在 prompt 里");
+    }
+
+    /// 出域自动接入闭环：第一次判定 noop → 抓 help → 二次询问拿到命令
+    #[test]
+    fn out_of_domain_escalates_to_help_prompt() {
+        // 用一个可编程 backend：第一次回 noop，第二次回 docker ps
+        struct Escalate {
+            n: usize,
+            systems: Vec<String>,
+        }
+        impl CommandModel for Escalate {
+            fn infer(&mut self, system: &str, _nl: &str) -> anyhow::Result<String> {
+                self.systems.push(system.to_string());
+                self.n += 1;
+                Ok(if self.n == 1 {
+                    "(无需调用硬件命令)".to_string()
+                } else {
+                    "brush docker ps".to_string()
+                })
+            }
+        }
+        let mut m = Escalate { n: 0, systems: vec![] };
+        // 只有 docker 存在于任何环境？不一定 —— 用 git（开发机必有）
+        let p = plan_with_help(&mut m, "用 git 看下提交历史", usize::MAX).unwrap();
+        if m.systems.len() < 2 {
+            return; // 极端环境：git 取不到 help，跳过
+        }
+        assert!(
+            m.systems[1].contains("当前可用命令（git 域"),
+            "第二次 system 应带 help schema:\n{}",
+            m.systems[1]
+        );
+        assert_eq!(p.command, "docker ps");
+        assert_eq!(p.decision, Decision::Run);
+    }
+
+    /// help_top_n = 0 → 关闭自动接入，行为与旧 `plan` 完全一致（零回归保证）
+    #[test]
+    fn help_top_n_zero_disables_escalation() {
+        let mut m = scripted("(无需调用硬件命令)");
+        let p = plan_with_help(&mut m, "用 git 看下提交历史", 0).unwrap();
+        assert_eq!(p.decision, Decision::Noop);
+        assert_eq!(m.seen_system, V13_SYS, "关闭时不得改动 system prompt");
     }
 
     #[test]

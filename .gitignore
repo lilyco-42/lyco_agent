@@ -34,3 +34,4 @@ dist/
 # 本地交叉编译 hack (CI 用 env 注入链接器, 不依赖 .cargo/config.toml)
 lycore/.cargo/
 lycore/zigcc-linker.sh
+lycore/out/

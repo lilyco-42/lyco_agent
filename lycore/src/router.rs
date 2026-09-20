@@ -165,9 +165,170 @@ pub fn execute(p: &Plan, cwd: Option<&std::path::Path>) -> crate::tools_runtime:
     crate::tools_runtime::shell_exec(&p.command, cwd)
 }
 
+// ══════════════ 出域自动接入（v17c）：不会的 CLI 靠读 `--help` 自学 ══════════════
+//
+// 用户需求（2026-09-21）：「提高泛用性，即使不会的 CLI，也能学习 --help 学习等」。
+//
+// 实测结论链（docs/research-v17-help-selflearning-2026-09-21.md）：
+//   v17  裸灌 `--help`         → base06b 23.2% vs 人工 schema 100%（−76.8pp）❌
+//   v17b 让模型自己提炼 help    → base06b 仅 +8.2pp；v13 反而 −18.3pp          ❌
+//   v17c 确定性解析器产出动作表  → 前缀一定带对，模型只做「对齐 + 补槽位」      ✅
+//
+// 本函数是把这条链接进产品流程的入口：**出域 → 抓 help → 解析 → 渲染 schema**。
+
+/// 出域自动接入的结果
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HelpAware {
+    /// 探测到的 CLI 名（从 NL 里抽出的第一个「看起来像命令」的 token）
+    pub cli: String,
+    /// 抓到的原始 help 文本长度（0 = 该 CLI 不存在或取不到 help）
+    pub help_len: usize,
+    /// 解析出的动作总数 / 只读数
+    pub parsed: usize,
+    pub readonly: usize,
+    /// 注入用的 schema 块（形态与人工 schema 一致）
+    pub schema: String,
+}
+
+/// 从自然语言里猜 CLI 名。
+///
+/// 启发式：取**第一个全 ASCII 小写、长度 2–16、且本机存在的可执行文件 token**。
+/// 找不到本机可执行文件时，退而取第一个形如 `[a-z][a-z0-9-]+` 的 token。
+/// 故意做得保守：宁可返回 None，也不要猜出一个不存在的 CLI 去执行。
+pub fn guess_cli(nl: &str) -> Option<String> {
+    const STOP: &[&str] = &[
+        "the", "a", "an", "and", "or", "to", "for", "with", "in", "on", "of",
+        "json", "file", "files", "dir", "path", "log", "list", "show", "get",
+    ];
+    let mut fallback: Option<String> = None;
+    for tok in nl.split(|c: char| c.is_whitespace() || c == '，' || c == '。' || c == '、') {
+        let t = tok.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_');
+        if t.len() < 2 || t.len() > 16 || STOP.contains(&t) {
+            continue;
+        }
+        if !t.chars().next().is_some_and(|c| c.is_ascii_lowercase()) {
+            continue;
+        }
+        if !t
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+        {
+            continue;
+        }
+        if which(t).is_some() {
+            return Some(t.to_string());
+        }
+        if fallback.is_none() {
+            fallback = Some(t.to_string());
+        }
+    }
+    fallback
+}
+
+/// 极简 `which`：在 PATH 里找可执行文件（含 Windows 的 PATHEXT 变体）。
+pub fn which(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    let exts: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into())
+            .split(';')
+            .map(|s| s.to_ascii_lowercase())
+            .collect()
+    } else {
+        vec![String::new()]
+    };
+    for dir in std::env::split_paths(&path) {
+        for ext in &exts {
+            let cand = dir.join(format!("{name}{ext}"));
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+/// 抓 `cli --help`（多级回退，同 `cmd_help_parse` 的口径）。
+pub fn grab_help(cli: &str) -> Option<String> {
+    for args in [vec!["--help"], vec!["-h"], vec!["help"]] {
+        let mut cmd = std::process::Command::new(cli);
+        cmd.args(&args);
+        cmd.env("NO_COLOR", "1");
+        cmd.env("PAGER", "cat");
+        if let Ok(o) = cmd.output() {
+            let mut t = String::from_utf8_lossy(&o.stdout).to_string();
+            t.push_str(&String::from_utf8_lossy(&o.stderr));
+            if t.trim().len() > 60 {
+                return Some(t);
+            }
+        }
+    }
+    None
+}
+
+/// **出域自动接入**：NL → 猜 CLI → 抓 help → 确定性解析 → 渲染注入 schema。
+///
+/// 返回 `None` 表示「接不进来」（CLI 不存在 / 取不到 help / 解析为空），
+/// 调用方应落回既有的「出域泛用优先三层」。
+pub fn help_aware_schema(nl: &str, top_n: usize) -> Option<HelpAware> {
+    use crate::help_parse::{parse_help, rank_by_frequency, readonly_only, render_schema};
+
+    let cli = guess_cli(nl)?;
+    let raw = grab_help(&cli)?;
+    let parsed = parse_help(&cli, &raw);
+    if parsed.is_empty() {
+        return None;
+    }
+    let acts = rank_by_frequency(&readonly_only(&parsed));
+    if acts.is_empty() {
+        return None;
+    }
+    Some(HelpAware {
+        cli: cli.clone(),
+        help_len: raw.len(),
+        parsed: parsed.len(),
+        readonly: acts.len(),
+        schema: render_schema(&cli, &acts, top_n),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 出域自动接入：从 NL 猜出 CLI 名
+    #[test]
+    fn guess_cli_picks_the_command_token() {
+        // git 在本机存在（任何开发机都有）→ 应命中
+        let g = guess_cli("用 git 看下当前仓库状态");
+        assert_eq!(g.as_deref(), Some("git"), "got={g:?}");
+        // 纯中文 → 没有可猜的 token → None
+        assert_eq!(guess_cli("看看现在有哪些容器在跑"), None);
+        // 形如 flag / 纯数字的 token 不该被当成 CLI
+        assert_eq!(guess_cli("-v 全部 42"), None);
+    }
+
+    /// help_aware_schema 对真实存在的 CLI 应产出带前缀的 schema
+    #[test]
+    fn help_aware_schema_produces_prefixed_actions() {
+        // git 必然存在；help 排版规整 → 解析必非空
+        let Some(h) = help_aware_schema("用 git 看一下提交历史", 8) else {
+            // 极端环境下 git 不可用时跳过（不算失败）
+            return;
+        };
+        assert_eq!(h.cli, "git");
+        assert!(h.parsed > 0, "解析为空: {h:?}");
+        assert!(h.schema.contains("- git "), "schema 缺前缀:\n{}", h.schema);
+        // 不得把写操作注入进去
+        assert!(!h.schema.contains("git commit"), "写操作漏进 schema:\n{}", h.schema);
+        assert!(!h.schema.contains("git push"), "写操作漏进 schema:\n{}", h.schema);
+    }
+
+    /// 出域自动接入的负向用例：CLI 不存在 → None（不得猜出不存在的命令）
+    #[test]
+    fn help_aware_schema_returns_none_for_unknown_cli() {
+        assert!(help_aware_schema("用 zznotacli 干点活", 8).is_none());
+    }
 
     /// 回放后端: 不加载模型, 直接返回预设输出 (本机单测绝不跑真模型)
     struct Scripted {

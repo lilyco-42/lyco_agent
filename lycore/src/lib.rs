@@ -12,6 +12,7 @@ pub mod backend; // 硬件无关执行后端: CPU 恒可用兜底, NPU/GPU probe
 pub mod capability; // P0: 能力层 (Capability Layer) 一等公民组件
 pub mod datagen; // P1: 训练语料生成 (answer-first / ToolGrad 式, 学习队列→SFT 语料)
 pub mod executor;
+pub mod help_parse; // v17 正解: `--help` 确定性解析成动作表 (提炼不该用神经网络)
 pub mod learn;
 pub mod learn_cli;
 pub mod lernen;

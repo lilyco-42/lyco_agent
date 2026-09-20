@@ -31,6 +31,7 @@ fn main() {
         "serve" => cmd_serve(&args[1..]),
         "tools" => cmd_tools(&args[1..]),
         "backend" => cmd_backend(&args[1..]),
+        "help-parse" => cmd_help_parse(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -42,7 +43,9 @@ fn main() {
                  lycore project --dir <path> [--pack <dir>] [--out <script>] [--start 08:00] [--end 22:00]\n  \
                  lycore search --query <...> [--pack <dir>] [--url <searxng>] [--k 5]\n  \
                  lycore doctor --pack <dir>\n  \
-                 lycore backend [--prefer <id>] [--json]  (列可用后端 / 解析偏好)"
+                 lycore backend [--prefer <id>] [--json]  (列可用后端 / 解析偏好)\n  \
+                 lycore help-parse --cli <name> [--help-text <file>] [--top 8] [--json]\n    \
+                   ↑ 把 CLI 的 --help 确定性解析成只读动作表 (v17 正解: 提炼不用模型)"
             );
             2
         }
@@ -557,6 +560,118 @@ fn cmd_tools(args: &[String]) -> i32 {
             println!("{n} 工具已导出 → {out}");
         }
         None => println!("{}", serde_json::to_string_pretty(&tools).expect("序列化")),
+    }
+    0
+}
+
+/// help-parse —— 把 CLI 的 `--help` **确定性**解析成只读动作表。
+///
+/// 依据 docs/research-v17-help-selflearning-2026-09-21.md：
+/// v17（裸灌 help）与 v17b（让模型提炼 help）双双证伪 —— 「提炼」是信息抽取，
+/// 0.6B 做不可靠（docker 掉前缀、cargo 输出 `cargo:build`）。
+/// 本命令把这一步变成纯字符串处理，**零 GPU、确定性、可测**。
+///
+/// 用法:
+///   lycore help-parse --cli docker            # 实跑 `docker --help`
+///   lycore help-parse --cli jq --help-text h.txt
+///   lycore help-parse --cli cargo --top 8 --json
+fn cmd_help_parse(args: &[String]) -> i32 {
+    use lycore::help_parse::{parse_help, rank_by_frequency, readonly_only, render_schema};
+
+    let Some(cli) = flag(args, "--cli") else {
+        eprintln!("用法: lycore help-parse --cli <name> [--help-text <file>] [--top N] [--json]");
+        return 2;
+    };
+    let top: usize = flag(args, "--top")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8);
+    let json = args.iter().any(|a| a == "--json");
+    let include_writes = args.iter().any(|a| a == "--include-writes");
+
+    // ── 取 help 文本：优先文件，否则实跑 `cli --help` ──
+    let raw = match flag(args, "--help-text") {
+        Some(f) => match std::fs::read_to_string(&f) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("读 {f} 失败: {e}");
+                return 1;
+            }
+        },
+        None => {
+            let mut got: Option<String> = None;
+            // Windows 上许多 CLI 是 `.cmd`/`.bat` shim，Rust 的 Command::new
+            // 不会自动解析 PATHEXT → 依次尝试 `cli` / `cli.cmd` / `cli.exe`.
+            // Linux/macOS 上只有第一个候选存在，行为不变。
+            let names: Vec<String> = if cfg!(windows) {
+                vec![
+                    cli.clone(),
+                    format!("{cli}.cmd"),
+                    format!("{cli}.exe"),
+                    format!("{cli}.bat"),
+                ]
+            } else {
+                vec![cli.clone()]
+            };
+            'outer: for name in &names {
+                for a in [vec!["--help"], vec!["-h"], vec!["help"]] {
+                    let mut cmd = std::process::Command::new(name);
+                    cmd.args(&a);
+                    // 避免 CLI 因缺 TTY 而输出分页/色码（色码另有 strip_ansi 兜底）
+                    cmd.env("NO_COLOR", "1");
+                    cmd.env("PAGER", "cat");
+                    if let Ok(o) = cmd.output() {
+                        let mut t = String::from_utf8_lossy(&o.stdout).to_string();
+                        t.push_str(&String::from_utf8_lossy(&o.stderr));
+                        if t.trim().len() > 60 {
+                            got = Some(t);
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+            match got {
+                Some(t) => t,
+                None => {
+                    eprintln!("无法取得 `{cli} --help`（命令不存在或输出过短）");
+                    return 1;
+                }
+            }
+        }
+    };
+
+    let all = parse_help(&cli, &raw);
+    let acts = if include_writes {
+        rank_by_frequency(&all)
+    } else {
+        rank_by_frequency(&readonly_only(&all))
+    };
+
+    if json {
+        let v = serde_json::json!({
+            "cli": cli,
+            "total_parsed": all.len(),
+            "readonly": acts.len(),
+            "actions": acts.iter().take(top).collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&v).expect("序列化"));
+    } else {
+        println!(
+            "=== {cli}: 解析出 {} 条动作（只读 {} 条），展示前 {top} ===",
+            all.len(),
+            acts.len()
+        );
+        for a in acts.iter().take(top) {
+            println!("  {}", a.full_cmd);
+            println!("      {}", a.desc);
+        }
+        if !include_writes {
+            let wr = all.len() - acts.len();
+            if wr > 0 {
+                println!("  （另有 {wr} 条写操作被过滤；--include-writes 可查看）");
+            }
+        }
+        println!("\n--- 注入用 schema（形态与人工 schema 一致）---");
+        println!("{}", render_schema(&cli, &acts, top));
     }
     0
 }

@@ -343,3 +343,30 @@ exec 正确率（raw 括号内）：
 **排期（叠加顺序）**：v14（跑中）=容量单变量 → v14-grammar probe（零训练，
 GBNF 约束 × v13/v14 检查点测 zs-cli exec，分离「会但格式歪」vs「不会」）→
 v15 = v14 配方 + 基频重组数据（唯一变量=数据构成），判据=三红线 + zs-cli 跨域 exec。
+
+### 8.5 lyco 预研闭环：训练路线能否打穿需求（2026-09-20，用户令「一定要解决」）
+
+需求一行：训 ≤1B 端侧模型 NL→intent+slots→brush CLI，**未见 CLI 也要出对命令**
+（跨域 zero-shot exec）+ 出域拒绝 + T1 拦截。
+
+候选（gh 实测健康度）：
+1. **Salesforce xLAM/APIGen**（638★/Apache-2.0/2026-06 活跃）：APIGen 管线
+   3,673 可执行 API×21 类→60k 样本，三段验证（格式/真实执行/语义）；
+   **xLAM-1B 超 GPT-3.5-Turbo 与 Claude-3 Haiku，明确面向端侧**；论文明说目标
+   就是「未见 API 泛化」（arXiv 2406.18518 + VentureBeat 报道）。
+2. **Gorilla**（13k★/Apache-2.0/活跃）：retrieval-aware training 教未见 API，
+   APIBench 鼻祖。
+3. 旁证：BuilderIO/ai-shell 5.3k★（NL→shell 产品，提示侧）；nl2sh 已 adopt。
+
+**判读（训练路线可行性终审）**：
+- ≤1B 模型做到生产级函数调用**有直接先例**——非无人之境，训练路线可行，
+  我们此前缺的是数据构成（教波形不教基频），与 §8.1 SCAN 结论闭环。
+- APIGen 三要素与 v15 一一对应：多样性优先=基频重组合；三段验证=我们的
+  断言体系+补执行验证；prompt 混洗增强=xLAM 防「格式病」的官方做法。
+- ⚠️ 不可直接混入其 60k JSON 数据（lb schema 对 bash 净伤害教训同构）——
+  **克隆管线思想，不混异构数据**。
+
+决策：**fork-extend**——v15 数据管线按 APIGen 配方落地（重组合+三段验证+
+混洗增强+指令改写回验），配方有源可抄。ROI：复用模板祖先+断言体系，
+投入=数据变换脚本 1-2 天，过门槛。
+下一步：v14 出分 → v15 管线脚本（_mk_v15_data.py）→ 照旧单变量训练。

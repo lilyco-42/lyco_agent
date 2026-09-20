@@ -253,3 +253,41 @@ work, not per-model tuning"（FunctionGemma shell 9.9→96.0%）。
 
 产物：`p2-lyco_ops/cloudstudio/a10_v13_train.py`、`v13_results.json`（本地归档）、
 checkpoint `/workspace/router_v13_real_gh`。
+
+### 5.9 zs-cli v3 四臂 + v13b 冒烟——训练>注入，0.8B 底座绿灯
+
+协议：4 臂（plain / rag 散文 schema / **scope=用户 --help 动作表** / scope_fs=+2 例）
+× 双检查点（v12/v13），5 热门 CLI × 12 in-schema + 4 出域拒绝；exec 度量 = brush
+出口正确率（剥 brush 前缀后执行等价，即产品度量）。
+
+exec 正确率（raw 括号内）：
+
+| CLI | v12 rag | v12 scope | v12 fs | v13 rag | v13 scope | v13 fs |
+|---|---|---|---|---|---|---|
+| docker | 16.7 (0) | 8.3 (0) | 16.7 (0) | **50.0 (25.0)** | 41.7 (16.7) | **50.0 (25.0)** |
+| kubectl | 41.7 (0) | 41.7 (0) | 50.0 (0) | 41.7 (0) | 41.7 (8.3) | 41.7 (16.7) |
+| yt-dlp | 0 | 0 | 0 | 0 | 0 | 0 |
+| npm | 8.3 (0) | 25.0 (0) | 16.7 (0) | **50.0 (8.3)** | 41.7 (8.3) | 25.0 (8.3) |
+| terraform | 41.7 (0) | 33.3 (0) | 41.7 (0) | 66.7 (0) | **75.0 (0)** | **75.0 (0)** |
+
+**判读**：
+1. **训练 > 注入（本轮最重要）**：v13 检查点 exec 全线大涨（terraform 41.7→75.0、
+   npm 8.3→50.0、docker 16.7→50.0）——gh 真实对训出的 NL→CLI 能力**跨域迁移**到
+   从未训练过的 CLI。注入只能唤醒已有能力，训练能装新能力。
+2. **scope vs 散文：打平**。v12 scope 无一致优势；v13 terraform scope 75>rag 66.7
+   但 docker/npm rag≥scope；few-shot 无一致增益甚至有害（npm 41.7→25.0）。
+   纯注入格式不是格式病的解（与 lb 四连败一致）；--help 解析保留工程价值（自动
+   接入任意 CLI），但作为提示臂不构成增益。
+3. raw 仍近全零（v13 局部破零：docker 25.0、kubectl fs 16.7）——brush 前缀习惯
+   未被任何注入臂翻转；是训练（真实对）让 raw 也不为零。
+4. **拒绝集崩坏三连**：v12 0-50% / v13 0-75%（npm publish / terraform apply 照样
+   输出）。第三次加固：路由器/注入不是安全边界，执行层 ≥T1 门是唯一防线。
+5. **v13b 冒烟全过（V13_SMOKE_OK）**：transformers 5.17.0 隔离加载 Qwen3.5-0.8B
+   （752.4M，GDN 144 模块），模板 OK，SFT loss 有限正常，生成通路通 →
+   **v14-A 换底座绿灯**。
+
+**v14 决策**：主攻 A = Qwen3.5-0.8B + v13 配方全量（容量假设获双重证据：稀释打地鼠
++ 跨域迁移）；B/C（scope / mpkg manifest 格式训练）留作 0.8B 复刻后的单变量叠加。
+
+产物：`p2-lyco_ops/cloudstudio/a10_zs_cli_eval.py`（v3）、`zs_cli_results.json`
+（本地归档）、`a10_v13_smoke_qwen35_tf57_clean.py`。

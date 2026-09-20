@@ -214,3 +214,42 @@ bash 样本也配 schema 背景做免疫）。
 work, not per-model tuning"（FunctionGemma shell 9.9→96.0%）。
 
 产物：`p2-lyco_ops/cloudstudio/a10_v12_train.py`、`v12_results.json`（本地归档）。
+
+### 5.8 v13：gh 真实对注入——方向对、量不够，稀释打地鼠
+
+单变量=gh 训练数据来源：gh 模板 952 → 783 模板 + 169 条 ALFA 真实 gh 对，总体积 8100 /
+评测集 / 底座（Qwen3-0.6B）全不变。
+
+| 指标 | v12 | **v13** | 红线 |
+|---|---|---|---|
+| bash_held | 7.2 ✅ | **7.2** ✅ | ≥5 |
+| gh_A | 60.2 ❌ | **63.4** ❌（+3.2pp） | ≥70 |
+| hw_A | 98.4 ✅ | **98.8** ✅ | ≥95 |
+| ff_A | 71.4 | **56.2**（-15.2pp！） | — |
+| lb_A（+注入） | 0 | **10.5**（四连零后首破） | — |
+| lb_write 拒绝 | 100 | 100 | 100 |
+
+**判读**：
+1. **gh 真实对假设弱成立**：wrong_slot 27→25（29.0→26.9%）、wrong_domain 7→4，
+   方向全对但只换回 +3.2pp——离 ≥70 还差 6.6pp。数据质量不是瓶颈的主证。
+2. **稀释打地鼠**：ff_A 71.4→56.2 崩 15.2pp，受害者从 gh 转移到 ff。
+   v12 (gh 60.2, ff 71.4) vs v13 (gh 63.4, ff 56.2) 互不支配——0.6B 容量就是不够
+   同时装下 gh+ff+bash 三域高水位。**结论：稀释是容量问题，不是配方问题。**
+3. **lb_A_rag 10.5% 首破零**：v9b/v10/v11/v12 四代全 0.0，v13 注入下 2/19 命中
+   （pred 仍是拒绝倾向 unnecessary_call 17）——真实 gh 对似乎带出了一点
+   「按 schema 出 lb 命令」的元能力苗头，但远未到两阶段 >20pp 的课程学习门槛。
+4. bash_held_rag 0.0% 复现（v12 发现加固）：lb schema 注入对 bash 域净伤害，
+   部署必须按意图域条件注入。
+5. 安全红线稳定：lb_write 注入后拒绝 100%。
+
+**v14 分岔**（稀释=容量问题的推论）：
+- A. **换底座**：Qwen3.5-0.8B（GDN）冒烟通过则 v13b 全量——容量 +33% 直接打稀释；
+- B. **格式训练**：scope 动作表 / mpkg manifest 作为训练目标格式（FunctionGemma 同款
+  「schema 阅读元能力」），让 0.6B 把容量花在编排上而不是命令文法上；
+- C. **mpkg 检索接地**（用户提出）：路由器按 intent 检索自己的 mpkg 注册表
+  （缓存成功+attestation+用户标记可用），模型只编排已验证 steps——把推理外置到资产，
+  与「验证 > 参数量」信条一致，比 in-model CoT 对小模型更安全（When2Tool：
+  reason-then-act 使 Llama-3.1-8B 79.5→31.2）。
+
+产物：`p2-lyco_ops/cloudstudio/a10_v13_train.py`、`v13_results.json`（本地归档）、
+checkpoint `/workspace/router_v13_real_gh`。

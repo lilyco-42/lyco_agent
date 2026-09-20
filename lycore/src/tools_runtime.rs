@@ -1,6 +1,8 @@
-//! tools_runtime — Radxa 端侧工具集 (进程外调用, 零重依赖)
+//! tools_runtime — 端侧工具集 (进程外调用, 零重依赖)
 //!
-//! 目标: Radxa A7A 上可跑的简单编排工具集, agent loop 的 tool_call 直达:
+//! 目标: 任何能跑 std::process::Command 的设备上都可用 (笔记本/台式机/单板机/容器),
+//! agent loop 的 tool_call 直达。硬件差异由 `backend` 模块负责, 本模块不假设
+//! 任何具体芯片——没有 NPU 就走 CPU, 少哪个外部二进制就诚实报错入学队列。
 //!   - rembg_remove: 抠图 (python -m rembg CLI, 需 pip install rembg)
 //!   - llm_generate: 文本/HTML 生成 (OpenAI 兼容 endpoint: NVIDIA NIM / OpenRouter free, key 从 env)
 //!   - html_render_video: HTML → 视频 (headless chrome 截帧 + ffmpeg 合成)

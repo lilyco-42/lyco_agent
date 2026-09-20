@@ -8,6 +8,7 @@
 //! 提供零依赖快速检索。
 
 pub mod agent;
+pub mod backend; // 硬件无关执行后端: CPU 恒可用兜底, NPU/GPU probe 后静默降级
 pub mod capability; // P0: 能力层 (Capability Layer) 一等公民组件
 pub mod datagen; // P1: 训练语料生成 (answer-first / ToolGrad 式, 学习队列→SFT 语料)
 pub mod executor;
@@ -15,7 +16,7 @@ pub mod learn;
 pub mod learn_cli;
 pub mod lernen;
 pub mod llamacpp;
-pub mod npu_runtime; // P2: A733 VIP9000 NPU 串行调度器 (租约+优先级队列+超时; 纯设计+mock 单测)
+pub mod npu_runtime; // P2: NPU 串行调度器 (租约+优先级队列+超时) — VIP9000 是它的一个后端实例, 见 backend
 pub mod pack;
 pub mod project; // 项目目录扫描 + 启动脚本生成 (识别 paper.jar → 关联知识 → 时间窗启动脚本)
 pub mod rewrite;

@@ -32,6 +32,24 @@ impl Message {
     }
 }
 
+/// GRPO 训练时的 system prompt — **逐字冻结**
+///
+/// 这是 `qwen_grpo_v2.py build_prompt` 的快照。里面的 "Radxa SBC" 是历史产物:
+/// 它跟着训练语料进了权重, 单方面改写会引入 train/serve skew, 表现是模型行为漂移。
+///
+/// 要换措辞必须连同重训一起做。新部署若未绑定这套 GRPO 权重,
+/// 请用硬件中性的 [`ASSISTANT_SYS_NEUTRAL`] — lyco 的定位是普惠设备,
+/// 身份描述不该写死任何一块板子。
+pub const GRPO_SYS: &str =
+    "You are lyco, a helpful assistant running on a Radxa SBC. You can call tools.";
+
+/// 硬件中性的 assistant prompt (新部署默认)
+///
+/// 与 [`GRPO_SYS`] 的唯一差别是去掉具体板子名 → "on-device"。
+/// lyco 跑在哪块硅片上是 [`crate::backend`] 的事, 不该写进 prompt。
+pub const ASSISTANT_SYS_NEUTRAL: &str =
+    "You are lyco, a helpful assistant running on-device. You can call tools.";
+
 /// 编排结果
 #[derive(Debug, Serialize)]
 pub struct Turn {
@@ -101,10 +119,7 @@ impl<'a> Agent<'a> {
             // system prompt 与 GRPO 训练时严格一致 (qwen_grpo_v2.py build_prompt) —
             // 旧版多出的"操作类问题先用工具查询知识库"是 lyv nudge, 会把"想队名"等
             // 创作类请求误推向 lyv_knowledge (train/serve skew), 故对齐为中性描述。
-            Message::new(
-                "system",
-                "You are lyco, a helpful assistant running on a Radxa SBC. You can call tools.",
-            ),
+            Message::new("system", GRPO_SYS),
             Message::new("user", question),
         ];
         let mut tool_calls = Vec::new();

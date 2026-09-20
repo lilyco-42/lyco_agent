@@ -7,6 +7,15 @@
 //! 多轮协议 (与 Python 版一致):
 //!   model → tool_call → executor → tool result 回填 → model → ... (≤max_rounds)
 //!   模型不再发 tool_call → 最终回答; NO_HIT/未知工具 → 学习队列 + 诚实降级
+//!
+//! ## 与 [`crate::router`] 的分工 (2026-09-21 产品定型)
+//!
+//! 本模块是**通用 agent loop** (工具多轮编排, 历史包袱来自 GRPO 时代)。
+//! `router` 是**产品主线**: NL → 一条 CLI 命令 → T1 门 → brush 执行。
+//!
+//! 产品决策: **不做通用聊天**。0.6B 底座无通用对话能力 (实测退化输出 `None`),
+//! 且闲聊与「查表+先验+护栏」是两种产品, 混装会污染能力表。
+//! 越域请求见 [`OUT_OF_SCOPE_REPLY`]; 出域的"泛用优先三层"在 `router` 侧。
 
 use crate::executor::{parse_call, Executor, ToolResult};
 use serde::Serialize;
@@ -49,6 +58,20 @@ pub const GRPO_SYS: &str =
 /// lyco 跑在哪块硅片上是 [`crate::backend`] 的事, 不该写进 prompt。
 pub const ASSISTANT_SYS_NEUTRAL: &str =
     "You are lyco, a helpful assistant running on-device. You can call tools.";
+
+/// **越域请求的诚实回答** — 本产品不做通用聊天 (2026-09-21 产品定型)
+///
+/// 依据 (用户横向对比实测 + base 臂 6 组一致证据):
+/// - 0.6B 底座**没有**通用聊天能力, 硬撑只会产出退化输出 (`None`/空),
+///   而退化输出比「明说不会」对用户伤害更大 → 宁可坦白。
+/// - 「通用聊天」与「查表 + 先验 + 护栏」是**两种产品**; 混在一起会污染能力表,
+///   也让用户对边界产生错误预期。
+/// - 出域请求的正确处理是 [`crate::router`] 的**泛用优先三层**
+///   (①预训练先验直接给最佳命令 ②--help 读手册 ③T1 门确认), **不是**闲聊兜底。
+///
+/// 小白机上只保留**选择题**(能力清单式引导), 候选命令由模型给、由用户挑。
+pub const OUT_OF_SCOPE_REPLY: &str = "我只负责把你说的日常需求翻译成一条命令；闲聊这类不归我管。";
+
 
 /// 编排结果
 #[derive(Debug, Serialize)]
@@ -381,6 +404,28 @@ mod tests {
         assert_eq!(turn.rounds, 2, "复读应在第 2 轮收束, 实得 {}", turn.rounds);
         assert!(turn.learning_queue_used);
         assert!(turn.answer.contains("还没学会"), "answer={}", turn.answer);
+    }
+
+    /// 产品定型约束: 越域请求不路由到通用聊天, 且给的是坦白的边界说明
+    /// (依据: base 臂 + v12/v13/v14/v15/v16 六组一致 — 底座无通用聊天能力,
+    ///  退化输出比"明说不会"伤害更大; 2026-09-21 用户横向对比定案)
+    #[test]
+    fn out_of_scope_reply_is_honest_not_chitchat() {
+        assert!(
+            OUT_OF_SCOPE_REPLY.contains("不归我管") || OUT_OF_SCOPE_REPLY.contains("只负责"),
+            "越域回答必须明确划界, 不能装作会聊: {OUT_OF_SCOPE_REPLY}"
+        );
+        assert!(
+            !is_degenerate(OUT_OF_SCOPE_REPLY),
+            "越域回答本身不能是退化输出"
+        );
+        // 反向锁: 该常量不许出现"我是助手/可以陪你聊"这类通用助手措辞
+        for banned in ["助手", "聊天机器人", "陪你", "anything"] {
+            assert!(
+                !OUT_OF_SCOPE_REPLY.contains(banned),
+                "越域回答不得残留通用助手措辞 `{banned}`"
+            );
+        }
     }
 
     #[test]

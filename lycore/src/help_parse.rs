@@ -546,7 +546,16 @@ fn fill_example(cmd: &str) -> Option<String> {
         ("<VERSION>", "1.0.0"),
         ("<KEY>", "name"),
         ("<VALUE>", "express"),
-        // kubectl 的资源类型：示例给最常见的形态（pods/svc/nodes 都是评测高频）
+        // kubectl 的资源类型：示例给最常见的形态（pods 是评测高频）
+        //
+        // ⚠️ **v18e 血训**：`describe` 的真实语法是 `describe TYPE NAME`（两个位置参数）。
+        // 只把 `<TYPE>` 填成 pods 会产出示例 `kubectl describe pods` ——
+        // 模型据此认为「describe 后面就该跟 pods」，于是输出
+        // `kubectl describe pods frontend-7d9`（多了一个 pods，把名字挤到了第三位）。
+        // **示例给错形态 = 直接教出错误结构**，所以两参数形态必须整体给全。
+        ("<TYPE> <NAME>", "pods web"),
+        ("<TYPE> <POD>", "pods frontend-7d9"),
+        ("<TYPE> <NAME_OR_TYPE>", "pods web"),
         ("<TYPE>", "pods"),
     ] {
         if out.contains(ph) {
@@ -758,8 +767,10 @@ const DIALECT_HINTS: &[(&str, &str, &str)] = &[
     // 但 help 的命令列表里看不到。v18 实测失分点：
     // `kubectl describe <POD>` 漏 `pod`、`kubectl get svc` 写成 `get services`。
     ("kubectl", "get", "<TYPE>"),
-    ("kubectl", "describe", "<TYPE>"),
-    ("kubectl", "delete", "<TYPE>"),
+    // v18e: `describe` 是 `describe TYPE NAME` 两个位置参数 —— 只给 `<TYPE>`
+    // 会让模型把 pods 当成必填字面量（产出 `describe pods frontend-7d9`）。
+    ("kubectl", "describe", "<TYPE> <NAME>"),
+    ("kubectl", "delete", "<TYPE> <NAME>"),
     ("kubectl", "logs", "<POD>"),
     ("kubectl", "exec", "<POD>"),
 ];
@@ -771,14 +782,31 @@ const DIALECT_HINTS: &[(&str, &str, &str)] = &[
 ///
 /// **为什么 help 里拿不到**：`kubectl --help` 只写 `get`，不写它的参数可以是
 /// `svc`/`service`/`services` —— 缩写关系在 help 文本里**结构上不可见**。
-/// 因此这是「零人工」的真实边界：版式与参数槽可全自动，术语同义词不可。
 ///
-/// 做法刻意保守：**只在注入时附加一行提示**，不改写任何命令，不下判断。
-/// 表极小（每 CLI 一行），成本可忽略，且不引入任何评分/概率成分。
+/// ⚠️ **v18d/v18e 血训：格式歧义会被读成命令。**
+/// - v18d 写成 `svc=service, po=pod, ns=namespace` → 模型输出 `kubectl svc`、`kubectl ns list`
+/// - v18e 改写成「`<TYPE>` 的取值：pods、svc（=service）、nodes、…」→ 模型仍输出 `kubectl nodes`
+///
+/// 两次都败在**同样的地方**：提示里出现了**裸的单词列表**，而 schema 的主体
+/// 正是「一行一个命令」，模型就把列表里的词提升成了命令。
+///
+/// **定论：提示里绝不能出现孤立的名词列表。** 只能说「用哪个命令 + 怎么用」。
+/// 最终形态只包含**完整命令样例**，不含任何裸 token 列表。
 const SYNONYMS: &[(&str, &str)] = &[
-    ("kubectl", "svc=service, po=pod, ns=namespace, no=node, deploy=deployment, cm=configmap, ing=ingress"),
-    ("docker", "container=容器, image=镜像; `images` 用于列出本地镜像, `ps` 只列容器"),
-    ("npm", "install/i=安装并写入依赖; `npm run <脚本名>` 的脚本名来自 package.json, help 里看不到"),
+    (
+        "kubectl",
+        "列资源永远用 `get`：服务写 `get svc`，节点写 `get nodes`，Pod 写 `get pods`；\
+         看单个资源详情用 `describe pods <名字>`（`describe` 后面是 `pods`，再跟名字）",
+    ),
+    (
+        "docker",
+        "`images` 用于列出本地镜像，`ps` 只列容器；两者都是独立子命令",
+    ),
+    (
+        "npm",
+        "`npm run <脚本名>` 的脚本名来自 package.json（如 build/dev），help 里看不到；\
+         `install <包名>` 必须带上包名",
+    ),
 ];
 
 /// 取该 CLI 的同义词提示（无则 None）
@@ -1210,7 +1238,8 @@ Commands:
         assert!(n <= 5, "超过 max_n: {n}");
     }
 
-    /// v18c：术语同义词提示必须出现在 schema 里（help 文本拿不到，只能声明式补）
+    /// v18c/v18d：术语同义词提示必须出现在 schema 里，且必须**显式声明不是命令名**
+    /// （v18d 血训：`svc=service` 的写法让模型输出了 `kubectl svc`）
     #[test]
     fn schema_carries_synonym_hint_for_known_cli() {
         let acts = readonly_only(&parse_help(
@@ -1219,7 +1248,15 @@ Commands:
         ));
         let s = render_schema("kubectl", &acts, 8);
         assert!(s.contains("术语提示："), "kubectl schema 缺同义词提示:\n{s}");
-        assert!(s.contains("svc=service"), "缩写对照缺失:\n{s}");
+        assert!(s.contains("get svc"), "应给出完整命令样例:\n{s}");
+        // 关键（v18d/v18e 两次血训）：提示里不得出现**裸的单词列表**，
+        // 否则模型会把列表项提升成命令（曾产出 `kubectl svc` / `kubectl nodes`）。
+        // 判据：提示行里凡出现的 token 必须带反引号或处于命令语境。
+        let hint = s.lines().find(|l| l.contains("术语提示")).unwrap();
+        assert!(
+            !hint.contains("、"),
+            "术语提示不得含顿号列举的裸 token 列表（会被读成命令名）:\n{hint}"
+        );
         // 未登记的 CLI 不应凭空造提示
         let s2 = render_schema(
             "ffmpeg",

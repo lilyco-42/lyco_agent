@@ -291,3 +291,55 @@ exec 正确率（raw 括号内）：
 
 产物：`p2-lyco_ops/cloudstudio/a10_zs_cli_eval.py`（v3）、`zs_cli_results.json`
 （本地归档）、`a10_v13_smoke_qwen35_tf57_clean.py`。
+
+## 8. Zero-shot 泛化方法论调研——傅里叶路线的理论落地（2026-09-20 深夜）
+
+命题（用户）：CLI 表面千变、底层语法一致（动词+宾语+槽位）。「学不会」是没教潜在
+规律——不学整条命令（波形），学分解出的基频（域×动词×槽位）。三路调研证据：
+
+### 8.1 组合泛化基准（SCAN/CFQ/COGS）——命题的直接证据
+
+1. **SCAN primitive split（Lake & Baroni 2018）**："jump" 只在孤立上下文训练 →
+   新组合 0.08%；"turn left" 在大量组合上下文出现 → 90%。**基频必须以多种组合
+   上下文呈现，孤立见过的原子拼不进新复合**——与我们 gh wrong_slot 25-27、
+   zs-cli URL 槽最难完全同构。
+2. **组合数据增强**（Jia & Liang 2016；Andreas 2020）：重组合已知原子成新复合
+   加入训练集，是组合泛化的标准杠杆——我们的模板祖先可程序化重组合。
+3. **CFQ MCD**（Keysers et al. 2020）：原子分布同、复合分布异才算考泛化——
+   要求原子跨域共享（统一槽位本体的理论依据）。
+4. **中间表示 + 预训练**：CFQ SOTA 18.9→42.1（arXiv 2007.08970）；预训练本身
+   近追平 SCAN 专项技术（Furrer et al.）→ **支持 v14 换更大底座**。
+5. **Least-to-most**（Zhou et al. 2022）：分解后逐个求解，SCAN 用 14 示例可解；
+   但运行时分解对 0.8B 太贵 → 取训练侧等价物（路由器 JSON 槽位字段本身即分解输出）。
+
+### 8.2 小模型跨域 zero-shot（NLU / tool calling）
+
+1. **Synergistic Augmentation**（ACL 2025）：小模型当筛选器筛 LLM 合成数据做
+   跨域零样本槽填充，SNIPS F1 68.54 > ChatGPT 53.91——质量>体积。
+2. **GenTool**（arXiv 2502.18990）：zero-to-one + weak-to-strong 两阶段
+   （先工具排序后选择），1B-8B 超 GPT-4o——**课程顺序是杠杆**。
+3. SkillWeaver：分解-检索-组合的技能路由（MCP 生态同构 mpkg）。
+4. When2Tool（arXiv 2605.09252）：reason-then-act 对小模型有害（79.5→31.2）→
+   不给 0.8B 加运行时 CoT；推理外置 mpkg 留 v2。
+
+### 8.3 语法约束解码（解码侧互补，零训练成本）
+
+1. 工具格局：GBNF（llama.cpp 原生）/ XGrammar（编译状态机+词表剪枝，开销
+   5-15% vs 朴素 logit mask 30-50%）/ Outlines / vLLM guided-decoding。
+2. 效果：prompting 解析失败率 5-30% → 约束解码 <0.1%；且约束在结构边界处会
+   改变有效输出分布（不是无操作）——小模型受益最大。
+3. 与 brush 出口天然契合：文法可从已知模板/--help 程序化生成，采样期强制语法。
+4. **局限**：约束只保语法不保语义与安全——槽位值仍可能错、拒绝集崩坏仍在 →
+   执行层 ≥T1 门照旧是唯一防线。
+
+### 8.4 三个可抄机制 → v15 设计
+
+| 机制 | 来源 | 落法 |
+|---|---|---|
+| 基频重组数据 | SCAN primitive 教训 + 组合增强 | v15 单变量：每个（域,动词,槽型）原子在 ≥N 个不同复合上下文出现；跨域统一槽位本体 ⟨URL⟩⟨NAME⟩⟨PATH⟩；断言验证照旧 |
+| 语法约束解码 | GBNF/XGrammar | 推理侧零训练：模板/--help → GBNF，可直接在 v13/v14 检查点上探测 |
+| 中间表示已就位 | CFQ IR +16pp | 路由器 JSON 输出即 IR；改进=槽位本体跨域统一（并入第 1 条） |
+
+**排期（叠加顺序）**：v14（跑中）=容量单变量 → v14-grammar probe（零训练，
+GBNF 约束 × v13/v14 检查点测 zs-cli exec，分离「会但格式歪」vs「不会」）→
+v15 = v14 配方 + 基频重组数据（唯一变量=数据构成），判据=三红线 + zs-cli 跨域 exec。

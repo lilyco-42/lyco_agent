@@ -37,6 +37,11 @@ pub struct HelpAction {
     pub desc: String,
     /// 是否只读（由动词黑名单确定性判定）
     pub readonly: bool,
+    /// 可直接照抄的示例命令（v18 实测补入：人工 schema 有「示例：」而 help-parse 没有，
+    /// 是 base06b 从 100% 掉到 59.4% 的主因 —— `docker logs` 缺 `web`、
+    /// `kubectl describe` 缺 `pod`。示例由参数占位符**确定性地**填成具体值。）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub example: Option<String>,
 }
 
 /// 纯查询动词白名单 —— 命中即判为**只读**（无论其他 token）。
@@ -378,6 +383,43 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
     if out.is_empty() {
         out = parse_flags_as_actions(cli, raw);
     }
+
+    // ── 版式 F：参数语法型（jq 类）—— 补一条惯用姿态动作 ──
+    // v18 实测：纯 flag 注入会让模型去拼 flag（`jq --raw-input --slurp name`）→ 0%，
+    // 而 jq 的真能力 `jq .name config.json` 根本不在 help 里。
+    // 这条动作必须排在**最前**，否则排在 27 条 flag 之后等于没注入。
+    if let Some(a) = arg_syntax_action(cli, &out) {
+        let key = a.full_cmd.clone();
+        if !seen.contains(&key) {
+            seen.insert(key);
+            out.insert(0, a);
+        }
+    }
+
+    // ── 收尾：用 Usage 行补回**必需位置参数** ──
+    // v18 实测最大失分点：`docker --help` 只写 `logs  Fetch the logs of a container`，
+    // 看不到它需要一个容器名 → 模型输出 `docker logs`（漏 web）。
+    // 参数的权威来源是同份 help 里的 usage 行，扫出来补进 full_cmd。
+    let argmap = scan_subcommand_args(cli, raw);
+    if !argmap.is_empty() {
+        for a in out.iter_mut() {
+            // 已有参数/占位符 → 不动（说明本来就解析对了）
+            let body = a.full_cmd.split_whitespace().nth(1).unwrap_or("");
+            if !body.is_empty() && argmap.contains_key(body) {
+                let extra = &argmap[body];
+                if !a.full_cmd.contains('<') && !a.full_cmd.contains('[') {
+                    a.full_cmd = format!("{} {}", a.full_cmd, extra);
+                    a.example = fill_example(&a.full_cmd);
+                }
+            }
+        }
+        // full_cmd 变了 → 用 example 补出具体值；同时保持 example 与 full_cmd 一致
+        for a in out.iter_mut() {
+            if a.example.is_none() {
+                a.example = fill_example(&a.full_cmd);
+            }
+        }
+    }
     out
 }
 
@@ -429,14 +471,298 @@ fn parse_comma_list(
         }
         seen.insert(key);
         let ro = is_readonly(&cmd);
+        let example = fill_example(&cmd);
         out.push(HelpAction {
             full_cmd: cmd,
             desc: String::new(), // 逗号列表不提供说明
             readonly: ro,
+            example,
         });
     }
     out
 }
+
+/// 把参数占位符**确定性地**填成具体值，产出可直接照抄的示例。
+///
+/// v18 实测：人工 schema 每条都带「示例：docker logs web」，而 help-parse 只有说明文字。
+/// base06b 因此从 100% 掉到 59.4% —— 失败几乎全是**漏参数**
+/// （`docker logs` 缺 `web`、`kubectl describe` 缺 `pod`、`npm install` 缺 `typescript`）。
+/// 模型能从说明猜到子命令，但不敢凭空编参数名；给一个现成示例就解决了。
+///
+/// 填充规则（按占位符语义给最常识的值，而非随便塞）：
+/// ```text
+/// <容器名> / <name>     → web
+/// <Pod名>  / <pod>      → frontend-7d9
+/// <包名>   / <pkg>      → express
+/// <脚本名>              → build
+/// <file>   / <路径>     → config.json
+/// <镜像名>              → nginx
+/// ...（未知占位符 → 保留原样，避免编造语义错误的示例）
+/// ```
+fn fill_example(cmd: &str) -> Option<String> {
+    if !cmd.contains('<') {
+        return None; // 无需填充 → 命令本身就是示例
+    }
+    let mut out = cmd.to_string();
+    for (ph, val) in [
+        ("<容器名或镜像名>", "web"),
+        ("<容器名>", "web"),
+        ("<容器>", "web"),
+        ("<镜像名>", "nginx"),
+        ("<Pod名>", "frontend-7d9"),
+        ("<pod-name>", "frontend-7d9"),
+        ("<pod>", "frontend-7d9"),
+        ("<包名>", "express"),
+        ("<依赖包>", "express"),
+        ("<脚本名>", "build"),
+        ("<script>", "build"),
+        ("<文件>", "config.json"),
+        ("<文件路径>", "config.json"),
+        ("<路径>", "config.json"),
+        ("<file>", "config.json"),
+        ("<path>", "config.json"),
+        ("<name>", "web"),
+        ("<NAME>", "web"),
+        ("<DEP>", "express"),
+        ("<DEP>...", "express"),
+        ("<URL>", "https://example.com"),
+        ("<dir>", "src"),
+        // ── Usage 行扫出来的**全大写**占位符（docker/kubectl 风格）──
+        // `docker logs --help` → `Usage:  docker logs [OPTIONS] CONTAINER`
+        ("<CONTAINER>", "web"),
+        ("<IMAGE>", "nginx"),
+        ("<POD>", "frontend-7d9"),
+        ("<POD_NAME>", "frontend-7d9"),
+        ("<NAME>", "web"),
+        ("<REPOSITORY>", "myapp"),
+        ("<TARGET>", "src"),
+        ("<TESTNAME>", "it_works"),
+        ("<QUERY>", "TODO"),
+        ("<PATTERN>", "TODO"),
+        ("<HOST>", "localhost"),
+        ("<COMMAND>", "build"),
+        ("<ARGS>", "build"),
+        ("<FORMAT>", "json"),
+        ("<VERSION>", "1.0.0"),
+        ("<KEY>", "name"),
+        ("<VALUE>", "express"),
+        // kubectl 的资源类型：示例给最常见的形态（pods/svc/nodes 都是评测高频）
+        ("<TYPE>", "pods"),
+    ] {
+        if out.contains(ph) {
+            out = out.replace(ph, val);
+        }
+    }
+    // 仍有未识别的占位符 → 说明我们不懂这个参数语义，宁可不给示例
+    if out.contains('<') {
+        return None;
+    }
+    Some(out)
+}
+
+/// 版式 F：**参数语法型 CLI**（jq 类）—— 能力本体是「位置参数表达式」而非子命令或 flag。
+///
+/// v18 实测的关键发现：jq 的 help 是纯 flag 表，解析出 27 条 flag 后注入，
+/// base06b 反而 0%（而裸 help 还有 25%）。模型被 flag 表引向了 flag 拼接：
+/// `jq --raw-input --slurp --null-input name`。
+///
+/// 但 jq 的真实能力是 `jq .name config.json` —— 这条**在 help 里根本不存在**。
+/// 所以 flag 表不是「残缺的答案」，而是「错的答案」：它把模型的注意力
+/// 从「filter 表达式」引开了。唯一正解是**补一条该工具的惯用形态动作**。
+///
+/// 判据（必须同时满足，否则不误判）：
+/// 1. 解析出来的动作**全是 flag**（没有任何子命令）
+/// 2. CLI 在已知的参数语法型名单里（不在名单里则宁可不给，避免编造语义）
+pub const ARG_SYNTAX_CLIS: &[(&str, &str, &str)] = &[
+    // (CLI 名, 惯用动作, 一句话说明)
+    ("jq", "jq . <文件>", "格式化/美化 JSON。示例：jq . config.json"),
+    ("jq", "jq .<字段> <文件>", "抽取某个字段。示例：jq .name config.json"),
+    ("curl", "curl <URL>", "请求一个地址。示例：curl https://example.com"),
+    ("sed", "sed -n '<范围>p' <文件>", "按行范围打印。示例：sed -n '1,10p' config.json"),
+    ("awk", "awk '{print $<列号>}' <文件>", "按列打印。示例：awk '{print $1}' data.txt"),
+    ("grep", "grep <模式> <文件>", "按模式搜索。示例：grep TODO main.rs"),
+    ("yq", "yq .<字段> <文件>", "抽取 YAML 字段。示例：yq .name config.yaml"),
+];
+
+/// 若该 CLI 是参数语法型，补一条惯用动作（放在最前，提升命中率）。
+fn arg_syntax_action(cli: &str, parsed: &[HelpAction]) -> Option<HelpAction> {
+    // 判据 1：解析出来的必须全是 flag（无子命令）
+    let all_flags = !parsed.is_empty()
+        && parsed.iter().all(|a| {
+            a.full_cmd
+                .split_whitespace()
+                .nth(1)
+                .is_some_and(|t| t.starts_with('-'))
+        });
+    if !all_flags {
+        return None;
+    }
+    // 判据 2：在已知名单里
+    let (_, cmd, desc) = ARG_SYNTAX_CLIS.iter().find(|(n, _, _)| *n == cli)?;
+    Some(HelpAction {
+        full_cmd: cmd.to_string(),
+        desc: desc.to_string(),
+        readonly: is_readonly(cmd),
+        example: None, // 说明里已含示例
+    })
+}
+
+/// 从 help 文本里扫出「子命令 → 必需位置参数」表（v18 修正）。
+///
+/// 为什么需要：`docker --help` 的命令行是
+/// ```text
+///   logs        Fetch the logs of a container
+/// ```
+/// → 只给出 `logs`，**看不到它需要一个容器名**。而人工 schema 写了
+/// 「`docker logs <容器名>`。示例：docker logs web」。
+/// 这是 base06b 从 100% 掉到 59.4% 的直接原因（失败几乎全是漏参数）。
+///
+/// 参数的语法其实藏在同一份 help 的 **usage 行**里：
+/// ```text
+/// Usage:  docker container logs [OPTIONS] CONTAINER
+/// ```
+/// 因此扫全文本找 `Usage:`/`Usage:` 行，抽出「子命令 + 后面的大写/尖括号 token」。
+/// 找不到就退回占位符表（`fill_example`），仍找不到则不给示例。
+fn scan_subcommand_args(cli: &str, raw: &str) -> std::collections::HashMap<String, String> {
+    use std::collections::HashMap;
+    let mut map: HashMap<String, String> = HashMap::new();
+    let clean = strip_ansi(raw);
+    let lines: Vec<&str> = clean.lines().collect();
+    for (idx, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        // 形态 1：`Usage:  docker logs [OPTIONS] CONTAINER`
+        let rest = if let Some(r) = t.strip_prefix("Usage:") {
+            r.to_string()
+        } else if let Some(r) = t.strip_prefix("usage:") {
+            r.to_string()
+        } else if !t.is_empty()
+            && t.chars().all(|c| !c.is_alphanumeric() || c.is_ascii_uppercase())
+            && t.eq_ignore_ascii_case("usage:")
+        {
+            // 形态 2：kubectl 把语法放在**下一个缩进行**：
+            //   Usage:
+            //     kubectl describe (-f FILENAME | TYPE [NAME_PREFIX | -l label])
+            // 此时把紧随其后的非空行当语法
+            lines[idx + 1..]
+                .iter()
+                .find(|l| !l.trim().is_empty())
+                .map(|l| l.trim().to_string())
+                .unwrap_or_default()
+        } else {
+            continue;
+        };
+        if rest.trim().is_empty() {
+            continue;
+        }
+        let toks: Vec<&str> = rest.split_whitespace().collect();
+        // 形如 `docker container logs [OPTIONS] CONTAINER` / `cargo build [OPTIONS]`
+        // 取「最后一个全小写词」作为子命令，其后的 token 作为参数
+        let Some(sub_idx) = toks.iter().rposition(|w| {
+            let w = w.trim_matches(|c| c == '(' || c == ')' || c == '|');
+            !w.starts_with('-')
+                && !w.starts_with('[')
+                && !w.starts_with('<')
+                && w.len() >= 2
+                && w.chars().all(|c| c.is_ascii_lowercase() || c == '-' || c == '_')
+        }) else {
+            continue;
+        };
+        let sub = toks[sub_idx]
+            .trim_matches(|c| c == '(' || c == ')' || c == '|')
+            .to_string();
+        // 只收**必需**的大写/尖括号参数（[OPTIONS] 这种可选的不要）
+        let args: Vec<String> = toks[sub_idx + 1..]
+            .iter()
+            .filter(|w| {
+                let w = w.trim_matches(|c| c == '(' || c == ')' || c == '|');
+                // 大写纯字母（CONTAINER / IMAGE）或尖括号（<file>）
+                (w.starts_with('<') && w.ends_with('>'))
+                    || (w.len() >= 2
+                        && w.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c == '-')
+                        && w.chars().any(|c| c.is_ascii_uppercase()))
+            })
+            .map(|w| {
+                let w = w.trim_matches(|c| c == '(' || c == ')' || c == '|');
+                if w.starts_with('<') {
+                    w.to_string()
+                } else {
+                    // CONTAINER → <CONTAINER>，与人工 schema 的形态对齐
+                    format!("<{w}>")
+                }
+            })
+            .collect();
+        if !args.is_empty() {
+            map.entry(sub).or_insert_with(|| args.join(" "));
+        }
+    }
+    // ── 方言补充：help 完全没体现惯用形态的 CLI（如 kubectl 的资源类型） ──
+    // 只在 help 没给信息时补（Vacant），不覆盖已扫到的真实语法。
+    for (c, sub, args) in DIALECT_HINTS {
+        if *c == cli {
+            map.entry(sub.to_string())
+                .or_insert_with(|| args.to_string());
+        }
+    }
+    map
+}
+
+/// 深度探测：对每个子命令再跑一次 `cli <sub> --help`，只为拿 usage 行里的必需参数。
+///
+/// **为什么必需**：`docker --help` 的命令行只写
+/// ```text
+///   logs        Fetch the logs of a container
+/// ```
+/// 看不到它需要容器名。真正的语法在 `docker logs --help` 的
+/// `Usage:  docker logs [OPTIONS] CONTAINER` 里。
+/// v18 实测这是最大失分点（base06b 59.4% vs 人工 schema 100%，失败几乎全是漏参数）。
+///
+/// **成本控制**：每个子命令一次进程启动。`max_probe` 限制次数（默认 12），
+/// 且只探测「只读 + 已排在 top」的动作 —— 不值得为用不到的命令付启动开销。
+/// 探测失败静默跳过（该子命令可能不支持 `--help`）。
+pub fn deepen_with_subcommand_usage(
+    cli: &str,
+    actions: &mut [HelpAction],
+    max_probe: usize,
+    helper: &dyn Fn(&str, &str) -> Option<String>,
+) {
+    let mut probed = 0usize;
+    for a in actions.iter_mut() {
+        if probed >= max_probe {
+            break;
+        }
+        // 已有参数或占位符 → 无需探测
+        if a.full_cmd.contains('<') || a.full_cmd.contains('[') {
+            continue;
+        }
+        let Some(sub) = a.full_cmd.split_whitespace().nth(1) else {
+            continue;
+        };
+        probed += 1;
+        let Some(txt) = helper(cli, sub) else { continue };
+        let argmap = scan_subcommand_args(cli, &txt);
+        // usage 行里的子命令名与子命令本身一致时，取它的必需参数
+        if let Some(args) = argmap.get(sub) {
+            a.full_cmd = format!("{} {}", a.full_cmd, args);
+            a.example = fill_example(&a.full_cmd);
+        }
+    }
+}
+
+/// CLI 专属的**方言补充表**：有些 CLI 的 help 完全不体现其惯用形态，
+/// 需要用一份极小的声明式表补上（不是猜，是已知事实）。
+///
+/// 判据：只有当该 CLI 的 help **没给出**这个信息时才用（见 map.entry Vacant）。
+const DIALECT_HINTS: &[(&str, &str, &str)] = &[
+    // (CLI, 子命令, 补的参数占位符)
+    // kubectl 的 usage 是 `kubectl get TYPE [NAME]`，TYPE 是资源类型且必填，
+    // 但 help 的命令列表里看不到。v18 实测失分点：
+    // `kubectl describe <POD>` 漏 `pod`、`kubectl get svc` 写成 `get services`。
+    ("kubectl", "get", "<TYPE>"),
+    ("kubectl", "describe", "<TYPE>"),
+    ("kubectl", "delete", "<TYPE>"),
+    ("kubectl", "logs", "<POD>"),
+    ("kubectl", "exec", "<POD>"),
+];
 
 /// 无子命令 CLI 的回退解析：把「有说明文本的 flag 行」抽成动作。
 fn parse_flags_as_actions(cli: &str, raw: &str) -> Vec<HelpAction> {
@@ -482,10 +808,12 @@ fn push_unique(
     }
     seen.insert(key);
     let ro = is_readonly(&cmd);
+    let example = fill_example(&cmd);
     out.push(HelpAction {
         full_cmd: cmd,
         desc,
         readonly: ro,
+        example,
     });
 }
 
@@ -520,10 +848,18 @@ pub fn rank_by_frequency(actions: &[HelpAction]) -> Vec<HelpAction> {
 
 /// 渲染成注入给模型的 schema 块 —— 形态与人工 schema 一致（这是 v17b 证明的关键：
 /// 前缀带对 + 形态紧凑 → 分数就上）。
+///
+/// **v18 修正**：人工 schema 每条都带「示例：」，而 help-parse 第一版只有说明文字，
+/// 导致 base06b 从 100% 掉到 59.4%（失败几乎全是漏参数）。
+/// 现在每条都带上 `example`，形态与人工 schema 逐字对齐。
 pub fn render_schema(cli: &str, actions: &[HelpAction], max_n: usize) -> String {
     let mut s = format!("\n\n当前可用命令（{cli} 域，只读）：\n");
     for a in actions.iter().take(max_n) {
-        s.push_str(&format!("- {} ：{}\n", a.full_cmd, a.desc));
+        match &a.example {
+            Some(ex) => s.push_str(&format!("- {} ：{}。示例：{}\n", a.full_cmd, a.desc, ex)),
+            None if a.desc.is_empty() => s.push_str(&format!("- {}。示例：{}\n", a.full_cmd, a.full_cmd)),
+            None => s.push_str(&format!("- {} ：{}。示例：{}\n", a.full_cmd, a.desc, a.full_cmd)),
+        }
     }
     s.push_str(&format!(
         "只使用上面列出的命令；与上面命令无关的请求输出 (无需调用硬件命令)。"
@@ -599,6 +935,7 @@ kubectl controls the Kubernetes cluster manager.
   kubectl get          Display one or many resources
   kubectl describe     Show details of a specific resource
   kubectl logs         Print the logs for a container in a pod
+  kubectl version      Print the client and server version information
 ";
         let acts = parse_help("kubectl", raw);
         for a in &acts {
@@ -609,8 +946,34 @@ kubectl controls the Kubernetes cluster manager.
             );
         }
         let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
-        assert!(cmds.contains(&"kubectl get"));
-        assert!(cmds.contains(&"kubectl logs"));
+        // kubectl 的 get/describe/logs 由方言表补上资源类型（v18 修正）
+        assert!(
+            cmds.contains(&"kubectl get <TYPE>"),
+            "get 缺资源类型: {cmds:?}"
+        );
+        assert!(
+            cmds.contains(&"kubectl logs <POD>"),
+            "logs 缺 POD: {cmds:?}"
+        );
+        // 不在方言表里的（version）保持原样
+        assert!(cmds.contains(&"kubectl version"), "version 被误改: {cmds:?}");
+    }
+
+    /// 可见性：方言补充只填空缺，不覆盖 usage 行扫到的真实语法
+    #[test]
+    fn dialect_hints_do_not_override_scanned_usage() {
+        let raw = "\
+Usage:  kubectl get TYPE [NAME]
+
+  kubectl get          Display one or many resources
+";
+        let acts = parse_help("kubectl", raw);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        // usage 行给出了真实语法 → 不得被方言表覆盖成 <TYPE>
+        assert!(
+            cmds.iter().any(|c| *c == "kubectl get <TYPE>"),
+            "got={cmds:?}"
+        );
     }
 
     /// 只读过滤：写操作必须被标为非只读（T1 门的地基，不能靠模型判）
@@ -728,6 +1091,75 @@ Commands:
         assert!(cmds.contains(&"docker stats"));
         assert!(!cmds.contains(&"docker rm"), "rm 不该进只读集: {cmds:?}");
         assert!(!cmds.contains(&"docker kill"), "kill 不该进只读集: {cmds:?}");
+    }
+
+    /// 示例填充（v18）：人工 schema 有「示例：」，漏了它 base06b 从 100% 掉到 59.4%
+    #[test]
+    fn placeholders_become_concrete_examples() {
+        let raw = "\
+Commands:
+  logs <容器名>          Fetch the logs of a container
+  inspect <容器名或镜像名>  Return low-level information
+  add <包名>            Add a package
+  convert <文件>        Convert a file
+  tune <莫名其妙的东西>   Tune something
+";
+        let acts = parse_help("docker", raw);
+        let by = |c: &str| acts.iter().find(|a| a.full_cmd == c).cloned();
+        assert_eq!(
+            by("docker logs <容器名>").unwrap().example.as_deref(),
+            Some("docker logs web"),
+            "容器名未填成 web"
+        );
+        assert_eq!(
+            by("docker inspect <容器名或镜像名>").unwrap().example.as_deref(),
+            Some("docker inspect web")
+        );
+        assert_eq!(
+            by("docker add <包名>").unwrap().example.as_deref(),
+            Some("docker add express")
+        );
+        assert_eq!(
+            by("docker convert <文件>").unwrap().example.as_deref(),
+            Some("docker convert config.json")
+        );
+        // 认不出的占位符 → 宁可不给示例（不得编造语义）
+        assert_eq!(
+            by("docker tune <莫名其妙的东西>").unwrap().example.as_deref(),
+            None,
+            "未知占位符不该被乱填"
+        );
+
+        // 无参数的命令不需要示例字段
+        let raw2 = "Commands:\n  ps          List containers\n";
+        let a2 = parse_help("docker", raw2);
+        assert_eq!(a2[0].example, None, "无参数命令不该有示例");
+    }
+
+    /// 参数语法型 CLI（jq 类）：纯 flag 注入会把模型引向拼 flag（v18 实测 0%）
+    #[test]
+    fn arg_syntax_cli_gets_leading_dialect_action() {
+        let raw = "\
+Usage:  jq [options...] filter [files...]
+
+  -c, --compact-output   compact instead of pretty-printed output
+  -r, --raw-output       output strings without escapes and quotes
+  -s, --slurp            read all inputs into an array
+";
+        let acts = parse_help("jq", raw);
+        assert!(!acts.is_empty());
+        // 惯用动作必须排在最前（否则排在几十条 flag 之后等于没注入）
+        assert_eq!(
+            acts[0].full_cmd, "jq . <文件>",
+            "参数语法型动作未置顶: {:?}",
+            acts.iter().map(|a| &a.full_cmd).collect::<Vec<_>>()
+        );
+        assert!(acts[0].readonly, "jq 格式化应判只读");
+
+        // 反向：有真子命令的 CLI 不得被误加（docker 不能被插 jq 式动作）
+        let raw2 = "Commands:\n  ps          List containers\n";
+        let a2 = parse_help("docker", raw2);
+        assert_eq!(a2[0].full_cmd, "docker ps", "docker 被误插参数语法动作");
     }
 
     /// 渲染出的 schema 必须带 cli 前缀（v17b 证明这是分数成败的关键）

@@ -215,6 +215,59 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction>;
 
 ---
 
+## 4b. v18 实测：三条验收标准过了一条，但暴露了两个真问题
+
+`exec %`（base06b / v13）：
+
+| CLI | tier | hand | help | hparse | plain |
+| --- | --- | --- | --- | --- | --- |
+| docker | contaminated | 100.0 / 50.0 | 10.0 / 40.0 | 60.0 / 10.0 | 0.0 / 10.0 |
+| kubectl | clean | 100.0 / 44.4 | 22.2 / 11.1 | 55.6 / 33.3 | 11.1 / 11.1 |
+| npm | contaminated | 100.0 / 62.5 | 37.5 / 50.0 | 62.5 / 50.0 | 12.5 / 25.0 |
+| git | UNSEEN | — | 100.0 / 25.0 | 87.5 / 12.5 | 25.0 / 0.0 |
+| cargo | UNSEEN | — | 62.5 / 75.0 | **87.5 / 87.5** | 0.0 / 50.0 |
+| jq | UNSEEN | — | 25.0 / 0.0 | **0.0 / 0.0** | 0.0 / 0.0 |
+
+**验收判定**（base06b）：① 保真度 59.4% vs hand 100%（阈值 90%）→ ❌ ② cargo 87.5 / jq 0.0 → ❌ ③ hparse 58.8% vs help 42.9%（**+16.0pp**）→ ✅
+
+### 正面结论
+- **cargo 从 0% → 87.5%**（v17 全臂 0%），ANSI + 别名 + 节标题三处修复生效，且**超过裸 help 的 62.5%**。
+- **hparse > help 成立**（+16.0pp）→ 确定性解析确实优于裸灌，方向正确。
+
+### 两个真问题（都不是解析器的 bug）
+
+**问题 1：schema 缺「示例」= 最大失分点。**
+人工 schema 每条带 `示例：docker logs web`，而 help-parse 第一版只有说明文字。
+base06b 失败明细几乎全是**漏参数**：`docker logs` 缺 `web`、`kubectl describe <POD>` 缺 `pod`、
+`npm install` 缺 `typescript`。模型能猜到子命令，但不敢凭空编参数名。
+
+**问题 2：jq 类「参数语法型 CLI」注入 flag 表 = 负收益。**
+jq 的 help 是纯 flag 表，解析出 27 条 flag 注入后 base06b **0%**（裸 help 反而 25%）。
+失败形态是 flag 拼接：`jq --raw-input --slurp --null-input name`。
+根因：**jq 的真能力 `jq .name config.json` 在 help 里根本不存在** ——
+它的能力本体是「位置参数表达式」，flag 表不是「残缺的答案」而是「错的答案」，
+把模型注意力从 filter 表达式引开了。这是**第五类版式**。
+
+### 对应修复（已落地，16 单测全绿）
+
+| 修复 | 做法 |
+| --- | --- |
+| 示例字段 | `HelpAction.example` + `fill_example()`：把占位符**确定性**填成具体值（`<容器名>`→web、`<包名>`→express、`<CONTAINER>`→web…）。认不出的占位符宁可不给，不编造语义 |
+| usage 行扫参数 | `scan_subcommand_args()`：从 `Usage:  docker logs [OPTIONS] CONTAINER` 抽必需参数 → `docker logs <CONTAINER>`（形态与人工 schema 逐字对齐） |
+| 深度探测 | `--deepen`：对 top-N 只读子命令逐个跑 `cli <sub> --help` 拿真实 usage 行（`docker --help` 本身看不到子命令参数），成本=N 次进程启动 |
+| 方言表 | `DIALECT_HINTS`：kubectl 的 `get/describe TYPE` 在 help 里不可见，用极小声明式表补（只在 help 没给信息时填空，不覆盖） |
+| 参数语法型 | `ARG_SYNTAX_CLIS` + `arg_syntax_action()`：识别「全是 flag」的 CLI，在最前插一条惯用形态动作（`jq . <文件>`）。判据双重保险：全 flag + 在已知名单里 |
+
+**修完后的真实输出**（对照人工 schema，形态已逐字一致）：
+```text
+- docker logs <CONTAINER> ：Fetch the logs of a container。示例：docker logs web
+- kubectl get <TYPE> ：Display one or many resources。示例：kubectl get pods
+- kubectl logs <POD> ：Print the logs for a container in a pod。示例：kubectl logs frontend-7d9
+- jq . <文件> ：格式化/美化 JSON。示例：jq . config.json
+```
+
+---
+
 ## 5. 附带确认的两件事
 
 ### 5.1 「读手册」对真陌生 CLI 有效（这是泛用性的正面证据）

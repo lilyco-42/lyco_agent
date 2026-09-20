@@ -640,11 +640,38 @@ fn cmd_help_parse(args: &[String]) -> i32 {
     };
 
     let all = parse_help(&cli, &raw);
-    let acts = if include_writes {
+    let mut acts = if include_writes {
         rank_by_frequency(&all)
     } else {
         rank_by_frequency(&readonly_only(&all))
     };
+
+    // ── 可选：深度探测（--deepen）拿必需位置参数 ──
+    // v18 实测：`docker --help` 看不到 `logs` 需要容器名 → 模型输出 `docker logs`（漏 web）。
+    // 真正语法在 `docker logs --help` 的 usage 行里。深度探测逐个补上。
+    if args.iter().any(|a| a == "--deepen") {
+        let probe_top = flag(args, "--deepen-top")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(top);
+        let mut head: Vec<_> = acts.iter().take(probe_top).cloned().collect();
+        let helper = |c: &str, sub: &str| -> Option<String> {
+            let mut cmd = std::process::Command::new(c);
+            cmd.args([sub, "--help"]);
+            cmd.env("NO_COLOR", "1");
+            cmd.env("PAGER", "cat");
+            let o = cmd.output().ok()?;
+            let mut t = String::from_utf8_lossy(&o.stdout).to_string();
+            t.push_str(&String::from_utf8_lossy(&o.stderr));
+            if t.trim().len() > 20 { Some(t) } else { None }
+        };
+        lycore::help_parse::deepen_with_subcommand_usage(&cli, &mut head, probe_top, &helper);
+        // 用补好的 head 覆盖回 acts 的对应位置
+        for (i, a) in head.into_iter().enumerate() {
+            if i < acts.len() {
+                acts[i] = a;
+            }
+        }
+    }
 
     if json {
         let v = serde_json::json!({

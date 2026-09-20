@@ -185,3 +185,32 @@ v10 是 -0.177；v11 的错误以 confident wrong_slot 为主）。v11 自校准
 - 工程坑（复现必读）：每次 `createKernel()` 新建内核且旧内核不杀 → v11 训练后旧内核
   持有显存，confgate 类脚本**必须带 VRAM 清理段**（`_clean_and_v1*.py` 头 69 行动态
   探测 PPID 杀同 jupyter-server 的 ipykernel）；v10b 之前没炸纯属侥幸。
+
+## 5.7 v12：单阶段混合修遗忘——遗忘好了，稀释回来了（2026-09-20）
+
+**配方**：v9b 配方 4100（hw 1464/gh 952/ff 952/noop 732，lb 仍 holdout）+ ALFA bash
+回放 4000 同池混训 ≈1:1 ×4ep，lr=2e-5 Adafactor，Qwen3-0.6B，seed 1234。
+
+| 指标 | v9b | v10 | v11 | **v12** | 红线 |
+|---|---|---|---|---|---|
+| bash_held | — | 8.3 | **0.0**（遗忘） | **7.2** ✅ | ≥5 |
+| gh_A | 71.0 | 52.7 | **77.4** | **60.2** ❌ | ≥70 |
+| hw_A | 98.4 | — | — | **98.4** ✅ | ≥95 |
+| lb_write 拒绝 | 100 | 100 | 100 | **100** | 100 |
+| lb_A（holdout+注入） | 0 | 0 | 0 | **0** | — |
+
+**判读**：两难确认——v11 两阶段（S1 20k bash → S2 core）域内固化最强但把 shell 先验
+洗光；v12 单阶段同池混训保住 shell 先验（0.0→7.2，invalid_syntax 仅 1/264，格式全学会）
+但 bash 份额回到 ~50%，稀释效应重现（gh_A 77.4→60.2，失败桶 wrong_slot 27/93 主导）。
+Pareto 前沿：(gh 77.4, bash 0.0) 与 (gh 60.2, bash 7.2) 互不支配。
+
+**附带发现**：bash_held 带 lb schema 注入 = **0.0%**（无注入 7.2%）——lb schema 块在
+system prompt 里对 shell 域是净伤害，部署时路由策略需按意图域条件注入（或训练时给
+bash 样本也配 schema 背景做免疫）。
+
+**下一步（v13）**：gh 域真实数据注入——ALFA 抽出真实 gh 对 169 条（899 git/gh/hub 中
+过滤后）替换等量 gh 模板，总体积/评测集/底座不变，单变量打 gh_A 的 wrong_slot 主桶；
+并行 v13 冒烟验 Qwen3.5-0.8B GDN 底座。数据升级依据：Distil Labs "data is doing the
+work, not per-model tuning"（FunctionGemma shell 9.9→96.0%）。
+
+产物：`p2-lyco_ops/cloudstudio/a10_v12_train.py`、`v12_results.json`（本地归档）。

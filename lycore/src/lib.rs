@@ -20,7 +20,9 @@ pub mod pack;
 pub mod project; // 项目目录扫描 + 启动脚本生成 (识别 paper.jar → 关联知识 → 时间窗启动脚本)
 pub mod rewrite;
 pub mod search; // agent 自主检索 (SearXNG/离线占位) + 检索结果学习进知识包
+pub mod router; // v13 路由器接线 (MVP 能力①): NL -> 命令 -> T1 分诊 -> brush
 pub mod serve;
+pub mod t1gate; // T1 执行门: 模型层不拒绝(reject 0% 实证), 执行层必须兜底
 pub mod skill; // P0: 技能描述符 { capabilities, risk, verifier, executor }
 pub mod tokens;
 pub mod toolrag; // P1: ToolRAG 语义召回层 (embedding Top-K + 裁剪 tools_openai.json)

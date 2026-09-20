@@ -529,3 +529,46 @@ lyco42/lyco-agent-qwen3-0.6b-ondevice 前身配方）。傅里叶路线归档结
 下一步：MVP 接线 v13 → lycore（agent.rs → brush → T1 门）→ 10 句验收；
 v17 --help 管线（个性化排序已定：nushell history 3287 条，cargo 658 第一）；
 rust 臂（cargo/rustup 零污染试金石）点火中。
+
+---
+
+## 5.15 v13 定版产物发布（2026-09-21）
+
+MVP checkpoint **v13 已量化为 GGUF Q4_K_M 并发布到 HuggingFace**：
+
+<https://huggingface.co/lyco42/lyco-agent-qwen3-0.6b-ondevice>
+
+| 文件 | 大小 | 状态 |
+|---|---|---|
+| `router_v13-Q4_K_M.gguf` | 484.2 MB | **新增，MVP 推荐** |
+| `router_merged-Q4_K_M.gguf` | 484.2 MB | 保留（v3⊕v4 旧版，仅 hw 域） |
+| `grpo-Q4_K_M.gguf` | 396.7 MB | 保留（工具调用） |
+
+### 发布管线（`cloudstudio/a10_v13_publish.py`，远端执行）
+
+`/workspace/router_v13_real_gh` → tokenizer 归一化 → `convert_hf_to_gguf`
+→ `llama-quantize Q4_K_M` → **llama-cli 自检闸门** → 上传 GGUF + 模型卡。
+
+自检闸门实测：`列出我仓库里还没关的 issue` → `gh issue list` ✅
+（PP 1128.5 t/s / TG 161.4 t/s，服务器 CPU）。**闸门不过就不许上传**，
+避免把废权重推上去——这是发布管线的硬约束。
+
+### 模型卡的数字纪律
+
+卡内所有数字**取自归档 JSON**（`v13_results.json` / `zs_cli_results.json`），
+不凭笔记。本次校对抓出一处长期沿用的错值：terraform 的「75%」其实是
+**scope_fs 臂**，rag 臂是 66.7%，已按臂分列。同步修正的还有：
+`gh_A` 63.4(rag 64.5)、`ff_A` 56.2(rag 64.8)、`lb_A` 0.0(rag 10.5)、
+`bash_held` 7.2；rust 臂 clean(0) cargo 58.3% / rustup 75.0%。
+
+卡上明确写了三件事，避免误用：
+1. **system prompt 必须与训练一致**（含 brush 通用 shell 域），且 `enable_thinking=False`
+2. **reject 0% 是设计取舍不是缺陷**——接真 shell 必须自建 ≥T1 执行门
+3. 已知局限：`ff_B` 17.9 / `lb_A` 0–10.5 / `bash_held` 7.2 / `yt-dlp` 0%
+
+### 环境变更
+
+CloudStudio 显卡由 **A10 24G 换成 L40 46G**（driver 580.65.06）。
+46G 显存足够 1B 底座全量微调 → **傅里叶 v2（1B+ 重组）可从留档升为可执行**。
+
+下一步不变：MVP 接线（v13 → lycore → T1 门 → 10 句验收）。

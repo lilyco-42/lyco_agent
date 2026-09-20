@@ -39,6 +39,11 @@ pub struct Backend {
     pub display: &'static str,
     /// 优先级: 越大越优先 (同设备类内比较)
     pub priority: u8,
+    /// 兑现这个后端的 ONNX Runtime EP 名字 (若有)
+    ///
+    /// 排障时要能一眼看出「这块后端是靠哪个 EP 跑起来的」; `None` 表示上游 ORT
+    /// 没有对应 EP (例: VIP9000 需厂家 fork 的 `vsi_npu`, 浏览器侧走 ort-web)。
+    pub ep: Option<&'static str>,
 }
 
 /// 全后端目录 — 新增硬件支持只需往这里加一行 (能力层零改动)
@@ -50,6 +55,7 @@ pub fn catalog() -> &'static [Backend] {
             device: DeviceClass::Cpu,
             display: "通用 CPU",
             priority: 0,
+            ep: Some("CPUExecutionProvider"),
         },
         // ---- NPU: 各家加速器 ----
         Backend {
@@ -57,42 +63,56 @@ pub fn catalog() -> &'static [Backend] {
             device: DeviceClass::Npu,
             display: "Android NNAPI (覆盖高通/MTK/三星)",
             priority: 50,
+            ep: Some("NnapiExecutionProvider"),
         },
         Backend {
             id: "npu-coreml",
             device: DeviceClass::Npu,
             display: "Apple Neural Engine",
             priority: 50,
+            ep: Some("CoreMLExecutionProvider"),
         },
         Backend {
             id: "npu-openvino",
             device: DeviceClass::Npu,
             display: "Intel NPU / OpenVINO",
             priority: 50,
+            ep: Some("OpenVINOExecutionProvider"),
         },
         Backend {
             id: "npu-rknn",
             device: DeviceClass::Npu,
             display: "Rockchip RKNN",
             priority: 40,
+            ep: Some("RknpuExecutionProvider"),
         },
         Backend {
             id: "npu-qnn",
             device: DeviceClass::Npu,
             display: "Qualcomm Hexagon QNN",
             priority: 40,
+            ep: Some("QNNExecutionProvider"),
         },
         Backend {
             id: "npu-vip9000",
             device: DeviceClass::Npu,
             display: "Vivante VIP9000 (全志/Radxa)",
             priority: 40,
+            ep: None, // 上游 ORT 无此 EP: 走厂家 fork 的 vsi_npu 或 Paddle Lite NNAdapter
+        },
+        Backend {
+            id: "npu-cann",
+            device: DeviceClass::Npu,
+            display: "华为昇腾 CANN",
+            priority: 40,
+            ep: Some("CANNExecutionProvider"),
         },
         Backend {
             id: "npu-webnn",
             device: DeviceClass::Npu,
             display: "浏览器 WebNN",
             priority: 30,
+            ep: None, // 浏览器侧由 ort-web 兑现, 不进原生 build
         },
         // ---- GPU: 通用加速 ----
         Backend {
@@ -100,18 +120,35 @@ pub fn catalog() -> &'static [Backend] {
             device: DeviceClass::Gpu,
             display: "Vulkan GPU",
             priority: 20,
+            ep: None, // ORT 无原生 Vulkan EP (可经 WebGPU EP 间接走 Vulkan)
         },
         Backend {
             id: "gpu-metal",
             device: DeviceClass::Gpu,
             display: "Apple Metal",
             priority: 20,
+            ep: Some("CoreMLExecutionProvider"),
         },
         Backend {
             id: "gpu-cuda",
             device: DeviceClass::Gpu,
             display: "NVIDIA CUDA",
             priority: 20,
+            ep: Some("CUDAExecutionProvider"),
+        },
+        Backend {
+            id: "gpu-directml",
+            device: DeviceClass::Gpu,
+            display: "Windows DirectML (Intel/AMD/NVIDIA 通吃)",
+            priority: 25,
+            ep: Some("DmlExecutionProvider"),
+        },
+        Backend {
+            id: "gpu-webgpu",
+            device: DeviceClass::Gpu,
+            display: "浏览器/跨平台 WebGPU",
+            priority: 10,
+            ep: Some("WebGpuExecutionProvider"),
         },
     ]
 }
@@ -136,6 +173,9 @@ pub fn probe(b: &Backend) -> bool {
             cfg!(target_os = "linux") && (exists("/dev/accel/accel0") || exists("/dev/dri"))
         }
         "npu-qnn" => cfg!(target_os = "android") || exists("/dev/npu"),
+        "npu-cann" => exists("/dev/davinci_manager") || exists("/dev/davinci0"),
+        "gpu-directml" => cfg!(windows),
+        "gpu-webgpu" => cfg!(target_family = "wasm"),
         "gpu-vulkan" => exists("/dev/dri") || cfg!(windows),
         "gpu-cuda" => exists("/dev/nvidiactl") || exists("/dev/nvidia0"),
         _ => false,
@@ -174,6 +214,7 @@ pub const CPU: Backend = Backend {
     device: DeviceClass::Cpu,
     display: "通用 CPU",
     priority: 0,
+    ep: Some("CPUExecutionProvider"),
 };
 
 /// 推理结果的元信息 — 输出里必带, 便于排障与跨设备公平比较
@@ -295,11 +336,32 @@ mod tests {
             "npu-qnn",
             "npu-vip9000",
             "npu-webnn",
+            "npu-cann",
             "gpu-vulkan",
             "gpu-metal",
             "gpu-cuda",
+            "gpu-directml",
+            "gpu-webgpu",
         ] {
             assert!(ids.contains(&want), "缺少 {want}");
+        }
+    }
+
+    /// 没有上游 ORT EP 的后端必须显式标 None, 别让调用方瞎猜该接哪个 EP
+    #[test]
+    fn backends_without_upstream_ep_are_explicitly_none() {
+        for id in ["npu-vip9000", "npu-webnn", "gpu-vulkan"] {
+            let b = catalog().iter().find(|b| b.id == id).unwrap();
+            assert_eq!(b.ep, None, "{id} 应显式标记无上游 EP");
+        }
+        // 有 EP 的至少要能对得上号 (拼写错误的 EP 名字会让注册静默失败)
+        for id in ["cpu", "npu-nnapi", "npu-coreml", "gpu-cuda", "gpu-directml"] {
+            let b = catalog().iter().find(|b| b.id == id).unwrap();
+            assert!(
+                b.ep.is_some_and(|e| e.ends_with("ExecutionProvider")),
+                "{id} 的 EP 名不合约定: {:?}",
+                b.ep
+            );
         }
     }
 }

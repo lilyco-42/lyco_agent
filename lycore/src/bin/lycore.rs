@@ -513,13 +513,19 @@ fn cmd_backend(args: &[String]) -> i32 {
         DeviceClass::Npu => "NPU",
     };
     println!("本机可用后端 ({} 个, 优先级降序):", avail.len());
+    println!(
+        "  {:<14} {:<4} {:<5} ORT EP",
+        "ID", "类", "优先级",
+    );
     for b in &avail {
+        let ep = b.ep.unwrap_or("—");
         println!(
-            "  {:<14} {:<4} P{:<3} {}",
+            "  {:<14} {:<4} P{:<3} {:<38} {}",
             b.id,
             class_name(b.device),
             b.priority,
-            b.display
+            b.display,
+            ep
         );
     }
     println!("\n本次解析 → {} ({})", chosen.id, chosen.display);

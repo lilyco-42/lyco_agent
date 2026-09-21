@@ -790,7 +790,7 @@ fn cmd_tools(args: &[String]) -> i32 {
 ///   lycore help-parse --cli jq --help-text h.txt
 ///   lycore help-parse --cli cargo --top 8 --json
 fn cmd_help_parse(args: &[String]) -> i32 {
-    use lycore::help_parse::{parse_help, rank_by_frequency, readonly_only, render_schema};
+    use lycore::help_parse::{parse_help, rank_by_frequency, readonly_only};
 
     let Some(cli) = flag(args, "--cli") else {
         eprintln!("用法: lycore help-parse --cli <name> [--help-text <file>] [--top N] [--json]");
@@ -920,7 +920,13 @@ fn cmd_help_parse(args: &[String]) -> i32 {
             }
         }
         println!("\n--- 注入用 schema（形态与人工 schema 一致）---");
-        println!("{}", render_schema(&cli, &acts, top));
+        // ⚠️ v19b：与 router::help_aware_schema 用同一个渲染入口。
+        // 薄 help（动作 <15 且原文 ≤4KB）会自动追加原文兜底 —— 若这里用裸
+        // render_schema，本命令就**看不到生产实际注入的内容**，调试时会被误导。
+        println!(
+            "{}",
+            lycore::help_parse::render_schema_with_raw_fallback(&cli, &acts, &raw, top)
+        );
     }
     0
 }

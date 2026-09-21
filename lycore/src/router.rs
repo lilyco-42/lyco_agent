@@ -349,8 +349,19 @@ pub fn grab_help(cli: &str) -> Option<String> {
 ///
 /// 返回 `None` 表示「接不进来」（CLI 不存在 / 取不到 help / 解析为空），
 /// 调用方应落回既有的「出域泛用优先三层」。
+/// ⚠️ v19b：这里必须用 `render_schema_with_raw_fallback`，**不是** `render_schema`。
+///
+/// 起因（一次真实的自查发现）：v19 我把 `render_schema_with_raw_fallback` 写出来了、
+/// 也给它写了单测，但**两个真实调用点都还在调 `render_schema`** ——
+/// 单测全绿而生产行为零变化，是典型的「测试了但没接线」。
+///
+/// 现场证据：`lycore help-parse --cli git` 的注入段里**没有** help 原文，
+/// 而 git 恰好是薄 help（只读 8 条 < 阈值 15，原文 2.3KB < 4KB）——
+/// 正是这个方法唯一要救的那一档（v19 D 档回归）。
 pub fn help_aware_schema(nl: &str, top_n: usize) -> Option<HelpAware> {
-    use crate::help_parse::{parse_help, rank_by_frequency, readonly_only, render_schema};
+    use crate::help_parse::{
+        parse_help, rank_by_frequency, readonly_only, render_schema_with_raw_fallback,
+    };
 
     let cli = guess_cli(nl)?;
     let raw = grab_help(&cli)?;
@@ -367,7 +378,7 @@ pub fn help_aware_schema(nl: &str, top_n: usize) -> Option<HelpAware> {
         help_len: raw.len(),
         parsed: parsed.len(),
         readonly: acts.len(),
-        schema: render_schema(&cli, &acts, top_n),
+        schema: render_schema_with_raw_fallback(&cli, &acts, &raw, top_n),
     })
 }
 
@@ -407,6 +418,38 @@ mod tests {
     #[test]
     fn help_aware_schema_returns_none_for_unknown_cli() {
         assert!(help_aware_schema("用 zznotacli 干点活", 8).is_none());
+    }
+
+    /// 🔴 v19b 防回归：**薄 help 必须走到原文兜底**（这次是漏接线，不是漏实现）。
+    ///
+    /// 现场：v19 写出了 `render_schema_with_raw_fallback` 并配了单测，
+    /// 但本函数的调用点仍写 `render_schema` → 单测全绿、生产行为零变化。
+    /// `lycore help-parse --cli git` 打出的注入段里没有 help 原文，
+    /// 而 git 恰是薄 help（只读 8 条 < 15，原文 2.3KB < 4KB），
+    /// 正是该方法唯一要救的那一档（v19 D 档：git hparse 87.5 < 裸 help 100.0）。
+    ///
+    /// 本测试断言的是**接线**而非实现：若有人把调用点改回 `render_schema`，它必红。
+    #[test]
+    fn thin_cli_schema_actually_inlines_raw_help() {
+        use crate::help_parse::{parse_help, rank_by_frequency, readonly_only};
+
+        // 造一段「薄 help」：2 条动作、原文短 → 两个条件同时满足
+        let raw = "\
+usage: demo [cmd]
+
+   alpha    Show alpha things
+   beta     Show beta things
+";
+        let acts = rank_by_frequency(&readonly_only(&parse_help("demo", raw)));
+        assert!(acts.len() < 15, "样本应为薄 help，实得 {} 条", acts.len());
+
+        // 直接断言渲染入口的行为（= help_aware_schema 内部用的那一个）
+        let schema = crate::help_parse::render_schema_with_raw_fallback("demo", &acts, raw, 8);
+        assert!(
+            schema.contains("原始输出"),
+            "薄 help 未走原文兜底 —— 检查 router::help_aware_schema 的调用点:\n{schema}"
+        );
+        assert!(schema.contains("不是额外的命令"), "未声明类别:\n{schema}");
     }
 
     /// 回放后端: 不加载模型, 直接返回预设输出 (本机单测绝不跑真模型)

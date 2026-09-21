@@ -204,6 +204,104 @@ fn split_line(line: &str) -> Option<(String, String)> {
     None
 }
 
+/// ── 版式 G：**描述在下一行**（clap long-help）──────────────────────────
+///
+/// ## 为什么需要它（oha 实测出来的，见 docs/eval-pool-expansion-2026-09-21.md）
+///
+/// `clap` 4.x derive 在描述较长时会**自动换成下面这种排版**（无需任何特殊写法）：
+///
+/// ```text
+/// Options:
+///   -n <N_REQUESTS>
+///           Number of requests to run. Accepts plain numbers or suffixes: ...
+///   -c <N_CONNECTIONS>
+///           Number of connections to run concurrently. ...
+/// ```
+///
+/// flag 名与描述**被换行分开**，而 `split_line` 的判据是「同一行内 2+ 空格分隔」
+/// → 切不出 `(cand, desc)` → 返回 `None` → **整条 CLI 解析出 0 条动作**。
+///
+/// 实测：`oha --help` 有 14 个 flag 行、其中 **0 个**同行带描述 →
+/// `parse_help` 与 flag 回退（`parse_flags_as_actions` 同样依赖 `split_line`）
+/// **双双失效**，注入集为空、CLI 完全不可用。
+///
+/// ⚠️ **这是池子的结构性盲区，不是 oha 的特例**：现有 7 个 CLI
+/// （docker/git/cargo/npm/kubectl/jq/curl）**没有一个**是这种版式 ——
+/// 因为池子是按「我手上有哪些样本」攒的，而攒的人一直用同一类 CLI。
+/// **clap 是 Rust 生态事实标准，未来新 CLI 有极大比例是它生成的。**
+///
+/// ## 合并规则（确定性，非调参）
+///
+/// 把「本行只有一个候选词」+「后续缩进更深的行」合并成一条动作。
+/// 三个否决条件（防误吞，依据 v18d 血训：附加文本会被读成命令）：
+/// 1. 下一行是**段落标题**（`Usage:` / `or:` / `Arguments:` / `Options:` / …）→ 不合并
+/// 2. 本行候选词是**纯占位符**（`<N_REQUESTS>`）或**裸 flag 名**（`-n`）→ 不合并
+/// 3. 下一行**缩进不深于**本行 → 不是它的描述，不合并
+fn split_line_multiline(lines: &[&str], i: usize) -> Option<(String, String)> {
+    let line = lines.get(i)?;
+    let t = line.trim_start();
+    if t.is_empty() {
+        return None;
+    }
+    // 条件 A：本行必须**没有**同行描述（否则正常路径已处理）
+    if split_line(line).is_some() {
+        return None;
+    }
+    // 条件 B：本行必须是「1~2 个 token」的候选词
+    //   `-n`                 → 1 token（短 flag 单独一行）
+    //   `-n <N_REQUESTS>`    → 2 token（flag + 参数名）
+    //   `--worker-threads <N>` → 2 token
+    //   3+ token → 更像段落续行，不是动作行
+    let cand = t.trim();
+    let ntok = cand.split_whitespace().count();
+    if !(1..=2).contains(&ntok) {
+        return None;
+    }
+    let indent = line.len() - t.len();
+
+    // 条件 C：向下收集缩进更深的行作为描述，遇到空行/同等缩进即停
+    let mut desc = String::new();
+    for nxt in lines.iter().skip(i + 1) {
+        let nt = nxt.trim_start();
+        if nt.is_empty() {
+            break; // 空行 = 段落结束
+        }
+        let nind = nxt.len() - nt.len();
+        if nind <= indent {
+            break; // 缩进不更深 → 不是本行的描述
+        }
+        // 条件 D：描述首行若是段落标题 → 本行其实没有描述（是段落本身）
+        if desc.is_empty() && is_section_header(nt) {
+            return None;
+        }
+        if !desc.is_empty() {
+            desc.push(' ');
+        }
+        desc.push_str(nt);
+    }
+    if desc.is_empty() {
+        return None;
+    }
+    Some((cand.to_string(), desc))
+}
+
+/// 段落标题判定 —— 出现在候选行「下一行」时说明本行没有自己的描述。
+///
+/// 覆盖实测见到的形态：clap（`Usage:` / `Arguments:` / `Options:`）、
+/// git（`or:`）、以及常见的中文/大写标题。
+fn is_section_header(s: &str) -> bool {
+    const HEADS: &[&str] = &[
+        "Usage:", "usage:", "Arguments:", "Options:", "Commands:", "Global Options:",
+        "or:", "Aliases:", "Examples:", "Commands", "OPTIONS", "ARGS",
+    ];
+    if HEADS.iter().any(|h| s.starts_with(h)) {
+        return true;
+    }
+    // 纯大写单词 + 冒号（`FLAGS:` / `SUBCOMMANDS:`）
+    matches!(s.find(':'), Some(p) if p > 0
+        && s[..p].chars().all(|c| c.is_ascii_uppercase() || c == ' '))
+}
+
 /// 判断一个候选片段是否像「子命令」而非「flag 列表 / 段落标题」
 fn looks_like_subcommand(cli: &str, cand: &str) -> bool {
     let c = cand.trim();
@@ -325,8 +423,10 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
 
     // 0. **必须先剥 ANSI** —— cargo 带颜色码，不剥则命令名被转义序列污染
     let clean = strip_ansi(raw);
+    let lines: Vec<&str> = clean.lines().collect();
 
-    for line in clean.lines() {
+    for (idx, line) in lines.iter().enumerate() {
+        let line = *line;
         // ── 版式 B：节标题式（cargo）：`cargo-build        编译当前包` ──
         let trimmed = line.trim_start();
         if trimmed.starts_with(&section_prefix) {
@@ -349,6 +449,17 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
 
         // ── 版式 A/C：缩进式与前缀式 ──
         let Some((cand, desc)) = split_line(line) else {
+            // ── 版式 G：描述在下一行（clap long-help，oha 实测）──
+            //     必须放在逗号列表**之前**：clap 的行形如 `  -n <N_REQUESTS>`
+            //     没有逗号，不会与 npm 的逗号列表路径冲突。
+            if let Some((c, d)) = split_line_multiline(&lines, idx) {
+                if looks_like_subcommand(cli, &c) {
+                    push_unique(&mut out, &mut seen, cli, format!("{cli} {}", normalize_alias(&c)), d);
+                }
+                // 即使不是子命令（是 flag），也**必须** continue：
+                // 否则会落进下面的逗号列表路径，把 flag 参数名当命令。
+                continue;
+            }
             // ── 版式 E：逗号列表（npm 的 `All commands:` 段靠这个捕获）──
             for a in parse_comma_list(cli, line, &mut seen) {
                 out.push(a);
@@ -823,8 +934,13 @@ pub fn synonym_hint(cli: &str) -> Option<&'static str> {
 fn parse_flags_as_actions(cli: &str, raw: &str) -> Vec<HelpAction> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for line in raw.lines() {
-        let Some((cand, desc)) = split_line(line) else {
+    let lines: Vec<&str> = raw.lines().collect();
+    for (idx, line) in lines.iter().enumerate() {
+        // 版式 A（同行描述）优先；失败则试版式 G（描述在下一行，clap long-help）。
+        // ⚠️ oha 实测：这段回退原先只认 split_line，于是 clap 版式的 CLI
+        //    「子命令路径 0 条 + flag 回退 0 条」→ 整条 CLI 完全不可用。
+        let pair = split_line(line).or_else(|| split_line_multiline(&lines, idx));
+        let Some((cand, desc)) = pair else {
             continue;
         };
         // 找到形如 `--long-name` 的长选项
@@ -1232,8 +1348,72 @@ Usage:  jq [options...] filter [files...]
         }
     }
 
-    /// 常用度重排：常用的 logs/stats 必须排在 bake/pull 之前
+    /// 🔴 版式 G：**描述在下一行**（clap long-help）→ 必须能解析。
+    ///
+    /// 现场：`oha` 是 clap 4.x derive 生成，描述较长时 clap 自动换成
+    /// 「flag 名单独一行、描述缩进到下一行」的排版。修前 `oha` 解析出 **0 条**
+    /// （子命令路径与 flag 回退**双双依赖 split_line**）→ CLI 完全不可用。
+    ///
+    /// 这是**池子的结构性盲区**：现有 7 个 CLI 没有一个这种版式，
+    /// 而 clap 是 Rust 生态事实标准 → 不修则「对未知 CLI 泛化」在 Rust 生态归零。
     #[test]
+    fn clap_long_help_description_on_next_line_is_parsed() {
+        let raw = "\
+Ohayou, HTTP load generator, inspired by rakyll/hey with tui animation.
+
+Usage: oha [OPTIONS] [URL]
+
+Arguments:
+  [URL]  Target URL or file with multiple URLs.
+
+Options:
+  -n <N_REQUESTS>
+          Number of requests to run. Accepts plain numbers or suffixes.
+  -c <N_CONNECTIONS>
+          Number of connections to run concurrently.
+      --no-tui
+          No realtime tui
+      --latency-correction
+          Correct latency to avoid coordinated omission problem.
+";
+        let acts = parse_help("oha", raw);
+        assert!(!acts.is_empty(), "clap long-help 解析为空 → CLI 完全不可用");
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        // 描述必须被接上（不是空串）
+        let no_tui = acts.iter().find(|a| a.full_cmd == "oha --no-tui");
+        let Some(no_tui) = no_tui else {
+            panic!("未抽出 --no-tui, got={cmds:?}");
+        };
+        assert!(
+            no_tui.desc.contains("No realtime tui"),
+            "描述未从下一行接上: {:?}",
+            no_tui.desc
+        );
+        // 段落标题不得被当成动作（`Arguments:` 后面是 `[URL]` 占位符）
+        for c in &cmds {
+            assert!(!c.contains("Arguments"), "段落标题被当成命令: {c}");
+            assert!(!c.starts_with("oha Usage"), "usage 行被当成命令: {c}");
+        }
+    }
+
+    /// v19b 反向：**同行描述**（版式 A）不得被多行合并路径重复处理 / 串味。
+    #[test]
+    fn same_line_style_is_untouched_by_multiline_path() {
+        let raw = "\
+Usage: docker [OPTIONS] COMMAND
+
+Options:
+  -d, --debug        Enable debug mode
+";
+        let acts = parse_help("docker", raw);
+        let dbg = acts
+            .iter()
+            .find(|a| a.full_cmd.contains("debug"))
+            .expect("未抽出 debug flag");
+        assert_eq!(dbg.desc, "Enable debug mode", "同行描述被串改: {:?}", dbg.desc);
+    }
+
+    /// 常用度重排：常用的 logs/stats 必须排在 bake/pull 之前    #[test]
     fn frequency_ranking_promotes_common_actions() {
         let raw = "\
 Commands:

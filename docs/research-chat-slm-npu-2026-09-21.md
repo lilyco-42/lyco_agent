@@ -207,7 +207,33 @@ V100 上 0.6B 全量微调的**显存主要被 CE 的 fp32 logits 吃掉**（`BS
 | 样本 | **17,896 条 / 9.30M tokens** |
 | 耗时 | **32m19s**（1119 步，1.50 s/step，5528 tok/s） |
 | train_loss | **1.2300** |
-| 产出 | `/workspace/chat_slm_qwen3_0p6b` → GGUF Q4_K_M |
+| HF 产出 | `/workspace/chat_slm_qwen3_0p6b`（fp32 权重 + HF config/tokenizer） |
+| GGUF f16 | `/root/chat_slm_qwen3_0p6b-f16.gguf` — **1509.3 MB** |
+| **GGUF Q4_K_M** | **`/root/chat_slm_qwen3_0p6b-Q4_K_M.gguf` — 484.2 MB**（`ftype: Q4_K - Medium`） |
+| 可用性闸门 | `llama-cli --single-turn` **rc=0**，吐出中文回答（见 4.5.1） |
+
+#### 4.5.1 GGUF 闸门实测
+
+```console
+$ llama-cli -m /root/chat_slm_qwen3_0p6b-Q4_K_M.gguf --single-turn ...
+model      : /root/chat_slm_qwen3_0p6b-Q4_K_M.gguf
+ftype      : Q4_K - Medium
+> <|im_start|>user
+你好，介绍一下你自己<|im_end|>
+<|im_start|>assistant
+你好，我是AI语言模型，我可以通过对话来回答你的问题。
+[ Prompt: 28.3 t/s | Generation: 3.9 t/s ]
+```
+
+两点必须记牢：
+
+1. **`llama-cli` 无参数会进交互模式导致 TIMEOUT**，`-no-cnv` 是无效 flag（rc=1），
+   正确的是 **`--single-turn`**。
+2. 上面的 `3.9 t/s` 是**远端 V100 容器 + CPU 受限环境**的读数，**不代表 A7A 性能**；
+   A7A 实测仍待补（4.8 第 4 条）。
+
+导出链路沿用 v13：`/root/llama.cpp/convert_hf_to_gguf.py` → `build/bin/llama-quantize Q4_K_M`，
+并照旧做了 `tokenizer_config` 里 `extra_special_tokens` **list→dict 归一化**（v4/v13 同款坑）。
 
 数据源实测分布（token 数占比更能反映真实算力去向）：
 
@@ -259,6 +285,27 @@ step 1100  loss 1.341  grad_norm 18.7
 2. **补 YAML 以外**：情感陪伴类数据（当前最弱项）。
 3. 2~3 epoch（这次只 1 epoch）+ LR 稍降。
 4. A7A 上真实跑一遍 GGUF Q4_K_M 测 tok/s（对比既有 Qwen3-0.6B-Q4_K_M 的 22.4 t/s 基线）。
+
+### 4.9 本次交付状态
+
+| 环节 | 状态 |
+|---|---|
+| HF 底座调研 + 选型 | ✅ 见 §二（Qwen3-0.6B / Apache-2.0） |
+| 安卓 NPU 路径（ORT QNN EP） | ✅ 见 §3.1（Snapdragon 8 Elite 官方 115 tok/s） |
+| A7A NPU 路径判定 | ✅ 见 §3.2（**先别赌 NPU 跑 LLM**，CPU 22.4 t/s 已验证，NPU 留给视觉/语音） |
+| GPU 训练 | ✅ 32m19s / 17,896 条 / loss 1.2300 |
+| GGUF 导出 + 闸门 | ✅ f16 1509.3MB + Q4_K_M 484.2MB，`llama-cli --single-turn` rc=0 |
+| HF 上传 Q4_K_M | ⏳ 未做（本机 `HF_TOKEN` 是 role read，需 `HF_WRITE_TOKEN`） |
+| A7A / 手机真机实测 | ⏳ 未做（模型在远端 `/root/`，待下载） |
+
+拿到 GGUF 后在 A7A 上的验证命令（沿用既有 CPU 最优配置）：
+
+```bash
+# 远端：/root/chat_slm_qwen3_0p6b-Q4_K_M.gguf  → 板子 ~/models/
+taskset -c 6,7 ./llama-cli -m ~/models/chat_slm_qwen3_0p6b-Q4_K_M.gguf \
+  -t 2 --single-turn -p '你好，介绍一下你自己'
+# 对照基线：原版 Qwen3-0.6B-Q4_K_M 同配置 = 22.4 t/s
+```
 
 ---
 

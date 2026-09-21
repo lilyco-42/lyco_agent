@@ -126,19 +126,18 @@ const RULES: &[(&str, &str, &[&str], &[&str])] = &[
     ("apt", "install", &["<pkg>"], &["-y", "--yes"]),
     ("apt-get", "install", &["<pkg>"], &["-y", "--yes"]),
     ("go", "get", &["<pkg>"], &[]),
-    // git：需要对象的写操作
-    ("git", "remote", &["<name>", "<url>"], &[]),
-    ("git", "checkout", &["<branch>"], &["-b", "-B", "-"]),
+    // git：需要对象的写操作（两级动词用 "a b" 形式）
+    ("git", "remote add", &["<name>", "<url>"], &[]),
+    ("git", "checkout", &["<branch>"], &["-b", "-B"]),
     ("git", "branch", &["<branch>"], &["-a", "-r", "-d", "-D", "-m", "-l", "--list", "-v"]),
     ("git", "clone", &["<repo>"], &[]),
     ("git", "tag", &["<tag>"], &["-l", "--list", "-d"]),
-    ("git", "stash", &["<subcmd>"], &["list", "show", "pop", "apply", "drop", "clear", "push"]),
     // 容器：跑容器必须说跑什么镜像
     ("docker", "run", &["<image>"], &["-i", "--interactive"]),
     ("docker", "pull", &["<image>"], &[]),
     ("docker", "push", &["<image>"], &[]),
     ("docker", "exec", &["<container>", "<cmd>"], &["-i", "-t", "-it"]),
-    ("docker", "build", &["<context>"], &["-t", "--tag", "."]),
+    ("docker", "build", &["<context>"], &["-t", "--tag"]),
     ("kubectl", "exec", &["<pod>"], &["-i", "-t", "-it"]),
     // 网络：请求必须有目标
     ("curl", "", &["<url>"], &["-V", "--version", "-h", "--help"]),
@@ -181,32 +180,47 @@ pub fn check(raw_cmd: &str) -> ParamCheck {
         return ParamCheck::unchecked("");
     };
     let prog = prog_raw.to_ascii_lowercase();
-    // 跳过 env 前缀（`sudo npm install` / `FOO=1 cmd`）—— 简化处理：取第一个已知程序
-    let (prog, verb_idx) = match prog.as_str() {
+    // 跳过 env 前缀（`sudo npm install` / `FOO=1 cmd`）。
+    // `cmd_idx` = 真程序名在 tokens 里的下标；动词紧随其后。
+    let (prog, cmd_idx) = match prog.as_str() {
         "sudo" | "env" | "time" | "nohup" => {
             match tokens.get(1) {
-                Some(t) => (t.to_ascii_lowercase(), 2),
+                Some(t) => (t.to_ascii_lowercase(), 1),
                 None => return ParamCheck::unchecked(&prog),
             }
         }
-        _ => (prog, 1),
+        _ => (prog, 0),
     };
+    let verb_idx = cmd_idx + 1;
 
-    // 匹配规则：程序名 + 动词。动词为 "" 的规则只匹配程序名。
+    // 匹配规则：程序名 + 动词。动词可含多词（`git remote add`）；动词为 "" 时只匹配程序名。
     let rule = RULES.iter().find(|(p, v, _, _)| {
-        *p == prog
-            && (v.is_empty()
-                || tokens
-                    .get(verb_idx)
-                    .is_some_and(|t| t.eq_ignore_ascii_case(v)))
+        if *p != prog {
+            return false;
+        }
+        if v.is_empty() {
+            return true;
+        }
+        let words: Vec<&str> = v.split_whitespace().collect();
+        words.iter().enumerate().all(|(i, w)| {
+            tokens
+                .get(verb_idx + i)
+                .is_some_and(|t| t.eq_ignore_ascii_case(w))
+        })
     });
     let Some((_, verb, slots, exempt)) = rule else {
         return ParamCheck::unchecked(&prog);
     };
     let verb_label = if verb.is_empty() { prog.as_str() } else { verb };
 
-    // 统计「剩余实参」：跳过程序名、动词、flag、以及 flag 的值
-    let start = if verb.is_empty() { 1 + (verb_idx - 1) } else { verb_idx + 1 };
+    // 统计「剩余实参」：从动词之后开始，跳过 flag、以及 flag 的值。
+    // ⚠️ 动词可含多词（`git remote add`）→ 按空格数推进起始下标。
+    let verb_words = if verb.is_empty() {
+        0
+    } else {
+        verb.split_whitespace().count()
+    };
+    let start = verb_idx + verb_words;
     let mut operands: Vec<&str> = Vec::new();
     let mut skip_next = false;
     for t in tokens.iter().skip(start) {
@@ -216,10 +230,8 @@ pub fn check(raw_cmd: &str) -> ParamCheck {
             continue;
         }
         if is_flag(t_trim) {
-            // 豁免 flag（如 `npm install -g`）→ 不视为缺参，且不吃值
-            if exempt.contains(&t_trim) {
-                continue;
-            }
+            // ⚠️ 豁免 flag 若**会吃值**（`cargo add --git <url>` / `docker build -t <tag>`），
+            // 仍须吞掉它的值 —— 否则 tag/url 会被误算成 operand，导致缺参漏判。
             if takes_value(t_trim) {
                 skip_next = true;
             }
@@ -228,8 +240,19 @@ pub fn check(raw_cmd: &str) -> ParamCheck {
         operands.push(t_trim);
     }
 
-    // 豁免场景：整条命令只由豁免 flag 构成（如 `npm install -g` 仍缺包名 → 不豁免）
-    // 真豁免 = 程序级信息类调用（curl --version / ffmpeg -version）
+    // 信息类调用豁免：**仅对「动词为空」的程序生效**（`curl --version` / `ffmpeg -h`）。
+    // 判定方式：命令的参数部分**只由豁免 flag 构成**。
+    // ⚠️ 有动词的命令（`git checkout -b`）不适用 —— 那是**flag 缺值**，必须报缺参。
+    let only_exempt_flags = verb.is_empty()
+        && tokens.iter().skip(start).any(|t| !t.is_empty())
+        && tokens
+            .iter()
+            .skip(start)
+            .all(|t| exempt.contains(&t.trim_matches(|c| c == '"' || c == '\'')));
+    if only_exempt_flags {
+        return ParamCheck::ok(verb_label);
+    }
+
     if operands.is_empty() {
         return ParamCheck::missing(verb_label, slots);
     }
@@ -282,7 +305,7 @@ mod tests {
             "ffmpeg -i in.mp4 out.mp4",
         ] {
             let c = check(c);
-            assert_ne!(c.status, Status::NeedsParam, "{c} 不该判缺参: {c:?}");
+            assert_ne!(c.status, Status::NeedsParam, "{c:?} 不该判缺参");
         }
     }
 
@@ -383,13 +406,15 @@ mod tests {
         assert_eq!(check("sudo apt install nginx").status, Status::Ok);
     }
 
-    /// 信息类调用不算缺参（curl --version 是合法命令）
+    /// 信息类调用不算缺参（`curl --version` / `ffmpeg -h` 是合法命令）
     #[test]
     fn informational_flags_are_exempt() {
-        // curl 的 -V/--version/-h/--help 是豁免 flag → 无 operand → 仍判缺参
-        // 这是**已知限制**：本模块宁可让 `curl --version` 报缺参（无害，用户看得懂）
-        // 也不冒险放过 `curl`（真缺 URL）。用注释锁死这个取舍。
-        let c = check("curl --version");
-        assert_eq!(c.status, Status::NeedsParam, "当前保守策略: {c:?}");
+        for c in ["curl --version", "curl -V", "ffmpeg -version", "ffmpeg -h", "wget -V"] {
+            let r = check(c);
+            assert_ne!(r.status, Status::NeedsParam, "{c} 是合法信息调用, 不该判缺参: {r:?}");
+        }
+        // 但没有目标 URL 的裸 `curl` 仍必须判缺参
+        assert!(needs_param("curl"));
+        assert!(needs_param("curl -s"));
     }
 }

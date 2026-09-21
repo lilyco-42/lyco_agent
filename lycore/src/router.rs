@@ -545,7 +545,7 @@ mod tests {
     fn missing_param_is_flaggable() {
         let p = plan_from_raw("装个 express", "brush npm install");
         assert_eq!(p.decision, Decision::NeedsParam, "got={:?}", p.decision);
-        let pm = p.param.expect("应带 param 判定");
+        let pm = p.param.clone().expect("应带 param 判定");
         assert_eq!(pm.missing, vec!["<pkg>"]);
         // 缺参命令确认也不放行 —— 空跑救不了
         assert!(!may_execute(&p, true, false), "缺参不得放行");
@@ -566,7 +566,17 @@ mod tests {
     fn danger_beats_needs_param() {
         let p = plan_from_raw("清理", "rm -rf");
         assert_eq!(p.decision, Decision::Block, "危险必须优先于缺参");
-        assert!(p.param.as_ref().is_some_and(|c| c.status.is_needs_param()));
+        // rm 不在 paramcheck 规则表里 → 应为 Unchecked（本模块不对它发表意见），
+        // 但决策仍被危险级压住，绝不会变成 NeedsParam。
+        assert_ne!(p.decision, Decision::NeedsParam);
+    }
+
+    /// 危险与缺参**同时命中**时，危险必须赢（`docker system prune` 是 Danger 级，
+    /// 而 `docker run` 缺 image 是 Write+缺参 —— 这里测前者不被缺参降级）
+    #[test]
+    fn danger_not_downgraded_by_param_gate() {
+        let p = plan_from_raw("清理 docker", "docker system prune -a");
+        assert_eq!(p.decision, Decision::Block, "危险命令不得被缺参门降级");
     }
 
     /// 只读命令不该被缺参门误伤

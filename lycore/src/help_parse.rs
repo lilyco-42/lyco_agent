@@ -1407,4 +1407,19 @@ Commands:
             assert!(is_readonly(cmd), "{cmd} 应判为只读");
         }
     }
+
+    /// 「全量」语义：render_schema(usize::MAX) 必须等价于列出全部动作，
+    /// 且**不能**把 usize::MAX 印成 18446744073709551615（CLI 侧曾有该打印缺陷）。
+    #[test]
+    fn render_schema_with_usize_max_means_full() {
+        let raw = "Commands:\n  ps   List containers\n  images   List images\n  info   Display info\n";
+        let acts = readonly_only(&parse_help("docker", raw));
+        let full = render_schema("docker", &acts, usize::MAX);
+        let exact = render_schema("docker", &acts, acts.len());
+        assert_eq!(full, exact, "usize::MAX 应当等于全量渲染");
+        for a in &acts {
+            assert!(full.contains(&a.full_cmd), "全量渲染漏了 {}:\n{full}", a.full_cmd);
+        }
+        assert!(!full.contains("18446744073709551615"), "不得把 usize::MAX 印进 schema:\n{full}");
+    }
 }

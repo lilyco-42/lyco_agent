@@ -678,6 +678,9 @@ fn cmd_help_parse(args: &[String]) -> i32 {
         }
     }
 
+    // 「全量」在打印时不该显示成 usize::MAX（18446744073709551615）。
+    let shown = if top == usize::MAX { acts.len() } else { top };
+
     if json {
         let v = serde_json::json!({
             "cli": cli,
@@ -688,7 +691,7 @@ fn cmd_help_parse(args: &[String]) -> i32 {
         println!("{}", serde_json::to_string_pretty(&v).expect("序列化"));
     } else {
         println!(
-            "=== {cli}: 解析出 {} 条动作（只读 {} 条），展示前 {top} ===",
+            "=== {cli}: 解析出 {} 条动作（只读 {} 条），展示前 {shown} ===",
             all.len(),
             acts.len()
         );

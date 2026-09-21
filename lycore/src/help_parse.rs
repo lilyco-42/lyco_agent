@@ -372,7 +372,27 @@ fn is_section_header(s: &str) -> bool {
         && s[..p].chars().all(|c| c.is_ascii_uppercase() || c == ' '))
 }
 
-/// 判断一个候选片段是否像「子命令」而非「flag 列表 / 段落标题」
+/// 判断一个候选片段是否像「子命令」而非「flag 列表 / 段落标题 / **散文行**」
+///
+/// ## 🆕 v19e：**散文必须在这里被拦掉**（delta 血训）
+///
+/// `delta --help` 的 STYLES 说明段落里有这么一行：
+/// ```text
+///           ancestral commit and 'their' branch.  See STYLES section. The style
+/// ```
+/// 英文句末用**两个空格**是排版惯例 → `split_line` 于是把它切成
+/// `cand="ancestral commit and 'their' branch."` + `desc="See STYLES section..."`，
+/// 而 `is_subcommand_word("ancestral")` 为真 → **产出 `delta ancestral 'their'`**。
+///
+/// 后果**远不止一条垃圾命令**：`parse_help` 里 flag 回退的触发条件是
+/// `out.is_empty()`，这 1 条垃圾让 `out` 非空 → **flag 回退整个不执行**
+/// → delta 的 ~200 个真 flag（`--blame-code-style` 等）**一条都进不来**。
+/// 一条流沙堵死整条河。
+///
+/// 判据（两条，都很保守，只挡自然语言）：
+/// 1. **命令名不含句点**。真命令形如 `docker ps` / `cargo build [OPTIONS]`，
+///    句点只出现在**句子结尾** —— 这是散文最强的指纹。
+/// 2. **词数 ≤ 4**。子命令 + 别名 + 参数语法不会超过 4 个 token。
 fn looks_like_subcommand(cli: &str, cand: &str) -> bool {
     let c = cand.trim();
     if c.is_empty() {
@@ -380,6 +400,22 @@ fn looks_like_subcommand(cli: &str, cand: &str) -> bool {
     }
     // 纯 flag（-x / --long）不算子命令
     if c.starts_with('-') {
+        return false;
+    }
+    // ── v19e 散文守卫（顺序很重要：必须**早于**任何肯定判断）──
+    // (1) 含句点 → 是句子不是命令（`ancestral commit and 'their' branch.`）
+    //
+    //     ⚠️ 例外：**省略号 `...`** 是变长参数的标准写法（`run [ARGS]...` /
+    //     `add <DEP>...`），它不是句点。所以先把 `...`/`..` 抹掉再判——
+    //     只有「去掉省略号后仍有孤立句点」才认定是散文句子。
+    //     实测漏这一条会让 `cargo run [OPTIONS] [ARGS]...` 整条丢失。
+    let no_ellipsis = c.replace("...", "").replace("..", "");
+    if no_ellipsis.contains('.') {
+        return false;
+    }
+    // (2) 词数过多 → 是散文不是命令
+    let n_words = c.split_whitespace().count();
+    if n_words > 4 {
         return false;
     }
     // 形如 `cli-sub` 的节标题（cargo 版式）在调用侧另行处理
@@ -495,8 +531,34 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
     let clean = strip_ansi(raw);
     let lines: Vec<&str> = clean.lines().collect();
 
+    // 引导语追踪（v19e）：逗号列表必须由「含 command 类词的 `:` 结尾行」背书。
+    //
+    // ⚠️ **必须是粘性的，不能限回溯行数**：npm 的 `All commands:` 列表长达
+    //    ~13 行，早先写死「只回溯 8 行」→ 列尾的 version/update/start/stop
+    //    team/token/uninstall/unpublish/unstar/search/set/shrinkwrap/star
+    //    **14 条真子命令被判为无背书而丢弃**（68 → 54）。
+    //    列表长度因 CLI 而异，任何固定窗口都会在某个 CLI 上过头或不足。
+    //
+    // 状态机（每轮先更新，再给 parse_comma_list 用）：
+    //   · 空行            → 保持（引导语与列表之间通常隔一个空行）
+    //   · 逗号列表行      → 保持（列表续行）
+    //   · `:` 结尾且含 command 词 → 设为新的引导语
+    //   · 其它行          → 清空（离开列表区）
+    let mut last_lead: Option<&str> = None;
+
     for (idx, line) in lines.iter().enumerate() {
         let line = *line;
+        // ── 引导语状态推进（必须**先于**本行的解析，见上方状态机注释）──
+        let leadline = line.trim();
+        if leadline.is_empty() {
+            // 空行：保持
+        } else if is_comma_list_line(line) {
+            // 列表续行：保持
+        } else if leadline.ends_with(':') && lead_has_command_word(leadline) {
+            last_lead = Some(leadline);
+        } else {
+            last_lead = None;
+        }
         // ── 版式 B：节标题式（cargo）：`cargo-build        编译当前包` ──
         let trimmed = line.trim_start();
         if trimmed.starts_with(&section_prefix) {
@@ -531,7 +593,7 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
                 continue;
             }
             // ── 版式 E：逗号列表（npm 的 `All commands:` 段靠这个捕获）──
-            for a in parse_comma_list(cli, line, &mut seen) {
+            for a in parse_comma_list(cli, line, last_lead, &mut seen) {
                 out.push(a);
             }
             continue;
@@ -609,6 +671,28 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
     out
 }
 
+/// 引导语里是否含「命令类」词汇 —— `All commands:` 是，`In addition, all of
+/// them have a bright form:` 不是（delta STYLES 段据此拦下颜色枚举）。
+fn lead_has_command_word(lead: &str) -> bool {
+    let l = lead.to_ascii_lowercase();
+    const CMD_WORDS: &[&str] = &[
+        "command", "commands", "subcommand", "subcommands", "可用命令", "子命令",
+    ];
+    CMD_WORDS.iter().any(|w| l.contains(w))
+}
+
+/// 这一行本身是不是「逗号分隔的单词清单」（不含内置从句）× —— 只做形状判断，
+/// 不涉及它是不是命令清单（那由引导语决定）。
+fn is_comma_list_line(line: &str) -> bool {
+    let t = line.trim();
+    let n_comma = t.matches(',').count();
+    if n_comma == 0 || (!t.ends_with(',') && n_comma < 2) {
+        return false;
+    }
+    let toks: Vec<&str> = t.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    toks.len() >= 3 && toks.iter().all(|w| is_subcommand_word(w))
+}
+
 /// 版式 E：逗号列表 —— `npm --help` 的 `All commands:` 段。
 ///
 /// 形如（跨多行、逗号分隔、无说明）：
@@ -621,31 +705,68 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
 /// 必须支持，否则 npm 这类 CLI 只能解析出 help 顶部那几行语法示例
 /// （v17c 实测：npm `--help` 在 Linux 上仍能解析，但动作表严重残缺）。
 ///
-/// 约束（防止把散文逗号句当成命令表）：
-/// - 行内**没有**说明列（split_line 已失败）
-/// - 行内 token 全部是 `[a-z0-9-]` 且≥2 字符，或纯逗号
-/// - 至少 3 个 token（单个逗号句不算）
+/// ## 🔴 「缩进阈值」是错的方向（v19e 血训）
+///
+/// 这里曾经用「缩进 ≤6」来区分命令列表与值枚举，依据是：
+/// - npm 的 `All commands:` 列表缩进 0 ✅
+/// - bat 的 `--style <components>` 值枚举缩进 12 ❌
+///
+/// **但 delta 实测推翻了它**：delta 的 STYLES 散文段落里有一行
+/// ```text
+///      brightblack, brightred, brightgreen, brightyellow, brightblue,
+/// ```
+/// 缩进只有 **5** —— 过了阈值，产出 `delta brightblack` / `delta brightred` …
+/// **6 条垃圾命令**。
+///
+/// **教训：缩进阈值法必然两头漏**（bat 12 / delta 5 是同一种错误的两个缩进）。
+/// 绝对数值不是结构，**相对位置才是**。
+///
+/// ## 改用「引导语」判据（结构性，不依赖数值）
+///
+/// 一个逗号列表**是命令列表**，当且仅当它**跟在一个以 `:` 结尾的引导行之后**
+/// （中间允许空行）。这正是 help 的书写惯例：
+/// ```text
+/// All commands:            ← 引导语（以 : 结尾）
+///
+///     access, adduser, …   ← 列表
+/// ```
+/// 而 delta 的 `brightblack, …` 前面是 `In addition, all of them have a
+/// bright form:` —— **也是以 `:` 结尾**！所以单看引导语还不够。
+///
+/// ⇒ 再加**词法约束**：引导语必须像「声明一组命令」（含 command/commands/subcommands
+/// 之类词），否则判为值枚举/散文。
+///
+/// 约束（全部满足才认）：
+/// - 缩进 ≤6（保守上限，挡住深缩进的描述内枚举）
+/// - ≥3 个 token、每个都是合法子命令名
+/// - **前一行（跳过空行）是以 `:` 结尾的引导语**
+/// - 引导语含命令类词汇（`command` / `commands` / `subcommand` / `可用命令`）
 fn parse_comma_list(
     cli: &str,
     line: &str,
+    prev_lead: Option<&str>,
     seen: &mut std::collections::HashSet<String>,
 ) -> Vec<HelpAction> {
     let t = line.trim();
-    // 🆕 条件 0：**缩进必须浅**（≤6）—— 这是被 bat 实测逼出来的。
-    //
-    // npm 的形态（该路径的唯一正主）缩进 0：
-    //     All commands:
-    //       access, adduser, audit, ...
-    // 而 bat 的 `--style <components>` 的取值枚举缩进 12：
-    //                 changes, grid, header-filename, numbers, snip
-    // 两者都「≥2 个逗号 + 全是合法单词」，格式上无法区分 ——
-    // **但缩进能区分**：动作行在左，值枚举在描述的缩进层级里。
-    //
-    // 不拒的后果（实测）：bat 产出 `bat changes` / `bat grid` / `bat snip`
-    // 等 5 条**垃圾命令**，同时真参数 `--plain`/`--style`/`--language`
-    // 一条都没进来 → CLI 完全不可用。
+    // 条件 0：**缩进必须浅**（≤6）。这是**保守**上限（真正的判据是引导语），
+    // 作用只是挡住「深缩进描述块里的枚举」，不承担区分职责。
     let indent = line.len() - line.trim_start().len();
     if indent > 6 {
+        return Vec::new();
+    }
+    // 条件 1：**必须紧跟命令类引导语**（结构性判据，取代缩进阈值）。
+    //
+    // 这是被 delta 逼出来的：`brightblack, …` 的引导语也是 `:` 结尾，
+    // 但它说的是「颜色有亮色形式」，不是「命令有这些」。
+    // 用词法把两者分开 —— 前者含 'command'，后者不含。
+    let Some(lead) = prev_lead else {
+        return Vec::new();
+    };
+    let lead_l = lead.trim().to_ascii_lowercase();
+    const CMD_WORDS: &[&str] = &[
+        "command", "commands", "subcommand", "subcommands", "可用命令", "子命令",
+    ];
+    if !CMD_WORDS.iter().any(|w| lead_l.contains(w)) {
         return Vec::new();
     }
     // 必须以逗号结尾（列表续行）或含 ≥2 个逗号
@@ -1962,5 +2083,104 @@ Commands:
             assert!(full.contains(&a.full_cmd), "全量渲染漏了 {}:\n{full}", a.full_cmd);
         }
         assert!(!full.contains("18446744073709551615"), "不得把 usize::MAX 印进 schema:\n{full}");
+    }
+
+    /// v19e-1：**散文段落不得产出动作**。
+    ///
+    /// 英文句末用两个空格是排版惯例 → `split_line` 会把
+    /// `ancestral commit and 'their' branch.  See STYLES section.`
+    /// 切成 cand=`ancestral commit and 'their' branch.` + desc=`See STYLES…`。
+    /// 若不当场拦下，`is_subcommand_word("ancestral")` 为真 → 产出
+    /// `delta ancestral 'their'`，**并连锁导致 flag 回退（`out.is_empty()`）
+    /// 不触发 → delta 的 200 个真 flag 一条都进不来**。一条流沙堵死整条河。
+    #[test]
+    fn prose_paragraph_does_not_become_an_action() {
+        let raw = "\
+Options:
+  --blame-code-style <STYLE>
+          Style string for the code section of a git blame line.
+
+          This styles the decoration of the header above the diff between the
+          ancestral commit and 'their' branch.  See STYLES section. The style
+          string should contain one of the special attributes 'box', 'ul'
+";
+        let acts = parse_help("delta", raw);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        assert!(
+            !cmds.iter().any(|c| c.contains("ancestral")),
+            "散文被当成动作: {cmds:?}"
+        );
+        // 连锁验证：真 flag **必须**进得来（这是 out.is_empty() 的连锁效应）
+        assert!(
+            cmds.iter().any(|c| c.contains("--blame-code-style")),
+            "flag 回退被散文动作阻塞: {cmds:?}"
+        );
+    }
+
+    /// v19e-1b：省略号 `...` 是变长参数，**不是句子**（勿被句点守卫误杀）。
+    #[test]
+    fn ellipsis_is_not_a_sentence() {
+        let raw = "\
+Commands:
+  run [OPTIONS] [ARGS]...   Run a binary
+  add [OPTIONS] <DEP>...    Add dependencies
+";
+        let acts = parse_help("cargo", raw);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        assert!(
+            cmds.contains(&"cargo run [OPTIONS] [ARGS]..."),
+            "变长参数被句点守卫误杀: {cmds:?}"
+        );
+        assert!(cmds.iter().any(|c| c.starts_with("cargo add")), "add 丢失: {cmds:?}");
+    }
+
+    /// v19e-2：值枚举（缩进浅、无 command 引导语）不得产出命令。
+    ///
+    /// ⚠️ 早先用「缩进 ≤6」区分，被 delta 打穿：它的颜色枚举缩进只有 **5**。
+    /// 判据必须靠**引导语**（`All commands:`），不能靠缩进数值。
+    #[test]
+    fn value_enum_without_command_intro_is_not_commands() {
+        let raw = "\
+STYLES
+
+      There are 8 ANSI color names:
+     black, red, green, yellow, blue, magenta, cyan, white.
+
+     In addition, all of them have a bright form:
+     brightblack, brightred, brightgreen, brightyellow, brightblue,
+";
+        let acts = parse_help("delta", raw);
+        let cmds: Vec<String> = acts.iter().map(|a| a.full_cmd.clone()).collect();
+        for bad in ["brightblack", "brightred", "brightgreen"] {
+            assert!(
+                !cmds.iter().any(|c| c.contains(bad)),
+                "颜色枚举被当成命令: {bad} / {cmds:?}"
+            );
+        }
+    }
+
+    /// v19e-3：**长列表的每一行都得认**（引导语追踪必须粘性）。
+    ///
+    /// 早先「只回溯 8 行」的版本会让 npm 的 `All commands:`（~13 行）
+    /// 列尾 14 条丢失（version/update/start/stop/team/token/uninstall/
+    /// unpublish/unstar/search/set/shrinkwrap/star）→ 68 掉到 54。
+    #[test]
+    fn long_comma_list_tail_lines_are_still_parsed() {
+        let raw = "\
+All commands:
+
+    access, adduser, audit, bugs, cache, ci, completion,
+    config, dedupe, deprecate, diff, dist-tag, docs, doctor,
+    edit, exec, explain, explore, find-dupes, fund, get, help,
+    help-search, hook, init, install, install-ci-test,
+    query, rebuild, repo, restart, root, run-script, sbom, search,
+    set, shrinkwrap, star, stars, start, stop, team, token, uninstall,
+";
+        let acts = parse_help("npm", raw);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        for want in ["npm search", "npm set", "npm shrinkwrap", "npm star", "npm start",
+                     "npm stop", "npm team", "npm token", "npm uninstall"] {
+            assert!(cmds.contains(&want), "长列表列尾丢失: {want} / 共 {} 条 {cmds:?}", cmds.len());
+        }
     }
 }

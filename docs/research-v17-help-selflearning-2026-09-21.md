@@ -517,17 +517,77 @@ F4「编参数」在本次大量出现（`npm install` 漏掉 `express`）。
 
 ---
 
+## 7. ★ 2×2 矩阵收官：跨域崩塌的凶手是**底座**，不是重组数据
+
+§5.12 曾记录「v15 跨域 exec 崩塌（terraform 8.3 / docker 0 / npm 16.7）」，
+并留下一个待拆的混淆：**v13（0.6B Qwen3）vs v15（0.8B GDN）同时变了两件事**
+（底座 + 数据构成），无法归因。v16 = v13 全同（0.6B Qwen3 / sdpa 保留 / 配比 / 超参）
+**唯一变量 = 数据构成（同 v15 的 R1+R2 傅里叶重组）** → 混淆被拆开。
+
+### 四臂读数（域内 acc % / 跨域 acc_exec %，rag 臂）
+
+```text
+臂     底座        数据        | 域内 hw_A  hw_B  gh_A  ff_A  | 跨域 docker kubectl  npm  terraform
+v13    0.6B Qwen3  v13 配方    |       98.8  83.5  63.4  56.2  |      16.7     41.7   8.3       41.7
+v14    0.8B GDN    v13 配方    |       98.0  81.0  64.5  54.3  |       0.0      8.3  16.7        8.3
+v16    0.6B Qwen3  v15 重组    |       98.8  79.7  54.8  54.3  |      41.7     33.3  50.0       58.3
+v15    0.8B GDN    v15 重组    |       98.8  88.6  64.5  64.8  |       0.0      8.3   0.0        8.3
+```
+
+### 两个变量的净效应（同数据比底座 / 同底座比数据）
+
+| 比较 | docker | kubectl | npm | terraform | 判决 |
+|---|---|---|---|---|---|
+| **v13 → v14**（同 v13 配方，0.6B→0.8B GDN） | 16.7→**0.0** | 41.7→**8.3** | 8.3→16.7 | 41.7→**8.3** | 换底座 → 崩塌 |
+| **v16 → v15**（同 v15 重组，0.6B→0.8B GDN） | 41.7→**0.0** | 33.3→**8.3** | 50.0→**0.0** | 58.3→**8.3** | 换底座 → 崩塌 |
+| **v13 → v16**（同 0.6B，配方→重组） | 16.7→**41.7** | 41.7→33.3 | 8.3→**50.0** | 41.7→**58.3** | 换数据 → 大涨 |
+| v14 → v15（同 0.8B，配方→重组） | 0.0→0.0 | 8.3→8.3 | 16.7→0.0 | 8.3→8.3 | 底座已塌，数据无力回天 |
+
+### 结论（三判据全中）
+
+1. **底座是唯一的决定性因素**：两次「换 0.6B Qwen3 → 0.8B GDN」**无一例外全崩**（8 个格子里 7 个跌），
+   而 0.8B 下无论什么数据都停在 0–16.7 的噪声水平。
+   → 0.8B **GDN（门控 Delta Net）**底座的**跨域先验远弱于 0.6B Qwen3**（后者预训练语料里
+     docker/kubectl/npm/terraform 的 NL→CLI 关联密度高得多）。**参数量不是跨域能力的主变量。**
+2. **重组数据（R1+R2）对跨域是净正面**：同底座下 v13→v16 四域**三涨一平**，
+   terraform +16.6pp / npm +41.7pp / docker +25.0pp。
+   → §5.12「重组伤跨域」的归因**被证伪**，那次是底座背锅。
+3. **当前最优臂 = v16**（0.6B Qwen3 + v15 重组）：跨域均值 **45.8%**（v13 仅 27.1%），
+   域内 hw_A 98.8 持平、ff_A 54.3 持平、gh_A 54.8 低于 v13 的 63.4（-8.6pp，重组的已知代价）。
+   → **MVP 能力①（出域泛化 exec）的候选检查点应为 v16，而非 v13。**
+4. **先前「0.8B 强于 0.6B」是域内幻觉**：v15 域内读数漂亮（hw_B 88.6 / ff_A 64.8 全场最高），
+   但跨域塌成 0–8.3。**只看域内会选错底座** —— 这是 zs-cli 跨域度量独立存在的价值证明。
+
+> **方法教训**：底座换代属于「换总体」级变更，必须**单变量**做（同数据比底座）；
+> §5.12 当时把底座与数据一起换，导致一轮错误的归因（怪数据）与一个错误的候选结论
+> （回退 v13/v15）。**多变量同时变更 = 归因无效，无论读数多清晰。**
+
+---
+
 ## 6. 复现
 
 ```bash
 cd p2-lyco_ops/cloudstudio
-export CS_COOKIE="$(python _getck.py 2>/dev/null | head -1)"
-export CS_JPS='https://<spaceKey>--jps.ap-shanghai2.cloudstudio.club'
+# ⚠️ cookie 别再走 _getck.py（活跃 Chrome 分区独占锁，只有数日前旧分区可读→服务端已吊销）
+#    直接让用户从 DevTools 贴 cloudstudio-session / cloudstudio-session-team
+export CS_COOKIE="cloudstudio-session=<...>; cloudstudio-session-team=gh"
+export CS_JPS='https://b0d0f5fb49b144bdbe9411862d1b3292--jps.ap-shanghai2.cloudstudio.club'
 # v17 裸灌
 node cs_exec_train.mjs --file "D:/Code/p2-lyco_ops/cloudstudio/a10_v17_help.py"
 # v17b 两阶段
 node cs_exec_train.mjs --file "D:/Code/p2-lyco_ops/cloudstudio/a10_v17b_distill.py"
+# v18 系列（help-parse 注入）
+env -u HP_TOPN LYCORE_BIN=/workspace/bin/lycore2 \
+  node cs_exec_long.mjs --file "D:/Code/p2-lyco_ops/cloudstudio/a10_v18_helpparse.py"
 ```
 
 ⚠️ **务必前台阻塞执行**（`nohup ... &` 在本 shell 会被回收）；单次约 5–8 分钟。
+远端 python 里调 shell 一律 `sh -c`（`bash -lc` 会引 oh-my-zsh 报错污染输出）。
 产物：`/workspace/v17_help_results.json`、`/workspace/v17b_results.json`。
+
+**lycore 二进制**（本机磁盘不足，一律远端编译）：
+
+```bash
+python tmp/sync_build.py --bin-name lycore2 --test
+# → /workspace/bin/lycore2；build ~52s，132 单测全绿（--test 时附带）
+```

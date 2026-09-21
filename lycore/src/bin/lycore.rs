@@ -32,6 +32,7 @@ fn main() {
         "tools" => cmd_tools(&args[1..]),
         "backend" => cmd_backend(&args[1..]),
         "help-parse" => cmd_help_parse(&args[1..]),
+        "vision" => cmd_vision(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -45,12 +46,75 @@ fn main() {
                  lycore doctor --pack <dir>\n  \
                  lycore backend [--prefer <id>] [--json]  (列可用后端 / 解析偏好)\n  \
                  lycore help-parse --cli <name> [--help-text <file>] [--top 8] [--json]\n    \
-                   ↑ 把 CLI 的 --help 确定性解析成只读动作表 (v17 正解: 提炼不用模型)"
+                   ↑ 把 CLI 的 --help 确定性解析成只读动作表 (v17 正解: 提炼不用模型)\n  \
+                 lycore vision identify <image> [--json] [--ffmpeg <path>]\n    \
+                   ↑ 识图: 终端/GUI/文档/自然 (vnn 规则通道; CNN 就位后自动接管)"
             );
             2
         }
     };
     std::process::exit(exit);
+}
+
+/// `lycore vision identify <image>` —— 把已在 executor 中接线、但用户无法直接触达的
+/// `vnn::identify` 暴露成子命令。逻辑零新增，只补 CLI 入口（2026-09-21 P0.1）。
+///
+/// 退出码：0 = 出结果；1 = 识别失败（图不存在 / ffmpeg 缺失）；
+/// 2 = 用法错误。**未训练专家会诚实带上 `needs_training: true`，不伪装。**
+fn cmd_vision(args: &[String]) -> i32 {
+    let Some(sub) = args.first().map(|s| s.as_str()) else {
+        eprintln!("用法: lycore vision identify <image> [--json] [--ffmpeg <path>]");
+        return 2;
+    };
+    if sub != "identify" {
+        eprintln!("未知子命令 vision {sub}；目前只支持 identify");
+        return 2;
+    }
+
+    let rest = &args[1..];
+    let image = rest
+        .iter()
+        .filter(|a| !a.starts_with('-'))
+        .cloned()
+        .next_back();
+    let Some(image) = image else {
+        eprintln!("缺少图片路径: lycore vision identify <image>");
+        return 2;
+    };
+    let json = rest.iter().any(|a| a == "--json");
+    let ffmpeg = flag(rest, "--ffmpeg")
+        .or_else(|| std::env::var("LYV_FFMPEG").ok())
+        .unwrap_or_else(|| "ffmpeg".into());
+
+    match lycore::vnn::identify(&ffmpeg, std::path::Path::new(&image)) {
+        Ok((verdict, conf, experts, queue)) => {
+            if json {
+                let v = serde_json::json!({
+                    "image": image,
+                    "kind": verdict,
+                    "conf": conf,
+                    "needs_training": experts.iter().any(|e| e.needs_training),
+                    "experts": experts,
+                    "learning_queue": queue,
+                });
+                println!("{}", serde_json::to_string_pretty(&v).expect("序列化"));
+            } else {
+                println!("{image} → {verdict}  (conf {conf:.2})");
+                for e in &experts {
+                    let tag = if e.needs_training { " [未训练]" } else { "" };
+                    println!("   {:<12} act={:.3} {} (conf {:.2}){tag}", e.neuron, e.activation, e.verdict, e.conf);
+                }
+                if !queue.is_empty() {
+                    println!("   → 已加入学习队列 {} 条", queue.len());
+                }
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("识别失败: {e}");
+            1
+        }
+    }
 }
 
 fn flag(args: &[String], name: &str) -> Option<String> {

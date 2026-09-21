@@ -71,6 +71,11 @@ pub const WRITE_VERBS: &[&str] = &[
     "restart", "stop", "start", "attach", "exec", "uninstall",
     "commit", "merge", "rebase", "cherry-pick", "stash",
     "checkout", "switch", "restore", "mv", "clone",
+    // 🔴 v19 补：会**改写工作区**或**外呼**却曾被漏判为只读的动词。
+    //    `git pull` = fetch + merge（改工作区 + 外呼 + 可能留冲突文件），
+    //    `git backfill` 下载对象，`git history` 的 help 自述 "Rewrite history"。
+    //    不补这三条 → T1 门读 risk=Read → **自动放行一个会覆盖用户未提交改动的命令**。
+    "pull", "backfill", "history",
     // 装 / 发布 / 授权
     "install", "add", "login", "logout", "token", "auth",
     // 建实体（会往磁盘/远端落新东西，不算「无害查询」）
@@ -880,7 +885,13 @@ pub fn readonly_only(actions: &[HelpAction]) -> Vec<HelpAction> {
 const COMMON_ACTIONS: &[&str] = &[
     "status", "ps", "list", "ls", "get", "logs", "log", "show", "inspect",
     "stats", "info", "images", "version", "describe", "tree", "branch",
-    "diff", "history", "test", "check", "build", "plan", "config", "top",
+    "diff", "test", "check", "build", "plan", "config", "top",
+    // ⚠️ v19 移出：`history` 曾在此表内，会把 **`git history`（help 自述
+    //    "Rewrite history"）** 提升到注入集前部 —— 与 WRITE_VERBS 的意图自相矛盾
+    //    （见本文件 WRITE_VERBS 上方注释「白名单里不该有 history」）。
+    //    高频表只应放**只读**动作；写动作由 readonly_only 在调用侧过滤，
+    //    但若它同时出现在本表，排序会把它顶到前面，形成「越危险越靠前」。
+    //    ⇒ 规则：本表任一 token 都不得出现在 WRITE_VERBS 中（有单测断言）。
 ];
 
 /// 按常用度重排（稳定排序，不改变同分项的相对顺序）
@@ -921,6 +932,58 @@ pub fn render_schema(cli: &str, actions: &[HelpAction], max_n: usize) -> String 
     ));
     s
 }
+
+/// 渲染**带原文兜底**的 schema —— 修 v19 定位的 D 档（git hparse 87.5 < 裸 help 100.0）。
+///
+/// ## 为什么要原文兜底
+///
+/// `git --help` 只列**顶层命令**（`log` / `diff` / `branch` …），
+/// 而真实问句常需要**参数级**形态（`git log --oneline` / `git diff --stat`）。
+/// 结构化注入只给无参数骨架 → 参数线索全丢 → 反而**劣于**裸灌原文
+/// （v19 实测：git hparse 87.5 vs 裸 help 100.0）。
+///
+/// ## 判据（确定性，非调参）
+///
+/// 两个条件**同时**满足才追加原文：
+/// 1. **结构化动作少**：`actions.len() < THIN_ACTION_THRESHOLD`
+///    —— 动作多的 CLI（docker 57 / npm 68）不需要原文，加了反而稀释注意力
+///    （v18c 已证「注入条数截断有害」，但也证「无关内容稀释」）。
+/// 2. **原文本身短**：`raw.len() <= RAW_INLINE_LIMIT`
+///    —— 长原文（cargo / kubectl 数 KB）会挤爆上下文；短原文（git 2.2KB）成本可忽略。
+///
+/// 不满足则退化为原 `render_schema`，**行为与改动前逐字一致**（零回归风险）。
+pub fn render_schema_with_raw_fallback(
+    cli: &str,
+    actions: &[HelpAction],
+    raw: &str,
+    max_n: usize,
+) -> String {
+    let mut s = render_schema(cli, actions, max_n);
+    if actions.len() < THIN_ACTION_THRESHOLD && raw.len() <= RAW_INLINE_LIMIT {
+        // 原文里可能含 flag 说明 —— 这些是结构化动作**抓不到**的参数线索，
+        // 正是 D 档缺的东西。整段附在最后，并显式声明类别（v18d 教训：
+        // 附加信息必须声明「这是什么」，否则会被归到主类别「命令」里去）。
+        s.push_str(&format!(
+            "\n以下是 `{cli} --help` 的原始输出，供你理解「命令 + 常用参数」的搭配\
+（**这些是参考信息，不是额外的命令**；命令以上面列出的为准）：\n"
+        ));
+        s.push_str(&strip_ansi(raw));
+        if !s.ends_with('\n') {
+            s.push('\n');
+        }
+    }
+    s
+}
+
+/// 低于此动作数视为「help 只列了顶层命令」→ 需要原文补参数线索。
+/// 依据：6 个实测 CLI 的只读动作数为 docker 43 / npm 49 / kubectl 32 /
+/// git 11 / cargo 7 / jq 29 —— 15 这个阈值把 git 与 cargo 划入需兜底的一侧。
+const THIN_ACTION_THRESHOLD: usize = 15;
+
+/// 原文超过此长度则不内联（避免挤爆上下文）。git help ≈ 2.2KB 可内联；
+/// cargo / kubectl 的 help 为数 KB 级，走结构化路径。
+const RAW_INLINE_LIMIT: usize = 4096;
+
 
 #[cfg(test)]
 mod tests {
@@ -1071,9 +1134,77 @@ Usage:  kubectl get TYPE [NAME]
             ("kubectl delete pod x", false),
             ("kubectl scale deployment f -f", false),
             ("kubectl apply -f x.yaml", false),
+            // 🔴 v19 安全回归：这三条曾被漏判为「只读」→ T1 门自动放行。
+            //    `git pull` 语义 = fetch + merge：改写工作区 + 外呼 +
+            //    可能留下冲突文件，甚至覆盖用户未提交的改动。
+            //    这是本项目最严重的一类错误（不是分数问题，是**会丢用户数据**）。
+            ("git pull", false),
+            ("git pull origin main", false),
+            ("git backfill", false),
+            ("git history", false),
+            // 对照：`git fetch` 只下载 refs、**不改工作区** → 判只读是正确的，
+            // 用它证明上面的修复不是「把 fetch 族一律拉黑」的粗暴做法。
+            ("git fetch", true),
         ] {
             let got = is_readonly(cmd);
             assert_eq!(got, want_ro, "is_readonly({cmd}) 应为 {want_ro}, 实得 {got}");
+        }
+    }
+
+    /// 🔴 v19：高频排序表里不得含**写动词** —— 否则会把危险命令顶到注入集前部。
+    ///
+    /// 起因：`history` 同时出现在 `COMMON_ACTIONS`（排前）与 `WRITE_VERBS`
+    /// （`git history` = Rewrite history），形成一个「越危险越靠前」的自相矛盾。
+    /// 本测试是结构性防回归：新增 token 前先确认它不在 WRITE_VERBS 里。
+    #[test]
+    fn common_actions_are_never_write_verbs() {
+        for a in COMMON_ACTIONS {
+            assert!(
+                !WRITE_VERBS.contains(a),
+                "COMMON_ACTIONS 含写动词 `{a}` —— 会把危险动作排到注入集前面，\
+                 且与 WRITE_VERBS 自相矛盾；请从两处之一移除"
+            );
+        }
+    }
+
+    /// v19：短 help + 动作少 → **必须**追加原文（修 D 档 git 回归）。
+    #[test]
+    fn thin_help_inlines_raw_output() {
+        let raw = "\
+usage: git [-v | --version] [-h | --help] <command> [<args>]
+
+examine the history and state
+   log        Show commit logs
+   diff       Show changes
+";
+        let actions = readonly_only(&parse_help("git", raw));
+        assert!(actions.len() < THIN_ACTION_THRESHOLD, "样本应触发兜底");
+        let s = render_schema_with_raw_fallback("git", &actions, raw, usize::MAX);
+        assert!(s.contains("原始输出"), "薄 help 未追加原文: {s}");
+        assert!(s.contains("Show commit logs"), "原文内容缺失: {s}");
+        // 必须显式声明类别，否则模型会把原文当命令列表（v18d 的教训）
+        assert!(s.contains("不是额外的命令"), "未声明类别: {s}");
+    }
+
+    /// v19 反向：动作多 or 原文长 → **不得**追加原文（避免稀释 / 挤爆上下文）。
+    #[test]
+    fn thick_help_does_not_inline_raw() {
+        // 造 20 条动作（>阈值）
+        let mut raw = String::from("usage: demo [cmd]\n\n");
+        for i in 0..20 {
+            raw.push_str(&format!("   cmd{i}   do thing {i}\n"));
+        }
+        let actions = readonly_only(&parse_help("demo", &raw));
+        assert!(actions.len() >= THIN_ACTION_THRESHOLD, "应超过阈值");
+        let s = render_schema_with_raw_fallback("demo", &actions, &raw, usize::MAX);
+        assert!(!s.contains("原始输出"), "厚 help 不该追加原文: {s}");
+
+        // 原文过长时同样不追加
+        let long_raw = format!("usage: git [cmd]\n\n   log   Show commit logs\n\n{}", "x".repeat(5000));
+        let a2 = readonly_only(&parse_help("git", &long_raw));
+        if a2.len() < THIN_ACTION_THRESHOLD {
+            let s2 = render_schema_with_raw_fallback("git", &a2, &long_raw, usize::MAX);
+            assert!(!s2.contains("原始输出"), "超长原文不该内联");
         }
     }
 

@@ -56,19 +56,20 @@ bin/lycore.rs cmd_tools   已把 vnn_identify 输出进工具 schema（远端实
 
 原则：**每条都要有一个可以贴出来的命令 + 输出**。凡是不满足这条的，不进清单。
 
-### P0 — 把已实现的能力暴露成子命令（当天，无需新代码逻辑）
+### P0 — 把已实现的能力暴露成子命令
 
-**P0.1 `lycore vision identify <image>`**
-- 内容：把 `cmd_ask` 里调用 `vnn::identify` 的那段逻辑，复制成一个独立子命令
-- 验收：`lycore vision identify /tmp/t.png` → `{"kind":"terminal","conf":0.87}`
-- 为什么是 P0：`vnn.rs` + executor 分支**都已存在**，只差一个 `fn cmd_vision`
-- 预计：~40 行
+**P0.1 `lycore vision identify <image>` — ✅ 已完成（`df9695f`）**
+- 远端实测：`t_pattern.png` → GUI 窗口界面 (0.95) / `t_dark.png` → 终端界面 (0.50) /
+  `t_white.png` → `unknown` + `needs_training:true`（诚实标记）+ 入学习队列 3 条
+- 错误路径：不存在的图 → exit=1 不 panic；用法错 → exit=2
 
-**P0.2 `lycore npu status` / `lease`**
-- 内容：同样，把 `npu_runtime.rs` 已有的租约 API 包一个子命令
-- 验收：无板子时 `lycore npu status` → `{"present":false,"reason":"/dev/galcore not found"}`
-  （**诚实返回「没板子」也是验收通过** —— 关键是不静默、不 panic）
-- 为什么是 P0：409 行死代码零调用，等于没写。接出来才有意义。
+**P0.2 `lycore npu status` — ✅ 已完成（`23e0f2c`）**
+- 远端实测：无板子 → `present:false` + **exit 0**（正常状态，非报错）
+- JSON 含 `serial_constraint` 与 `fallback` 说明
+- 把 409 行零调用的 `npu_runtime.rs` 接出；其单测现已被真实跑到
+
+**P0 结项**：132 lib 单测全绿。`capability-roadmap` 三块能力中，
+**vision 与 npu 已从纸面变成用户可敲的命令**，剩余 yolo 见 P1。
 
 ### P1 — 补上真正缺的实现（需要新逻辑）
 
@@ -121,3 +122,20 @@ bin/lycore.rs cmd_tools   已把 vnn_identify 输出进工具 schema（远端实
 1. `bin/lycore.rs` 加 `fn cmd_vision` + `match` 分支
 2. 远端 `sync_build.py --bin-name lycore2 --test`
 3. 造一张测试图，跑 `lycore2 vision identify`，把输出贴出来
+
+---
+
+## 5. 执行结果（2026-09-21 12:4x 收尾）
+
+**P0 两项当天完成并远端实测**，不写新文档，直接改代码：
+
+| 项 | commit | 实测证据 |
+|---|---|---|
+| `lycore vision identify` | `df9695f` | 三种测试图分别 → GUI 0.95 / 终端 0.50 / unknown+needs_training；错误路径 exit 1/2 |
+| `lycore npu status` | `23e0f2c` | 无板子 → `present:false` **exit 0**；JSON 带 serial_constraint |
+
+**验证方式**：`sync_build.py --bin-name lycore2 --test`（远端编译 52s + 132 单测全绿）
+→ `cs_exec_long.mjs` 跑真实命令取输出。
+
+**结论**：`capability-roadmap` 的三块能力，**vision 与 npu 已可被用户直接调用**；
+yolo 是唯一真正缺实现的（P1.1）。研究→交付的欠账还清两项。

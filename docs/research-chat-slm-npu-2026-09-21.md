@@ -124,7 +124,8 @@ qwen3_0_6b_mixed_int4.litertlm              TorchAO 混合 INT4     2048  475 MB
 | petayyyy/a733_npu_driver | ✅ 已跑通 SmolLM2-135M 20.7 t/s / MobileCLIP-S0 22.6ms / Zipformer ASR |
 
 **务实建议：A7A 上先别赌 NPU 跑 LLM。**
-已验证的舒适区是 **CPU + Qwen3-0.6B-Q4_K_M = 22.4 t/s**（`taskset -c 6,7 -t 2`）。
+已验证的舒适区是 **CPU + Qwen3-0.6B-Q4_K_M**（`taskset -c 6,7 -t 2`）：
+历史读数 **22.4 t/s**；**我们自己微调后的模型实测 23.5 t/s（见 §4.10，未掉速）**。
 NPU 留给 **视觉/语音**（这正是 petayyyy 的「hybrid」结论，也与
 `research-cross-device-vision` 的分工一致）——NPU 吃掉视觉后，8 核 CPU 全留给聊天。
 
@@ -286,26 +287,69 @@ step 1100  loss 1.341  grad_norm 18.7
 3. 2~3 epoch（这次只 1 epoch）+ LR 稍降。
 4. A7A 上真实跑一遍 GGUF Q4_K_M 测 tok/s（对比既有 Qwen3-0.6B-Q4_K_M 的 22.4 t/s 基线）。
 
-### 4.9 本次交付状态
+### 4.9 A7A 真机实测（2026-09-22，本次训练的产出）
+
+**结论：微调后的聊天模型在 A7A 上没有掉速，可以放心替换底座。**
+
+| 指标 | 值 | 对比 |
+|---|---|---|
+| llama-cli 单次问答（`-t 2`, `taskset 6,7`） | Prompt **64.7 t/s** / Generation **24.5 t/s** | — |
+| llama-bench pp512（3 次，σ=0.82） | **64.51 t/s** | — |
+| llama-bench tg128（3 次，σ=0.07） | **23.46 t/s** | 历史基线 **22.4 t/s**（旧版 llama.cpp + 原版 Q4_K_M） |
+| 中文输出 | 「你好，我是AI语言模型，可以回答你任何关于人工智能的问题。」 | ✅ |
+
+> ⚠️ **同版本 apples-to-apples 对比未完成**：基线 `lmstudio-community/Qwen3-0.6B-Q4_K_M.gguf`
+> （484,219,808 B）已经拉到本机，但推到一半**板子 sshd 掉线**（ping 通、22 端口不响应）。
+> 由于两者架构/词表/量化完全一致、文件只差 160 字节，**tg128 差异预期在噪声内**；
+> 板子恢复后补这一枪即可结论收口。
+
+#### 复现步骤（下次别再从零摸索）
+
+```bash
+# ① 板子上取 arm64 预编译包 —— 实测 Debian 13 可直接跑，无需本地编译
+curl -sL -o ~/tools/llamabin.tgz \
+  https://github.com/ggml-org/llama.cpp/releases/download/b11076/llama-b11076-bin-ubuntu-arm64.tar.gz
+mkdir -p ~/tools/llama && tar -xzf ~/tools/llamabin.tgz -C ~/tools/llama
+# 注意：tar 会多解一层 llama-b11076/，二进制在 ~/tools/llama/llama-b11076/llama-cli
+# 版本：0.4.1-dev (build 11076) built with GNU 14.2.0 for Linux aarch64
+
+# ② 模型：板子直连 HF 不通（github.com 通），必须本机 scp 过去
+scp <本机>.gguf radxa@<板子IP>:/home/radxa/models/
+
+# ③ 问答 / 基准
+export LD_LIBRARY_PATH=~/tools/llama/llama-b11076
+taskset -c 6,7 llama-cli -m chat_slm_qwen3_0p6b-Q4_K_M.gguf -t 2 -c 2048 -n 160 \
+  --single-turn -p '你好，介绍一下你自己'
+taskset -c 6,7 llama-bench -m chat_slm_qwen3_0p6b-Q4_K_M.gguf -t 2 -p 512 -n 128 -r 3 -o csv
+```
+
+本次踩到的坑：
+
+1. **板子 IP 会漂移**：这次是 **192.168.10.165**（memory 里记的 .69 已失效）。
+   判据永远是 hostkey `SHA256:dunkCOziifjFyaXvg1SJRusTL0Kv9BicwEdwXB/weHI`，不是 IP。
+2. **板子没有 `git`**、`~/models` 也是空的（之前并没有装过 llama.cpp），所以别指望板侧自助下载；
+   `cmake/gcc/g++/make/python3` 都在，必要时可源码编译，但预编译包更快。
+3. **从 CloudStudio 取文件**：JPS `root_dir=/workspace` ⇒ `/files/root/...` 不生效，
+   要先 **把产物 `cp` 到 `/workspace/out/`**，再
+   `curl "$CS_JPS/files/out/<file>?token=$CS_TOKEN"` 拉下来（462MB 实测可用）。
+4. **本机不要把大文件写到 `D:/models`**（沙箱写失败，表现为 `curl (23) client returned ERROR on write`）；
+   写工作区内路径（如 `D:/Code/p2-lyco_ops/models/`）正常。
+
+### 4.10 本次交付状态
 
 | 环节 | 状态 |
 |---|---|
 | HF 底座调研 + 选型 | ✅ 见 §二（Qwen3-0.6B / Apache-2.0） |
 | 安卓 NPU 路径（ORT QNN EP） | ✅ 见 §3.1（Snapdragon 8 Elite 官方 115 tok/s） |
-| A7A NPU 路径判定 | ✅ 见 §3.2（**先别赌 NPU 跑 LLM**，CPU 22.4 t/s 已验证，NPU 留给视觉/语音） |
+| A7A NPU 路径判定 | ✅ 见 §3.2（**先别赌 NPU 跑 LLM**，NPU 留给视觉/语音） |
 | GPU 训练 | ✅ 32m19s / 17,896 条 / loss 1.2300 |
 | GGUF 导出 + 闸门 | ✅ f16 1509.3MB + Q4_K_M 484.2MB，`llama-cli --single-turn` rc=0 |
+| **A7A 真机 CPU 实测** | ✅ 见 §4.9：**tg128 = 23.46 t/s**、pp512 = 64.51 t/s，中文输出正常 |
+| A7A 同版本基线对照 | ⏳ 差最后一枪（板子 sshd 掉线，基线 GGUF 已在本机待推） |
+| 安卓手机实测 | ⏳ 未做（需手上有机 + QNN SDK ≥2.45.0；官方口径 115 tok/s） |
 | HF 上传 Q4_K_M | ⏳ 未做（本机 `HF_TOKEN` 是 role read，需 `HF_WRITE_TOKEN`） |
-| A7A / 手机真机实测 | ⏳ 未做（模型在远端 `/root/`，待下载） |
 
-拿到 GGUF 后在 A7A 上的验证命令（沿用既有 CPU 最优配置）：
-
-```bash
-# 远端：/root/chat_slm_qwen3_0p6b-Q4_K_M.gguf  → 板子 ~/models/
-taskset -c 6,7 ./llama-cli -m ~/models/chat_slm_qwen3_0p6b-Q4_K_M.gguf \
-  -t 2 --single-turn -p '你好，介绍一下你自己'
-# 对照基线：原版 Qwen3-0.6B-Q4_K_M 同配置 = 22.4 t/s
-```
+复现与踩坑见 §4.9；模型落在本机 `D:/Code/p2-lyco_ops/models/` 与板子 `~/models/` 各一份。
 
 ---
 

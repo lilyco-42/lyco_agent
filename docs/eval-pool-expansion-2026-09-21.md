@@ -261,16 +261,135 @@ lilyco 是**我们自己设计的**，它的 help 是**为了友好而精心写�
 
 ---
 
+## 三点五、把 L1 池扩到 14 个 —— delta 打穿了**更深**的一层
+
+（承接 §三：L1 池按「优先 Rust/clap 系」扩到 14 个。
+新装：`dust`/`sd`/`tokei`/`xh`/`delta`/`just`/`eza`；`procs`/`bottom` 因源 504 未装上。）
+
+### 3.5.1 表观症状 vs 真因
+
+`delta --help` 只解析出 **6 条动作，全是垃圾**：
+
+```
+delta ancestral 'their' / delta brightblack / delta brightred / ...
+```
+
+**但真症状不是「垃圾多」，而是 delta 的 ~200 个真 flag 一条都没进来。**
+
+连锁：`parse_help` 里 flag 回退的触发条件是 `out.is_empty()`，
+而那 1 条散文垃圾让 `out` **非空** → **flag 回退整个不执行**。
+**一条流沙堵死整条河。**
+
+> 教训：**「解析出垃圾」比「解析出 0 条」更危险** —— 0 条会触发回退、
+> 一眼可见；垃圾则沉默地顶替了整条通路。
+
+### 3.5.2 根因 1：英文句末双空格 → 散文被切成「命令 + 描述」
+
+`split_line` 的判据是「同行 2+ 空格」。而**英文排版里句末跟双空格是惯例**：
+```text
+          This styles the decoration of the header above the diff between the
+          ancestral commit and 'their' branch.  See STYLES section. The style
+```
+→ `cand = "ancestral commit and 'their' branch."`、`desc = "See STYLES section..."`，
+而 `is_subcommand_word("ancestral")` 为真 → 产出 `delta ancestral 'their'`。
+
+**修**：`looks_like_subcommand` 加散文守卫 ——
+① 去掉省略号后仍含**孤立句点** → 是句子；② 词数 > 4 → 是散文。
+
+⚠️ ① **必须先抹掉 `...` / `..`**：`run [ARGS]...` 的变长参数标记不是句点。
+漏这条会让 `cargo run [OPTIONS] [ARGS]...` 整条丢失
+—— 被既有单测 `alias_and_arg_suffix_are_cleaned` 当场抓住。
+
+### 3.5.3 根因 2：值枚举靠「缩进 ≤6」区分 —— 被 delta 打穿
+
+§1.7 为 bat 加的守卫（值枚举缩进 12 vs 命令列表缩进 0）在 delta 上失效：
+
+```text
+     In addition, all of them have a bright form:
+     brightblack, brightred, brightgreen, ...      ← 缩进只有 5！
+```
+
+**同一种错误的两个缩进（bat 12 / delta 5）→ 阈值法必然两头漏。**
+绝对数值不是结构，**相对位置才是**。
+
+**修**：改用**引导语**判据 —— 逗号列表必须被「含 command 词的 `:` 结尾行」背书。
+delta 的 `In addition, all of them have a bright form:` 不含 command 词 → 拒。
+
+#### ⚠️ 记一次走错的方向：区块状态机
+
+先试过「进入散文区后禁用解析」，**被同一份 delta help 打穿**：
+它的第 363 行 `Following the hyperlink spec for terminal emulators:`
+位于 **flag 表中间**，把状态置真后再无节标题复位 → 剩下 ~700 行 flag 全丢。
+
+> **help 的 flag 表与散文段落是交错的，任何区块状态机都会被这种现象骗。**
+> 已回退，改回「每行独立判断 + 局部上下文（引导语）」。
+
+### 3.5.4 最后一坑：引导语追踪写死了「回溯 8 行」
+
+npm 的 `All commands:` 列表长达 ~13 行 → 列尾 **14 条真子命令**
+（`version`/`update`/`start`/`stop`/`team`/`token`/`uninstall`/`unpublish`/
+`unstar`/`search`/`set`/`shrinkwrap`/`star`）判为「无背书」丢弃，**68 → 54**。
+
+**修**：改成粘性状态机（空行 / 列表续行保持，其余行清空）。
+
+> **列表长度因 CLI 而异，任何固定窗口都会在某个 CLI 上过头或不足。**
+
+### 3.5.5 验证：20 个 CLI 逐字 diff（不是比条数）
+
+```bash
+cd scripts/helpfixtures
+python collect.py          # 采集 help（npm 用 node npm-cli.js 绕开缺装的 shim）
+python diffcheck.py compare
+```
+
+| CLI | 改前 → 改后 | 逐字差异 |
+|---|---|---|
+| docker 57 / git 24 / cargo 16 / **npm 68** / kubectl 43 / jq 30 | — | **0** ✅ |
+| fd 43 / rg 69 / hyperfine 28 / zoxide 6 / bat 38 / starship 14 / oha 42 | — | **0** ✅ |
+| dust 41 / sd 7 / tokei 18 / xh 48 / just 67 / eza 63 | — | **0** ✅ |
+| **delta** | **6（全垃圾）→ 109（全真 flag）** | 唯一变化 |
+
+**池内逐字差异总数 = 0。** 垃圾命令数 0。
+
+新增 4 条单测（共 28 条 help_parse），`cargo test --lib: 159 passed / 0 failed`：
+`prose_paragraph_does_not_become_an_action`（含「flag 回退连锁」断言）/
+`ellipsis_is_not_a_sentence` / `value_enum_without_command_intro_is_not_commands` /
+`long_comma_list_tail_lines_are_still_parsed`。
+
+### 3.5.6 L1 池现状（14 个）
+
+| # | CLI | 星星 | 形态 | 现有解析条数 |
+|---|---|---|---|---|
+| 1 | fd | 13.8万 | clap long-help | 43 |
+| 2 | rg | 5.1万 | clap long-help | 69 |
+| 3 | hyperfine | 2.3万 | clap + **带值 flag** + T1 边界 | 28 |
+| 4 | zoxide | 3.6万 | clap 短 help | 6 |
+| 5 | bat | 5.4万 | clap + **值枚举陷阱** | 38 |
+| 6 | starship | 5万 | clap | 14 |
+| 7 | oha | 1万 | clap long-help + **外呼边界** | 42 |
+| 8 | dust | 2.6万 | clap | 41 |
+| 9 | sd | 8千 | clap | 7 |
+| 10 | tokei | 1.4万 | clap | 18 |
+| 11 | xh | 1.5万 | clap | 48 |
+| 12 | **delta** | 2.4万 | **man-page 型（散文交错）** | 109 |
+| 13 | just | 2.3万 | clap + 自定义子命令表 | 67 |
+| 14 | eza | 4万 | clap | 63 |
+
+---
+
 ## 四、下一步（按优先级）
 
 | 优先 | 动作 | 归属 |
 |---|---|---|
 | **P0** | ✅ **已修 clap long-help 解析**（oha 0 → 37 条，池内 6 个 CLI 零回归） | 已完成 |
-| **P0** | 建 `L1` 外部陌生 CLI 池（oha 起头，扩到 ≥15 个：`fd`/`rg`/`hyperfine`/`dust`/`zoxide`/`starship`/`bat`/`sd`/`tokei`/`xh`… **优先挑 Rust/clap 系**） | 本机可做 |
+| **P0** | ✅ **已扩 L1 池到 14 个**（delta 打穿并修好：6 垃圾 → 109 真 flag，池内逐字零回归） | 已完成 |
+| **P0** | 把 14 个 L1 CLI 的**评测题**补齐（现 `l1_pool.py` 只覆盖前 7 个共 114 条） | 本机可做 |
+| **P1** | 跑 L1 评测（`_p2_l1_eval.py` 已写好，需 GPU：v13 / v15 双检查点） | CloudStudio |
 | **P1** | 为 G2 做「Returns 抽取器」：从 help 文本抽输出形态，先拿 lilyco 验证机制可行 | 本机可做 |
 | **P1** | lilyco 四端一致性 × 模型路由的端到端实验（G2/G3 试验田） | 本机可做 |
-| **P2** | 评估 lilyco `--schema` 作为 `paramcheck` 真值源（替代手写 RULES） | 本机可做 |
+| **P2** | 评估 lilyco `--schema` 作为 `paramcheck` 真值源（替代手写 30 条 RULES） | 本机可做 |
 | **P2** | oha 的 `-n/-c/-z` 是数值/时长参数（`10k`/`1m`/`10s`）→ 单独造「参数值理解」题 | 本机可做 |
+| **P3** | 补 `procs`/`bottom`（scoop 源 504），并可加 `gitui`/`difftastic`/`difft` | 本机可做 |
 
 ---
 

@@ -19,6 +19,7 @@ pub mod lernen;
 pub mod llamacpp;
 pub mod npu_runtime; // P2: NPU 串行调度器 (租约+优先级队列+超时) — VIP9000 是它的一个后端实例, 见 backend
 pub mod pack;
+pub mod paramcheck; // T1 门第二道闸: 必需参数校验 (v18 F4 `npm install` 静默失效)
 pub mod project; // 项目目录扫描 + 启动脚本生成 (识别 paper.jar → 关联知识 → 时间窗启动脚本)
 pub mod rewrite;
 pub mod search; // agent 自主检索 (SearXNG/离线占位) + 检索结果学习进知识包

@@ -34,6 +34,7 @@ fn main() {
         "help-parse" => cmd_help_parse(&args[1..]),
         "vision" => cmd_vision(&args[1..]),
         "npu" => cmd_npu(&args[1..]),
+        "t1" => cmd_t1(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -51,12 +52,103 @@ fn main() {
                  lycore vision identify <image> [--json] [--ffmpeg <path>]\n    \
                    ↑ 识图: 终端/GUI/文档/自然 (vnn 规则通道; CNN 就位后自动接管)\n  \
                  lycore npu status [--json]\n    \
-                   ↑ NPU 设备探测: 报告 /dev/galcore 是否存在 (无板子时诚实返回 present=false)"
+                   ↑ NPU 设备探测: 报告 /dev/galcore 是否存在 (无板子时诚实返回 present=false)\n  \
+                 lycore t1 check \"<cmd>\" [--json]\n    \
+                   ↑ T1 执行门: 风险分级(read/write/danger) + 必需参数校验(缺参=静默失效)"
             );
             2
         }
     };
     std::process::exit(exit);
+}
+
+/// `lycore t1 check "<cmd>"` —— T1 执行门的用户可触达入口（2026-09-21 P1.2）。
+///
+/// 一次输出**两条正交结论**：
+///   1. 风险分级（read/write/danger）—— 来自 `t1gate::classify`
+///   2. 必需参数校验（ok/needs_param/unchecked）—— 来自 `paramcheck::check`
+///
+/// 为什么合并成一个子命令而不是两个：调用方（含 agent loop）拿到一条命令时，
+/// 「危不危险」和「能不能干活」必须**一起**决定放不放行，分两次调用会漏判其中一个。
+///
+/// 退出码：0=可执行(read) / 1=需确认或阻断(write/danger/needs_param) / 2=用法错误。
+fn cmd_t1(args: &[String]) -> i32 {
+    let Some(sub) = args.first().map(|s| s.as_str()) else {
+        eprintln!("用法: lycore t1 check \"<cmd>\" [--json]");
+        return 2;
+    };
+    if sub != "check" {
+        eprintln!("未知子命令 t1 {sub}；目前只支持 check");
+        return 2;
+    }
+    let rest = &args[1..];
+    let json = rest.iter().any(|a| a == "--json");
+    let Some(cmd) = rest.iter().find(|a| !a.starts_with("--")) else {
+        eprintln!("缺少命令: lycore t1 check \"npm install\"");
+        return 2;
+    };
+
+    let v = lycore::t1gate::classify(cmd);
+    let p = lycore::paramcheck::check(cmd);
+    // 组合命令逐段查缺参（与 router::plan_from_raw 口径一致）
+    let parts: Vec<&str> = v
+        .command
+        .split(|c| c == ';' || c == '|')
+        .flat_map(|x| x.split("&&"))
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+        .collect();
+    let all_ok = parts
+        .iter()
+        .all(|x| !lycore::paramcheck::check(x).status.is_needs_param());
+
+    // 决策：与 router 的分诊链同序（危险优先 → 缺参 → 写确认 → 只读）
+    let decision = match v.risk {
+        lycore::t1gate::Risk::Danger => "block",
+        _ if !all_ok => "needs_param",
+        lycore::t1gate::Risk::Write => "confirm",
+        lycore::t1gate::Risk::Read => "run",
+    };
+
+    if json {
+        let out = serde_json::json!({
+            "command": v.command,
+            "verdict": decision,
+            "risk": v.risk.as_str(),
+            "matched": v.matched,
+            "reason": v.reason,
+            "param": {
+                "status": p.status.as_str(),
+                "missing": p.missing,
+                "reason": p.reason,
+            },
+            "may_execute_now": decision == "run",
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    } else {
+        println!("命令   : {}", v.command);
+        println!("风险   : {} ({})", v.risk.as_str(), v.matched.as_deref().unwrap_or("-"));
+        println!("分诊   : {decision}");
+        println!("参数   : {}{}", p.status.as_str(), if p.missing.is_empty() {
+            String::new()
+        } else {
+            format!("  缺: {}", p.missing.join(" "))
+        });
+        if !p.reason.is_empty() {
+            println!("提示   : {}", p.reason);
+        }
+        if !v.reason.is_empty() && decision != "needs_param" {
+            println!("说明   : {}", v.reason);
+        }
+        if decision == "needs_param" {
+            println!("\n→ 空参运行会静默失效（退出码 0 却干不成活），请补全参数后重试。");
+        }
+    }
+
+    match decision {
+        "run" => 0,
+        _ => 1,
+    }
 }
 
 /// `lycore npu status` —— 把 409 行、零调用的 `npu_runtime` 接出到 CLI（2026-09-21 P0.2）。

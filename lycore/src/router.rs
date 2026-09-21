@@ -107,6 +107,8 @@ pub enum Decision {
     Block,
     /// 与命令无关的请求 — 不执行
     Noop,
+    /// **缺必需参数** — 命令合法但空跑等于静默失效, 需先补参 (P1.2)
+    NeedsParam,
 }
 
 /// 完整执行计划: NL → 命令 → 风险 → 决策
@@ -118,6 +120,9 @@ pub struct Plan {
     pub risk: Risk,
     pub decision: Decision,
     pub verdict: Verdict,
+    /// 参数校验结果 (P1.2) — `decision == NeedsParam` 时 `missing` 非空
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub param: Option<crate::paramcheck::ParamCheck>,
 }
 
 /// 主入口: 问一句 → 出一份执行计划 (不执行)
@@ -163,17 +168,51 @@ pub fn plan_with_help(
 }
 
 /// 从已知模型输出构造计划 (远端批量跑模型 → 本地分诊时用这个)
+///
+/// 分诊顺序（**正交两级，先缺参后风险**）：
+///   1. `is_noop` → Noop
+///   2. `paramcheck` 判缺参 → **NeedsParam**（在风险判定之前：缺参的命令无论风险高低
+///      都干不成活，先让用户看见"要补什么"比看见"它是写操作"更有用）
+///   3. `t1gate::classify` → Run / Confirm / Block
+///
+/// ⚠️ 缺参**不覆盖**危险判定：`rm -rf` 缺目标虽也是缺参，但危险优先拦。
+/// 故顺序实为：Noop → Danger(拦截) → NeedsParam → Write(确认) → Run。
 pub fn plan_from_raw(nl: &str, raw: &str) -> Plan {
     let command = normalize(raw);
     let is_noop = command.contains("无需调用");
     let verdict = classify(&command);
+
+    // 组合命令逐条查缺参：任一段缺参即整体缺参
+    let param = {
+        let parts: Vec<&str> = command
+            .split(|c| c == ';' || c == '|')
+            .flat_map(|p| p.split("&&"))
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .collect();
+        let checks: Vec<crate::paramcheck::ParamCheck> =
+            parts.iter().map(|p| crate::paramcheck::check(p)).collect();
+        // 优先报第一个真缺参的段；全不缺参则取第一条的判断（便于暴露 Unchecked/Ok）
+        checks
+            .iter()
+            .find(|c| c.status.is_needs_param())
+            .cloned()
+            .or_else(|| checks.into_iter().next())
+    };
+
     let decision = if is_noop {
         Decision::Noop
     } else {
         match verdict.risk {
-            Risk::Read => Decision::Run,
-            Risk::Write => Decision::Confirm,
+            // 危险优先：`rm` 这类就算缺目标也是 Block, 不能降级成"补个参数就能跑"
             Risk::Danger => Decision::Block,
+            Risk::Write | Risk::Read => match &param {
+                Some(p) if p.status.is_needs_param() => Decision::NeedsParam,
+                _ => match verdict.risk {
+                    Risk::Read => Decision::Run,
+                    _ => Decision::Confirm,
+                },
+            },
         }
     };
     Plan {
@@ -183,16 +222,20 @@ pub fn plan_from_raw(nl: &str, raw: &str) -> Plan {
         risk: verdict.risk,
         decision,
         verdict,
+        param,
     }
 }
 
 /// 是否已获授权 (写操作需 confirmed, 危险命令需 confirmed + override)
+///
+/// **缺参命令永远不放行** —— 空跑会静默失效, 补参是唯一出路, 确认也救不了。
 pub fn may_execute(p: &Plan, confirmed: bool, danger_override: bool) -> bool {
     match p.decision {
         Decision::Run => true,
         Decision::Confirm => confirmed,
         Decision::Block => confirmed && danger_override,
         Decision::Noop => false,
+        Decision::NeedsParam => false,
     }
 }
 
@@ -493,5 +536,59 @@ mod tests {
         let p = plan_from_raw("今天天气怎么样", NOOP);
         assert_eq!(p.decision, Decision::Noop);
         assert!(!may_execute(&p, true, true), "noop 永远不执行");
+    }
+
+    // ══════════════ P1.2 必需参数门 (2026-09-21) ══════════════
+
+    /// 核心动机: v18 F4 实测 —— `npm install` 漏包名 = 静默失效
+    #[test]
+    fn missing_param_is_flaggable() {
+        let p = plan_from_raw("装个 express", "brush npm install");
+        assert_eq!(p.decision, Decision::NeedsParam, "got={:?}", p.decision);
+        let pm = p.param.expect("应带 param 判定");
+        assert_eq!(pm.missing, vec!["<pkg>"]);
+        // 缺参命令确认也不放行 —— 空跑救不了
+        assert!(!may_execute(&p, true, false), "缺参不得放行");
+        assert!(!may_execute(&p, true, true), "缺参连 override 也不放行");
+    }
+
+    /// 补齐参数后回到正常的 Write 确认流（不能被缺参门卡死）
+    #[test]
+    fn completed_param_falls_back_to_normal_gate() {
+        let p = plan_from_raw("装个 express", "brush npm install express");
+        assert_eq!(p.decision, Decision::Confirm, "补齐后应回到写确认");
+        assert_eq!(p.risk, Risk::Write);
+        assert!(may_execute(&p, true, false));
+    }
+
+    /// 危险优先：`rm -rf` 缺目标仍必须 Block，不得降级成「补个参数就能跑」
+    #[test]
+    fn danger_beats_needs_param() {
+        let p = plan_from_raw("清理", "rm -rf");
+        assert_eq!(p.decision, Decision::Block, "危险必须优先于缺参");
+        assert!(p.param.as_ref().is_some_and(|c| c.status.is_needs_param()));
+    }
+
+    /// 只读命令不该被缺参门误伤
+    #[test]
+    fn read_commands_unaffected_by_param_gate() {
+        for (nl, raw) in [
+            ("看看有哪些 issue", "brush gh issue list"),
+            ("当前状态", "brush git status"),
+            ("编译检查", "brush cargo check"),
+        ] {
+            let p = plan_from_raw(nl, raw);
+            assert_eq!(p.decision, Decision::Run, "{nl} / {raw}");
+            assert!(may_execute(&p, false, false));
+        }
+    }
+
+    /// 组合命令：任一段缺参 → 整体缺参
+    #[test]
+    fn compound_any_missing_makes_it_needs_param() {
+        let p = plan_from_raw("装东西然后跑", "npm install && npm run build");
+        assert_eq!(p.decision, Decision::NeedsParam, "首段缺参应被抓");
+        let ok = plan_from_raw("装东西然后跑", "npm install express && npm run build");
+        assert_ne!(ok.decision, Decision::NeedsParam, "全段齐备不该判缺参");
     }
 }

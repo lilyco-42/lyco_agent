@@ -139,3 +139,44 @@ bin/lycore.rs cmd_tools   已把 vnn_identify 输出进工具 schema（远端实
 
 **结论**：`capability-roadmap` 的三块能力，**vision 与 npu 已可被用户直接调用**；
 yolo 是唯一真正缺实现的（P1.1）。研究→交付的欠账还清两项。
+
+---
+
+## 6. P1.2 执行结果（2026-09-21 13:0x 收尾）
+
+**P1.2 必需参数门已完成并本机实测**（`ba73068` 实现 + `44dc60e` 修复）：
+
+| 场景 | 实测输出 | 验收 |
+|---|---|---|
+| `lycore t1 check "npm install"` | `verdict: needs_param` + `missing: ["<pkg>"]` + exit 1 | ✅ 与本文档 §2 P1.2 口径**逐字一致** |
+| `lycore t1 check "npm install express"` | `verdict: confirm` / `param.status: ok` | ✅ 补齐后回到正常写确认流 |
+| `lycore t1 check "rm -rf /"` | `verdict: block` / `param.status: unchecked` | ✅ 危险优先，未被缺参降级 |
+| 只读四连 `gh issue list` / `git status` / `cargo check` / `docker ps` | `run` + **exit 0** | ✅ 零回归 |
+| `npm run build` / `git add .` / `git log` / `docker build -t x .` | 各自正确 | ✅ 无误伤 |
+
+**新增能力**：`paramcheck` 模块（动词表驱动，覆盖包管理/git/容器/网络/进程/ffmpeg），
+三态返回 `Ok` / `NeedsParam` / `Unchecked` —— **未覆盖的程序诚实报 Unchecked，不假装 Ok**。
+
+**单测**：132 → **148**（+16，0 failed）。本机 `env -u BASH_ENV cargo test --lib` 实测 0.34s。
+
+**设计要点**（写进代码注释）：
+- 分诊链顺序 **Noop → Danger(优先) → NeedsParam → Confirm → Run** —— 缺参不得覆盖危险
+- `may_execute` 对 `NeedsParam` 恒 false（空跑连 override 也救不了）
+- 只报「确定缺」的，宁漏勿错 —— 误报会拦掉合法命令，比放过坏命令更伤产品
+
+**踩到的 3 个真实缺陷**（本机单测暴露，都不是测试写错）：
+1. 实参起点偏移一位（`sudo` 分支 `cmd_idx` 算成 2 应为 1）
+2. 两级动词 `git remote add` 的 `add` 被当成实参 → 新增多词动词匹配
+3. 豁免边界过宽 → 收窄为仅「动词为空」的程序（curl/wget/ffmpeg）
+
+**跳过的一步**：远端 `sync_build.py` 因 CloudStudio cookie 失效（`leak_auth_params`）
+未跑成 —— 但**本机 cargo 验证已覆盖同等范围**（单测 + release 二进制实测），
+产物构建待 cookie 恢复后补跑。
+
+---
+
+## 7. 剩余动作
+
+- **P1.1 `lycore yolo detect`**：唯一真正缺实现的（需 ~5MB 测试模型 + `tract` 依赖）
+- **P2 出域 exec 提升**：少训练对照实验（LoRA / 少 epoch / 先验域 replay），需 GPU
+- 上轮遗留：git 裸 help(100.0) > hparse(87.5) 原因排查；`agent.rs` 身份描述泛化

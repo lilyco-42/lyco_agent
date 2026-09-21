@@ -232,11 +232,25 @@ fn split_line(line: &str) -> Option<(String, String)> {
 ///
 /// ## 合并规则（确定性，非调参）
 ///
-/// 把「本行只有一个候选词」+「后续缩进更深的行」合并成一条动作。
-/// 三个否决条件（防误吞，依据 v18d 血训：附加文本会被读成命令）：
-/// 1. 下一行是**段落标题**（`Usage:` / `or:` / `Arguments:` / `Options:` / …）→ 不合并
-/// 2. 本行候选词是**纯占位符**（`<N_REQUESTS>`）或**裸 flag 名**（`-n`）→ 不合并
-/// 3. 下一行**缩进不深于**本行 → 不是它的描述，不合并
+/// 把「本行是一个候选词」+「后续缩进更深的行」合并成一条动作。
+///
+/// **判据用「flag 组数」而不是「空白 token 数」** —— 这是被 hyperfine 实测逼出来的：
+///
+/// | 行 | 空白 token | flag 组 | 应该是 |
+/// |---|---|---|---|
+/// | `--show-output` | 1 | 1 | ✅ 动作 |
+/// | `-n <N_REQUESTS>` | 2 | 1（短名 + 它的值） | ✅ 动作 |
+/// | `-c, --compact-output` | 2 | 2（短名 + 长名） | ✅ 动作 |
+/// | `-w, --warmup <NUM>` | **3** | 2（`-w,` + `--warmup <NUM>`） | ✅ **动作** |
+/// | `-m, --min-runs <NUM>` | **3** | 2 | ✅ **动作** |
+///
+/// 若按「空白 token ≤ 2」判，`-w, --warmup <NUM>` 会被误拒
+/// → hyperfine 的 `--warmup`/`--runs`/`--min-runs`/`--max-runs`/`--shell`/`--prepare`
+/// **全部丢失**（实测：28 条里只认出 14 条，丢的正是最高频的那批参数）。
+///
+/// **判据**：剥掉所有「值占位符」（`<NUM>` / `[FILE]`）后，
+/// 剩下的必须是 **≤2 个 `-` 开头的片段**（短名/长名最多各一个）。
+/// 「值占位符」= 以 `<` 或 `[` 开头的 token。
 fn split_line_multiline(lines: &[&str], i: usize) -> Option<(String, String)> {
     let line = lines.get(i)?;
     let t = line.trim_start();
@@ -247,15 +261,37 @@ fn split_line_multiline(lines: &[&str], i: usize) -> Option<(String, String)> {
     if split_line(line).is_some() {
         return None;
     }
-    // 条件 B：本行必须是「1~2 个 token」的候选词
-    //   `-n`                 → 1 token（短 flag 单独一行）
-    //   `-n <N_REQUESTS>`    → 2 token（flag + 参数名）
-    //   `--worker-threads <N>` → 2 token
-    //   3+ token → 更像段落续行，不是动作行
     let cand = t.trim();
-    let ntok = cand.split_whitespace().count();
-    if !(1..=2).contains(&ntok) {
+    // 条件 B0：**项目符号不是动作** —— `* plain: disables all components.`
+    //   bat/bat 这类 help 的枚举列表用 `*` / `-` / `•` 打头，且**缩进比
+    //   参数行更深**。若不拒，`*` 会被当成「裸词候选」，再吞掉它下面更深的
+    //   说明行 → 产出 `bat plain` 这种垃圾命令（实测 bat 就这么坏了）。
+    if cand.starts_with('*') || cand.starts_with('•') {
         return None;
+    }
+    // 条件 B：剥掉值占位符后，必须是「1~2 个以 - 开头的片段」或「1 个裸词（子命令）」
+    let bare_word = !cand.starts_with('-') && cand.split_whitespace().count() == 1;
+    if bare_word {
+        // 裸词候选还要防「描述性单词」：真正的子命令行通常缩进较浅（≤4），
+        // 而说明文字在 clap 版式里缩进 ≥8。
+        // 用缩进做判据是确定性的（clap 对 flag 用 2 空格、对描述用 8~10 空格）。
+        let indent_now = line.len() - t.len();
+        if indent_now > 6 {
+            return None;
+        }
+    }
+    if !bare_word {
+        let flags: Vec<&str> = cand
+            .split_whitespace()
+            .filter(|w| !(w.starts_with('<') || w.starts_with('[')))
+            .collect();
+        if flags.is_empty() || flags.len() > 2 {
+            return None;
+        }
+        // 每个片段都必须以 `-` 开头（否则是段落续行/自由文本）
+        if flags.iter().any(|w| !w.starts_with('-')) {
+            return None;
+        }
     }
     let indent = line.len() - t.len();
 
@@ -270,6 +306,22 @@ fn split_line_multiline(lines: &[&str], i: usize) -> Option<(String, String)> {
         if nind <= indent {
             break; // 缩进不更深 → 不是本行的描述
         }
+        // ── 🆕 v19d 条件 C2：下一行**本身是另一个 flag 行** → 立即停 ──
+        //
+        // 血训（hyperfine 实测）：clap 的缩进**随有无短名而变** ——
+        //   `  -s, --setup <CMD>`          ← 有短名，缩进 2
+        //   `      --reference <CMD>`      ← 无短名，缩进 6
+        // 于是 `--reference`（缩进 6 > 2）被当成 `--setup` 描述的续行吞掉，
+        // `--setup` 的 desc 里混进了 `--reference <CMD> The reference command...`
+        // 再往下 `--reference-name` 也被吞 → **一条动作污染三条 flag 的描述**。
+        // 而 `split_line_multiline` 的原有判据（缩进更深）无法区分「描述续行」
+        // 与「缩进更深的另一个 flag」，因为后者**也是**缩进更深。
+        //
+        // 判据：若该行自身满足 flag 行特征（≤2 个 flag 组 + 无值占位符），
+        // 它就是下一条动作，不是描述 → 停。
+        if is_flagish_line(nt) {
+            break;
+        }
         // 条件 D：描述首行若是段落标题 → 本行其实没有描述（是段落本身）
         if desc.is_empty() && is_section_header(nt) {
             return None;
@@ -283,6 +335,24 @@ fn split_line_multiline(lines: &[&str], i: usize) -> Option<(String, String)> {
         return None;
     }
     Some((cand.to_string(), desc))
+}
+
+/// 判「这一行看起来是另一条 flag 动作」—— 用于切断描述收集（条件 C2）。
+///
+/// 与 `split_line_multiline` 条件 B 同判据，但**不要求**本行无同行描述
+/// （clap long-help 的 flag 行确实无同行描述；但宽松一点无害，因为调用点
+/// 已经保证「正在收集描述」的语境）。
+///
+/// 判据：剥掉值占位符（`<...>` / `[...]`）后，剩下的是 **1~2 个 `-` 打头的片段**。
+fn is_flagish_line(s: &str) -> bool {
+    let flags: Vec<&str> = s
+        .split_whitespace()
+        .filter(|w| !(w.starts_with('<') || w.starts_with('[')))
+        .collect();
+    if flags.is_empty() || flags.len() > 2 {
+        return false;
+    }
+    flags.iter().all(|w| w.starts_with('-'))
 }
 
 /// 段落标题判定 —— 出现在候选行「下一行」时说明本行没有自己的描述。
@@ -561,6 +631,23 @@ fn parse_comma_list(
     seen: &mut std::collections::HashSet<String>,
 ) -> Vec<HelpAction> {
     let t = line.trim();
+    // 🆕 条件 0：**缩进必须浅**（≤6）—— 这是被 bat 实测逼出来的。
+    //
+    // npm 的形态（该路径的唯一正主）缩进 0：
+    //     All commands:
+    //       access, adduser, audit, ...
+    // 而 bat 的 `--style <components>` 的取值枚举缩进 12：
+    //                 changes, grid, header-filename, numbers, snip
+    // 两者都「≥2 个逗号 + 全是合法单词」，格式上无法区分 ——
+    // **但缩进能区分**：动作行在左，值枚举在描述的缩进层级里。
+    //
+    // 不拒的后果（实测）：bat 产出 `bat changes` / `bat grid` / `bat snip`
+    // 等 5 条**垃圾命令**，同时真参数 `--plain`/`--style`/`--language`
+    // 一条都没进来 → CLI 完全不可用。
+    let indent = line.len() - line.trim_start().len();
+    if indent > 6 {
+        return Vec::new();
+    }
     // 必须以逗号结尾（列表续行）或含 ≥2 个逗号
     let n_comma = t.matches(',').count();
     if n_comma == 0 || (!t.ends_with(',') && n_comma < 2) {
@@ -673,6 +760,35 @@ fn fill_example(cmd: &str) -> Option<String> {
         ("<TYPE> <POD>", "pods frontend-7d9"),
         ("<TYPE> <NAME_OR_TYPE>", "pods web"),
         ("<TYPE>", "pods"),
+        // ── 🆕 v19d：跨 CLI 通用「量纲型」占位符 ──────────────────────
+        // 来源：L1 池 ground 校验发现 hyperfine/fd/rg 这类**带值 flag** 的
+        // 示例全是不可执行形态（`hyperfine --warmup <NUM>` → 跑起来报缺参）。
+        // 这批占位符的语义**在跨 CLI 上无歧义**（NUM 就是个数字），
+        // 可以安全填充；凡是「不知道是什么名字」的（<NAME> 已在上表按域给值）
+        // 一律不填，宁可返回 None 不给示例 —— 编造语义错误的示例更糟。
+        ("<NUM>", "10"),
+        ("<N>", "10"),
+        ("<COUNT>", "10"),
+        ("<N_REQUESTS>", "100"),
+        ("<NUM_REQUESTS>", "100"),
+        ("<SECONDS>", "30"),
+        ("<SECS>", "30"),
+        ("<MS>", "500"),
+        ("<RATE>", "10"),
+        ("<CMD>", "ls"),
+        ("<COMMAND>", "ls"),
+        ("<PATTERN>", "TODO"),
+        ("<REGEX>", "TODO"),
+        ("<TEXT>", "hello"),
+        ("<PATH>", "src"),
+        ("<FILE>", "config.json"),
+        ("<FILEPATH>", "config.json"),
+        ("<DIR>", "src"),
+        ("<URL>", "https://example.com"),
+        ("<HOST>", "127.0.0.1"),
+        ("<PORT>", "8080"),
+        ("<SHELL>", "bash"),
+        ("<FORMAT>", "json"),
     ] {
         if out.contains(ph) {
             out = out.replace(ph, val);
@@ -958,7 +1074,33 @@ fn parse_flags_as_actions(cli: &str, raw: &str) -> Vec<HelpAction> {
         {
             continue;
         }
-        let cmd = format!("{cli} {flag}");
+        // ── 🆕 v19d：把 flag **后面的值占位符**一起带上 ──────────────────
+        //
+        // 血训（L1 池 ground 校验反查）：这里原先只 `format!("{cli} {flag}")`，
+        // 于是 `-w, --warmup <NUM>` 被剥成 `hyperfine --warmup` ——
+        // **示例字段也随之变成 `示例：hyperfine --warmup`，这条命令跑不起来**
+        // （hyperfine 会报缺参）。注入给模型的每条 flag 都是不可执行的形态，
+        // 模型据此输出静默失效命令，正是 T1 门「缺参=静默失效」要防的场景。
+        //
+        // ⚠️ 为什么池内 CLI 没暴露：docker/git/cargo/jq 的 flag **全是裸 flag**
+        //    （`--slurp` / `--compact-output`），本来就不带值 → 恰好不显形。
+        //    与 clap long-help 盲区同源：**池子同质化掩盖了整类缺陷**。
+        //
+        // 判据：在 `cand` 里定位 flag 之后**紧随的第一个值占位符**
+        // （形如 `<NUM>` / `<FILE>` / `[FILE]`），带上它；没有就不带。
+        // 不猜语义、不编值 —— 只做到「如实转写 help 里写了的语法」。
+        let after = cand.find(flag).map(|p| &cand[p + flag.len()..]).unwrap_or("");
+        let val = after
+            .split_whitespace()
+            .map(|w| w.trim_matches(','))
+            .find(|w| {
+                (w.starts_with('<') && w.ends_with('>'))
+                    || (w.starts_with('[') && w.ends_with(']'))
+            });
+        let cmd = match val {
+            Some(v) => format!("{cli} {flag} {v}"),
+            None => format!("{cli} {flag}"),
+        };
         push_unique(&mut out, &mut seen, cli, cmd, desc);
     }
     out
@@ -1411,6 +1553,94 @@ Options:
             .find(|a| a.full_cmd.contains("debug"))
             .expect("未抽出 debug flag");
         assert_eq!(dbg.desc, "Enable debug mode", "同行描述被串改: {:?}", dbg.desc);
+    }
+
+    /// ── v19d 三条修复的单测（全部由 L1 池 ground 校验反查出）──
+    ///
+    /// 背景：池内 6 个 CLI（docker/git/cargo/npm/kubectl/jq）的 flag **全是裸 flag**
+    /// （`--slurp`），本来就不带值 → 下面三个缺陷在池内**根本不显形**。
+    /// 这是与 clap long-help 同源的失效模式：**池子同质化掩盖整类缺陷**。
+    /// 因此单测必须用**池外的形态**（clap 带值 flag）来锁。
+
+    /// v19d-1：`-w, --warmup <NUM>` 的值占位符必须出现在 full_cmd 里。
+    ///
+    /// 改前：`format!("{cli} {flag}")` 只取 flag 名 → `hyperfine --warmup`，
+    /// 示例也随之是 `hyperfine --warmup`（**跑起来报缺参**）→ 注入给模型的
+    /// 每条 flag 都不可执行，模型输出静默失效命令。
+    #[test]
+    fn flag_value_placeholder_is_preserved_in_full_cmd() {
+        let raw = "\
+Options:
+  -w, --warmup <NUM>
+          Perform NUM warmup runs before the actual benchmark.
+      --runs <NUM>
+          Perform exactly NUM runs for each command.
+      --wait-ongoing-requests-after-deadline
+          When the duration is reached, ongoing requests are waited
+";
+        let acts = parse_help("hyperfine", raw);
+        let warm = acts
+            .iter()
+            .find(|a| a.full_cmd.contains("warmup"))
+            .expect("未抽出 --warmup");
+        assert_eq!(
+            warm.full_cmd, "hyperfine --warmup <NUM>",
+            "值占位符丢失: {:?}",
+            warm.full_cmd
+        );
+        // 示例必须**可执行**（不再残留 `<...>`）
+        let ex = warm.example.as_deref().unwrap_or("");
+        assert!(
+            !ex.contains('<') && ex.starts_with("hyperfine --warmup "),
+            "示例仍不可执行: {ex:?}"
+        );
+        // 无值 flag 不得被硬塞占位符（否则反过来教错形态）
+        let wait = acts
+            .iter()
+            .find(|a| a.full_cmd.contains("wait-ongoing"))
+            .expect("未抽出无值 flag");
+        assert_eq!(
+            wait.full_cmd, "hyperfine --wait-ongoing-requests-after-deadline",
+            "无值 flag 被误加占位符: {:?}",
+            wait.full_cmd
+        );
+    }
+
+    /// v19d-2：下一条 flag（缩进更深）不得被吞进上一条的描述。
+    ///
+    /// 改前：clap 的缩进随有无短名而变（`  -s, --setup` 缩进 2；
+    /// `      --reference` 缩进 6）→ 后者被当成前者描述的续行吞掉，
+    /// 一条动作污染三条 flag 的描述。
+    #[test]
+    fn deeper_indented_next_flag_is_not_swallowed_into_desc() {
+        let raw = "\
+Options:
+  -s, --setup <CMD>
+          Execute CMD before each set of timing runs.
+      --reference <CMD>
+          The reference command for the relative comparison of results.
+      --reference-name <CMD>
+          Give a meaningful name to the reference command.
+";
+        let acts = parse_help("hyperfine", raw);
+        let setup = acts
+            .iter()
+            .find(|a| a.full_cmd.contains("--setup"))
+            .expect("未抽出 --setup");
+        assert_eq!(
+            setup.desc, "Execute CMD before each set of timing runs.",
+            "--setup 的描述被下一条 flag 污染: {:?}",
+            setup.desc
+        );
+        let rn = acts
+            .iter()
+            .find(|a| a.full_cmd.contains("--reference-name"))
+            .expect("未抽出 --reference-name");
+        assert_eq!(
+            rn.desc, "Give a meaningful name to the reference command.",
+            "--reference-name 描述不对: {:?}",
+            rn.desc
+        );
     }
 
     /// 常用度重排：常用的 logs/stats 必须排在 bake/pull 之前    #[test]

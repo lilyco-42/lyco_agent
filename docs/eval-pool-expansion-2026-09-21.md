@@ -115,6 +115,81 @@ clap 是 **Rust 生态事实标准**（`clap` 4.x 每周下载量数千万），
 新增 2 条单测：`clap_long_help_description_on_next_line_is_parsed`（正向）
 + `same_line_style_is_untouched_by_multiline_path`（反向，防串味）。
 
+### 1.7 🔴 第二轮 / 第三轮修复：**「池子同质化」掩盖的整类缺陷**
+
+**修完 1.6 之后，我拿 L1 池的 `gold` 去做 ground 校验**（断言「我手写的
+schema 动作必须真实出现在 `help-parse` 输出里」）—— 结果 **42 处断言失败**。
+**这不是数据集写错了，是解析器还有三个 bug。** 若无这层校验，
+我会以为是数据集问题去改数据，bug 就留在那儿了。
+
+#### 三个 bug 的共同病因：池内 CLI **恰好**全是「裸 flag + 无值子命令」
+
+```
+docker ps / docker logs        ← 无值子命令
+git status / git log           ← 无值子命令
+cargo test / cargo build       ← 无值子命令
+jq --slurp / jq --compact-output ← 裸 flag（不带值）
+```
+
+**池内 6 个 CLI 的 flag 行，没有一条带值占位符。** 于是下面三个缺陷
+在池内**一个都不显形**，我一跑池内回归就「全绿」，误以为解析器没问题。
+
+| # | bug | 触发形态（池外） | 后果 |
+|---|---|---|---|
+| **2** | `split_line_multiline` 的判据是「空白 token 数 ≤2」 | `-w, --warmup <NUM>` = **3** 个 token | flag **组数只有 2**（`-w,` + `--warmup <NUM>`）却被误拒 → hyperfine 丢 `--warmup`/`--runs`/`--min-runs`/`--max-runs`/`--shell`/`--prepare` **6 条最高频 flag** |
+| **3** | 项目符号被当动作候选 | bat 的 `* plain: disables all components.` | `*` 被当裸词，再吞掉其下更深的说明行 → 产出 `bat plain` 垃圾命令 |
+| **4** | `parse_comma_list` 不判缩进 | bat 的 `            changes, grid, header-filename, numbers, snip`（**缩进 12 的值枚举**） | 与 npm 的 `All commands: a, b, c`（**缩进 0**）格式上无法区分 → 产出 `bat changes`/`bat grid`/`bat snip` **5 条垃圾命令** |
+| **5** | `full_cmd` 丢弃 flag 的值占位符（`format!("{cli} {flag}")`） | `-w, --warmup <NUM>` → `hyperfine --warmup` | **示例字段随之变成 `示例：hyperfine --warmup`——跑起来报缺参**。注入给模型的每条带值 flag 都是不可执行形态 |
+| **6** | 描述收集越过了下一条（缩进更深的）flag 行 | clap 缩进随有无短名而变：`  -s, --setup` **缩进 2** / `      --reference` **缩进 6** | `--setup` 的 desc 里混进 `--reference <CMD> The reference command...` → **一条动作污染三条 flag 的描述**；fd 同理错位 19 条 |
+
+#### 修复（全部只改判据，不动旧版式）
+
+1. **bug 2** — 判据从「空白 token 数 ≤2」改为「**flag 组数 ≤2**」：
+   剥掉值占位符（`<...>` / `[...]`）后，剩下必须全是 `-` 打头的片段。
+2. **bug 3** — 新增条件 B0：`*` / `•` 打头的行直接拒。
+3. **bug 3'** — 裸词候选项加 `indent > 6 → None`（描述行缩进 ≥8，子命令 ≤4）。
+4. **bug 4** — `parse_comma_list` 加条件 0：`indent > 6 → 空`。
+5. **bug 5** — 在 `cand` 里定位 flag 后**紧随的第一个值占位符**并带上；
+   同时给 `fill_example` 补一批**跨 CLI 语义无歧义**的量纲型占位符
+   （`<NUM>`→10 / `<CMD>`→ls / `<FILE>`→config.json …），
+   **未知语义的一律不填**（宁可返回 `None` 不给示例，不编造）。
+6. **bug 6** — 新增 `is_flagish_line`，描述收集时若下一行自身是 flag 行则立即停。
+
+#### 逐字零回归证明（不是比条数，是比内容）
+
+用 `--include-writes --top 9999` 固定口径，**改前 vs 改后全量逐字 diff**：
+
+| CLI | 组 | 改动前 | 改动后 | 差异 |
+|---|---|---|---|---|
+| docker | 池内 | — | — | **逐字 0 差异** ✅ |
+| git | 池内 | — | — | **逐字 0 差异** ✅ |
+| cargo | 池内 | — | — | **逐字 0 差异** ✅ |
+| kubectl | 池内 | — | — | **逐字 0 差异** ✅ |
+| jq | 池内 | — | — | **逐字 0 差异** ✅ |
+| rg | L1 | — | — | 逐字相同 |
+| zoxide | L1 | — | — | 逐字相同 |
+| starship | L1 | — | — | 逐字相同 |
+| **bat** | L1 | **5** | **38** | +33（修掉 5 条垃圾命令 + 恢复 33 条真 flag） |
+| **hyperfine** | L1 | **14** | **28** | **翻倍**（6 条带值 flag 救回 + 2 条 desc 解污染） |
+| **oha** | L1 | **37** | **42** | +5（带值 flag 补回占位符） |
+| **fd** | L1 | — | — | **19 条内容修正**（desc 错位 → 正确对应） |
+
+**池内逐字差异总数 = 0。** 这是补盲区唯一可接受的形状 ——
+**若池内数字也动了，说明我在拿新判据误伤已正确的旧形态。**
+
+新增 2 条单测（共 4 条锁 long-help 系）：
+`flag_value_placeholder_is_preserved_in_full_cmd`（含「无值 flag 不得被硬塞占位符」的反向断言）
++ `deeper_indented_next_flag_is_not_swallowed_into_desc`。
+
+#### 方法论收获（比 bug 本身更重要）
+
+> **池内回归「全绿」不等于解析器对。它只证明「解析器对池内那类 CLI 是对的」。**
+
+池子是「按我手上有什么样本」攒的，而攒的人一直用同一类 CLI（无值子命令 / 裸 flag）。
+**这是泛用性测试的经典失效模式：测试集由被测物的作者挑选，于是系统性漏掉他不知道的那一类。**
+两次（clap long-help、值占位符）都是这个模式 ——
+**唯一有效的对策是「外部陌生 CLI + ground 校验」，即用户提的 L1 池。**
+
 ---
 
 ## 二、lilyco CLI：补的是**另一个**维度的盲区，而且比 oha 更关键

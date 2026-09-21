@@ -10,7 +10,7 @@ import json, os, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIX = os.path.join(HERE, "fixtures")
 LYCORE = "D:/Code/lyco_agent/lycore/target/debug/lycore.exe"
-NAMES = ["docker", "git", "cargo", "kubectl", "jq", "fd", "rg", "hyperfine", "zoxide", "bat", "starship", "oha"]
+NAMES = ["docker","git","cargo","npm","kubectl","jq","fd","rg","hyperfine","zoxide","bat","starship","oha","dust","sd","tokei","xh","delta","just","eza"]
 
 
 def snap():
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     else:
         a = json.load(open(os.path.join(HERE, "snap_before.json"), encoding="utf-8"))
         b = json.load(open(os.path.join(HERE, "snap_after.json"), encoding="utf-8"))
-        POOL = {"docker", "git", "cargo", "kubectl", "jq"}
+        POOL = {"docker", "git", "cargo", "npm", "kubectl", "jq"}
         total_diff = 0
         for n in NAMES:
             if n not in a or n not in b:

@@ -33,6 +33,7 @@ fn main() {
         "backend" => cmd_backend(&args[1..]),
         "help-parse" => cmd_help_parse(&args[1..]),
         "vision" => cmd_vision(&args[1..]),
+        "npu" => cmd_npu(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -48,12 +49,69 @@ fn main() {
                  lycore help-parse --cli <name> [--help-text <file>] [--top 8] [--json]\n    \
                    ↑ 把 CLI 的 --help 确定性解析成只读动作表 (v17 正解: 提炼不用模型)\n  \
                  lycore vision identify <image> [--json] [--ffmpeg <path>]\n    \
-                   ↑ 识图: 终端/GUI/文档/自然 (vnn 规则通道; CNN 就位后自动接管)"
+                   ↑ 识图: 终端/GUI/文档/自然 (vnn 规则通道; CNN 就位后自动接管)\n  \
+                 lycore npu status [--json]\n    \
+                   ↑ NPU 设备探测: 报告 /dev/galcore 是否存在 (无板子时诚实返回 present=false)"
             );
             2
         }
     };
     std::process::exit(exit);
+}
+
+/// `lycore npu status` —— 把 409 行、零调用的 `npu_runtime` 接出到 CLI（2026-09-21 P0.2）。
+///
+/// **诚实探测**：板子已 halt、6.6 galcore hard hang，所以本命令在无板子时**正常返回
+/// `present:false` 且 exit 0**，而不是报错。理由：调用方（含 agent loop）需要
+/// 「知道没有 NPU 然后走 CPU 兜底」，而不是收到一个失败——这与 `backend::available()`
+/// 恒非空、CPU 永远兜底的普惠不变量一致。
+fn cmd_npu(args: &[String]) -> i32 {
+    let Some(sub) = args.first().map(|s| s.as_str()) else {
+        eprintln!("用法: lycore npu status [--json]");
+        return 2;
+    };
+    if sub != "status" {
+        eprintln!("未知子命令 npu {sub}；目前只支持 status");
+        return 2;
+    }
+    let json = args.iter().any(|a| a == "--json");
+
+    // 设备节点探测：A733/VIP9000 的 galcore 驱动暴露 /dev/galcore。
+    // 其他厂商（RKNN/QNN/CANN）节点名不同，此处只报我们实际支持的那一个，
+    // 不做「假装支持」。
+    let present = std::path::Path::new("/dev/galcore").exists();
+    let model = std::fs::read_to_string("/proc/device-tree/model")
+        .map(|s| s.trim_end_matches('\0').trim().to_string())
+        .ok()
+        .filter(|s| !s.is_empty());
+
+    if json {
+        let v = serde_json::json!({
+            "present": present,
+            "device": "/dev/galcore",
+            "board_model": model,
+            "serial_constraint": "VIP9000 同一时刻只能跑一个网络；多消费者须自行排队",
+            "lease_api": "lycore::npu_runtime::{acquire,enqueue,release,sweep}",
+            "fallback": if present { "NPU 可用: 走 NpuBackend 真实实现 (TIM-VX 用户态)" }
+                        else { "CPU 兜底: 视觉走 vnn 规则通道 / yolo 走 tract" },
+        });
+        println!("{}", serde_json::to_string_pretty(&v).expect("序列化"));
+    } else if present {
+        println!("NPU: 存在  (/dev/galcore)");
+        if let Some(m) = &model {
+            println!("  板型: {m}");
+        }
+        println!("  硬约束: VIP9000 同一时刻只能跑一个网络 → 必须串行排队");
+        println!("  租约 API: lycore::npu_runtime::{{acquire,enqueue,release,sweep}}");
+    } else {
+        println!("NPU: 不存在  (/dev/galcore 未找到)");
+        if let Some(m) = &model {
+            println!("  板型: {m}");
+        }
+        println!("  这是正常状态（板子 halt / 非 A733 设备）→ 视觉能力走 CPU 兜底");
+        println!("  串行调度器设计已就绪（409 行 + 单测），待 TIM-VX 用户态联调");
+    }
+    0
 }
 
 /// `lycore vision identify <image>` —— 把已在 executor 中接线、但用户无法直接触达的

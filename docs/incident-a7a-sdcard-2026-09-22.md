@@ -123,6 +123,40 @@ ping 192.168.10.165 -S 192.168.10.218 → <1ms, TTL=128   ← 非 Linux（Linux 
 - 串口工具：`D:/Code/radxa/uart.py`、`D:/Code/radxa/uboot_boot3.py`；**COM3 = FTDI @115200**
 - U-Boot 已知配方：内核在 **`mmc 0:3`**；`load mmc 0:3 0x40080000 $kpath`／DTB 必须放 **`0x4A000000`**／
   initrd → `0x4FF00000`；查文件必须用 **`ext4ls`**（`ls` 会因目录过大漏报）
+
+#### U-Boot 手动引导命令单（拿到串口后照抄；**不改任何配置文件**）
+
+```text
+# 1) 停自动启动，进 U-Boot 提示符
+<中断倒计时，出现 => 提示符>
+
+# 2) 先确认卡还能不能读（读不出 ⇒ 直接换卡，别再折腾）
+ext4ls mmc 0:3 /boot
+ext4ls mmc 0:3 /boot/extlinux
+
+# 3) 用短变量存路径（U-Boot 环境变量长度有限，别直接内联长路径）
+setenv kpath /boot/vmlinuz-6.6.98+
+setenv ipath /boot/initrd.img-6.6.98+
+# DTB 在 fdtdir 里，先用 ext4ls 找出确切文件名：
+ext4ls mmc 0:3 /usr/lib/linux-image-6.6.98+/
+setenv dpath /usr/lib/linux-image-6.6.98+/<上一步查到的 .dtb>
+
+# 4) 加载：DTB 必须放 0x4A000000（放 0x4FA00000 会因 initrd_high 重定位踩坏 → FDT_ERR_ALIGNMENT）
+load mmc 0:3 0x40080000 $kpath
+load mmc 0:3 0x4A000000 $dpath
+load mmc 0:3 0x4FF00000 $ipath
+
+# 5) 启动（临时参数，不落盘）——两种选择：
+#    (a) 原样启动、不做 fsck（先要回系统，进去后自己还原 extlinux 并用 e2fsck 收尾）
+setenv bootargs root=UUID=ce788441-061f-4c4b-a90b-feabdcd8790c console=ttyAS0,115200n8 rootwait clk_ignore_unused rw earlycon loglevel=4
+booti 0x40080000 0x4FF00000:${isize} 0x4A000000
+#    (b) 只读启动 + 强制修复（等价于我改的那行，但只在本次生效）
+#        setenv bootargs root=UUID=... rootwait rw fsck.mode=force fsck.repair=yes
+```
+
+> 进入系统后的**第一件事**：`echo radxa | sudo -S cp /boot/extlinux/extlinux.conf.bak.202609220311 /boot/extlinux/extlinux.conf`
+> 然后 `diff` 确认，再决定是否重新安排 fsck（走 U-Boot 临时参数，不改文件）。
+
 - 本机模型副本齐全（**md5 存档**）：
   - `chat_slm_qwen3_0p6b-Q4_K_M.gguf` = `4cbe4d605ec5e533ad26a9cb1efe9765`（484,219,648 B）
   - `Qwen3-0.6B-Q4_K_M.gguf` = `541151b170814b2063fb8bc74073db7d`（484,219,808 B）

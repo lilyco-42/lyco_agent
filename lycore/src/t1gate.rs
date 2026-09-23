@@ -188,7 +188,9 @@ pub fn classify(raw_cmd: &str) -> Verdict {
         "stop", "open", "uninstall-pkg", "generate", "fmt", "fix", "upgrade",
     ];
     const READ_VERBS: &[&str] = &[
-        "list", "ls", "get", "show", "status", "log", "diff", "view", "search", "cat",
+        // ⚠️ 复数/别名必须显式列出：白名单只做 token 精确匹配，
+        //    漏一个就退化成"要确认"（实测 `docker logs` / `kubectl logs` 曾因此被判写操作）
+        "list", "ls", "get", "show", "status", "log", "logs", "diff", "view", "search", "cat",
         "ps", "du", "df", "info", "plan", "check", "clippy", "help", "version", "stats",
         "top", "which", "pwd", "head", "tail", "find", "grep", "wc", "tree", "env",
         "history", "fetch", "describe-only", "preview", "validate", "dry-run",

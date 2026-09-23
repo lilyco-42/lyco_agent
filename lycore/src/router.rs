@@ -167,6 +167,121 @@ pub fn plan_with_help(
     Ok(p)
 }
 
+// ══════════════ 判定式脊（Choice Spine）：CLI 本身就是选项集 ══════════════
+//
+// 证据（同池、同题、唯一变量=任务定义）：
+//   · 「从 N 个真实候选里选 1」→ 云端 Jev **12/12 = 100%**（跨域 CLI 选择）
+//   · 「生成完整命令串」      → 我们 v13 **41.7%**（acc_exec）
+//   · 出域拒绝：Jev 10/10 vs 我们 **0%** —— 判定式里「选 0」是自然动作
+//
+// 分工（本项目的核心交易）：
+//   候选生成 = 确定性（help_parse 的真实动作表）   ← 模型不需要"记住"任何 CLI
+//   判定     = 模型唯一需要做的事（只回编号）
+//   组装     = 确定性（编号+槽位 → 命令；缺槽位就回问用户，绝不猜）
+
+/// 从用户原话里抽**字面量槽位**（确定性，不猜语义）：
+/// 先取成对引号内的内容（中英文引号），再取独立的 ASCII 数字（可带单位如 `23MB`）。
+pub fn extract_literals(nl: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let chars: Vec<char> = nl.chars().collect();
+    let mut i = 0;
+    // 引号内内容优先（`git commit -m "doc"` 的 "doc"）
+    while i < chars.len() {
+        let open = chars[i];
+        let close = match open {
+            '"' => Some('"'),
+            '\'' => Some('\''),
+            '“' => Some('”'),
+            '「' => Some('」'),
+            _ => None,
+        };
+        if let Some(cl) = close {
+            if let Some(j) = (i + 1..chars.len()).find(|&k| chars[k] == cl) {
+                let inner: String = chars[i + 1..j].iter().collect();
+                if !inner.trim().is_empty() {
+                    // **只在需要时加引号**：`web` 裸写，`add doc` 才带引号
+                    out.push(crate::choices::shell_quote_if_needed(inner.trim()));
+                }
+                i = j + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    // 独立数字（`hw condition tem set 23` 的 23；`23MB` 也接受）
+    for tok in nl.split(|c: char| c.is_whitespace() || c == '，' || c == '。' || c == '、') {
+        let t = tok.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+        if t.is_empty() {
+            continue;
+        }
+        let lead_num: String = t.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+        if !lead_num.is_empty() && lead_num.chars().any(|c| c.is_ascii_digit()) {
+            out.push(t.to_string());
+        }
+    }
+    out
+}
+
+/// 判定式核心（**纯函数**，可离线单测）：
+/// 给定真实动作表 + 模型输出 → 计划。
+///
+/// 返回 `None` 表示「这不是判定式该处理的输出」——调用方应退回原生成式路径（不劣化）。
+pub fn plan_choice_from(
+    nl: &str,
+    cli: &str,
+    actions: &[crate::help_parse::HelpAction],
+    model_out: &str,
+    max_n: usize,
+) -> Option<Plan> {
+    use crate::choices::{assemble, build_choices, parse_picked, Assembled, Picked};
+
+    let choices = build_choices(actions, max_n);
+    if choices.is_empty() {
+        return None;
+    }
+    let _ = cli; // 仅在探测/渲染阶段使用，这里保持签名对称
+    match parse_picked(model_out, choices.len()) {
+        // 模型明确说「都不合适」→ 不执行（这正是我们缺的拒绝能力）
+        Picked::None => Some(plan_from_raw(nl, NOOP)),
+        // 解析失败 → 交回上层兜底，绝不瞎猜
+        Picked::Unparsable => None,
+        Picked::Idx(k) => {
+            let a = &actions[k - 1];
+            match assemble(a, &extract_literals(nl)) {
+                Assembled::Ready(cmd) => Some(plan_from_raw(nl, &cmd)),
+                // 槽位填不满：先用完整动作造计划，缺参由 paramcheck/T1 判定（会要求补参）
+                Assembled::NeedsSlots { .. } => Some(plan_from_raw(nl, &a.full_cmd)),
+            }
+        }
+    }
+}
+
+/// 判定式入口（薄封装）：探测 CLI → 抓 `--help` → 解析成动作表 → 编号候选 → 只问编号。
+///
+/// 任何一步不成立（猜不到 CLI / 抓不到 help / 解析 0 条 / 模型输出不可解析）
+/// **都退回原生成式路径** —— 保证「不劣化」。
+pub fn plan_choice(model: &mut dyn CommandModel, nl: &str, max_n: usize) -> anyhow::Result<Plan> {
+    use crate::choices::{build_choices, render_choices};
+    use crate::help_parse::{parse_help, rank_by_frequency};
+
+    let (cli, actions) = match guess_cli(nl).and_then(|c| {
+        grab_help(&c)
+            .map(|raw| (c.clone(), parse_help(&c, &raw)))
+    }) {
+        Some((c, acts)) if !acts.is_empty() => (c, rank_by_frequency(&acts)),
+        _ => return plan_with_help(model, nl, max_n),
+    };
+
+    let choices = build_choices(&actions, max_n);
+    let sys = format!("{V13_SYS}\n{}", render_choices(&cli, &choices));
+    let out = model.infer(&sys, nl)?;
+    match plan_choice_from(nl, &cli, &actions, &out, max_n) {
+        Some(p) => Ok(p),
+        // 不可解析 → 当普通生成式输出处理（同一份输出，不再多问一次模型）
+        None => Ok(plan_from_raw(nl, &out)),
+    }
+}
+
 /// 从已知模型输出构造计划 (远端批量跑模型 → 本地分诊时用这个)
 ///
 /// 分诊顺序（**正交两级，先缺参后风险**）：
@@ -643,5 +758,89 @@ usage: demo [cmd]
         assert_eq!(p.decision, Decision::NeedsParam, "首段缺参应被抓");
         let ok = plan_from_raw("装东西然后跑", "npm install express && npm run build");
         assert_ne!(ok.decision, Decision::NeedsParam, "全段齐备不该判缺参");
+    }
+}
+
+/// 判定式脊的接线测试（独立模块，避免动原 tests 模块）
+///
+/// ⚠️ 这组测试的存在理由写在这里：本仓库曾发生「`render_schema_with_raw_fallback`
+/// 单测全绿但两个真实调用点都没接线，生产行为零变化」。所以**核心逻辑测试**之外，
+/// 必须有一条测试**走完整入口**（`plan_choice_from` 是入口的一半，
+/// 这里用真实 action 表走它的端到端），证明数据真的流过去了。
+#[cfg(test)]
+mod choice_spine_tests {
+    use super::*;
+    use crate::help_parse::HelpAction;
+
+    fn act(cmd: &str, ex: Option<&str>, ro: bool) -> HelpAction {
+        HelpAction {
+            full_cmd: cmd.to_string(),
+            desc: String::new(),
+            readonly: ro,
+            example: ex.map(str::to_string),
+        }
+    }
+
+    fn docker_actions() -> Vec<HelpAction> {
+        vec![
+            act("docker ps", Some("docker ps"), true),
+            act("docker logs <CONTAINER>", Some("docker logs <CONTAINER>"), true),
+            act("docker images", Some("docker images"), true),
+        ]
+    }
+
+    #[test]
+    fn picks_nth_candidate_and_fills_slot() {
+        let acts = docker_actions();
+        // 模型只回编号 2，槽位来自用户原话（引号里的 web）
+        let p = plan_choice_from("看下 \"web\" 的日志", "docker", &acts, "2", 0)
+            .expect("应当产出计划");
+        assert_eq!(p.command, "docker logs web", "编号+槽位应被组装成真命令");
+        assert_eq!(p.decision, Decision::Run, "docker logs 是只读 → Run");
+    }
+
+    #[test]
+    fn choice_zero_is_a_real_rejection() {
+        let acts = docker_actions();
+        let p = plan_choice_from("帮我把数据库删了", "docker", &acts, "0", 0).unwrap();
+        assert_eq!(p.decision, Decision::Noop, "选 0 = 不执行；这是我们 reject 0% 的解药");
+    }
+
+    #[test]
+    fn out_of_range_index_is_not_a_rejection() {
+        let acts = docker_actions();
+        assert!(
+            plan_choice_from("随便", "docker", &acts, "9", 0).is_none(),
+            "模型瞎报的编号不能当成拒绝能力（必须交回兜底）"
+        );
+    }
+
+    #[test]
+    fn extracts_literals_from_both_quotes_and_numbers() {
+        let lits = extract_literals("把空调调到 23 并提交 -m \"doc\"");
+        assert!(lits.contains(&"23".to_string()), "数字字面量: {lits:?}");
+        assert!(lits.contains(&"doc".to_string()), "引号内文本（按需加引号，安全字符裸写）: {lits:?}");
+    }
+
+    #[test]
+    fn hw_temperature_case_end_to_end() {
+        // 用户原话就是这条需求的样板：`hw condition tem set 23`
+        let acts = vec![act("hw condition TEM set", None, false)];
+        let p = plan_choice_from("空调调23", "hw", &acts, "1", 0).unwrap();
+        assert_eq!(p.command, "hw condition 23 set", "TEM 槽位被 23 填上");
+    }
+
+    #[test]
+    fn wrapper_falls_back_when_no_cli_detectable() {
+        // 猜不到 CLI（中文情绪句）→ 必须走原生成式路径，不劣化
+        struct Echo(String);
+        impl CommandModel for Echo {
+            fn infer(&mut self, _s: &str, _u: &str) -> anyhow::Result<String> {
+                Ok(self.0.clone())
+            }
+        }
+        let mut m = Echo(NOOP.to_string());
+        let p = plan_choice(&mut m, "今天心情不太好", 8).unwrap();
+        assert_eq!(p.decision, Decision::Noop);
     }
 }

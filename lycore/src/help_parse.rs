@@ -487,7 +487,17 @@ fn looks_like_subcommand(cli: &str, cand: &str) -> bool {
         return false;
     }
     // (2) 词数过多 → 是散文不是命令
-    let n_words = c.split_whitespace().count();
+    //
+    //     ⚠️ **占位符不算词**：`hw gpio get <chip> <line>` 字面是 5 个 token，
+    //     但 `<chip>` / `<line>` 是**参数语法**，不是"词"。按 5 算会把这条真命令
+    //     判成散文丢掉（Radxa `hw` 2026-09-24 实测：gpio 整条消失）。
+    //     剥掉占位符后是 3 个词 —— 应当放行。
+    //
+    //     口径与上面的 [`is_flagish_line`] 一致（那里同样先剥占位符再判）。
+    let n_words = c
+        .split_whitespace()
+        .filter(|w| !(w.starts_with('<') || w.starts_with('[')))
+        .count();
     if n_words > 4 {
         return false;
     }

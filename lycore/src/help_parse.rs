@@ -1425,7 +1425,7 @@ fn parse_flags_as_actions(cli: &str, raw: &str) -> Vec<HelpAction> {
         };
         // 找到形如 `--long-name` 的长选项
         let long = cand
-            .split(|c: char| matches!(c, ',' | ' '))
+            .split([',', ' '])
             .map(str::trim)
             .find(|s| s.starts_with("--") && s.len() > 3);
         let Some(flag) = long else { continue };

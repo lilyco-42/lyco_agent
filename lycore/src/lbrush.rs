@@ -103,7 +103,7 @@ pub fn plan_human(cli: &str, action: &HelpAction, slots: &[String]) -> HumanPlan
     // 组合命令逐段查缺参（与 `t1gate::classify` 的拆分口径一致）
     let segs: Vec<&str> = v
         .command
-        .split(|c| matches!(c, ';' | '|'))
+        .split([';', '|'])
         .flat_map(|x| x.split("&&"))
         .map(str::trim)
         .filter(|x| !x.is_empty())

@@ -141,7 +141,7 @@ pub fn classify(raw_cmd: &str) -> Verdict {
 
     // 组合命令: 拆开取最高风险
     let parts: Vec<&str> = cmd
-        .split(|c| matches!(c, ';' | '|'))
+        .split([';', '|'])
         .flat_map(|p| p.split("&&"))
         .map(str::trim)
         .filter(|p| !p.is_empty())

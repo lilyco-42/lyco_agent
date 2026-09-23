@@ -303,7 +303,7 @@ pub fn plan_from_raw(nl: &str, raw: &str) -> Plan {
     // 组合命令逐条查缺参：任一段缺参即整体缺参
     let param = {
         let parts: Vec<&str> = command
-            .split(|c| c == ';' || c == '|')
+            .split(|c| matches!(c, ';' | '|'))
             .flat_map(|p| p.split("&&"))
             .map(str::trim)
             .filter(|p| !p.is_empty())

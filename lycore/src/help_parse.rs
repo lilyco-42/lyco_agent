@@ -1425,7 +1425,7 @@ fn parse_flags_as_actions(cli: &str, raw: &str) -> Vec<HelpAction> {
         };
         // 找到形如 `--long-name` 的长选项
         let long = cand
-            .split(|c: char| c == ',' || c == ' ')
+            .split(|c: char| matches!(c, ',' | ' '))
             .map(str::trim)
             .find(|s| s.starts_with("--") && s.len() > 3);
         let Some(flag) = long else { continue };
@@ -1557,9 +1557,7 @@ pub fn render_schema(cli: &str, actions: &[HelpAction], max_n: usize) -> String 
     if let Some(hint) = synonym_hint(cli) {
         s.push_str(&format!("术语提示：{hint}。\n"));
     }
-    s.push_str(&format!(
-        "只使用上面列出的命令；与上面命令无关的请求输出 (无需调用硬件命令)。"
-    ));
+    s.push_str("只使用上面列出的命令；与上面命令无关的请求输出 (无需调用硬件命令)。");
     s
 }
 
@@ -1723,10 +1721,7 @@ Usage:  kubectl get TYPE [NAME]
         let acts = parse_help("kubectl", raw);
         let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
         // usage 行给出了真实语法 → 不得被方言表覆盖成 <TYPE>
-        assert!(
-            cmds.iter().any(|c| *c == "kubectl get <TYPE>"),
-            "got={cmds:?}"
-        );
+        assert!(cmds.contains(&"kubectl get <TYPE>"), "got={cmds:?}");
     }
 
     /// 只读过滤：写操作必须被标为非只读（T1 门的地基，不能靠模型判）
@@ -1948,7 +1943,7 @@ Options:
     /// （`--slurp`），本来就不带值 → 下面三个缺陷在池内**根本不显形**。
     /// 这是与 clap long-help 同源的失效模式：**池子同质化掩盖整类缺陷**。
     /// 因此单测必须用**池外的形态**（clap 带值 flag）来锁。
-
+    ///
     /// v19d-1：`-w, --warmup <NUM>` 的值占位符必须出现在 full_cmd 里。
     ///
     /// 改前：`format!("{cli} {flag}")` 只取 flag 名 → `hyperfine --warmup`，
@@ -2030,7 +2025,8 @@ Options:
         );
     }
 
-    /// 常用度重排：常用的 logs/stats 必须排在 bake/pull 之前    #[test]
+    /// 常用度重排：常用的 logs/stats 必须排在 bake/pull 之前
+    #[test]
     fn frequency_ranking_promotes_common_actions() {
         let raw = "\
 Commands:

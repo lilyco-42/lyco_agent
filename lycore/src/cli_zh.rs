@@ -447,7 +447,7 @@ fn join_pieces(pieces: &[String]) -> String {
         if p.is_empty() {
             continue;
         }
-        let ascii_only = p.chars().all(|c| c.is_ascii());
+        let ascii_only = p.is_ascii();
         if ascii_only {
             if !s.is_empty() && !s.ends_with(' ') {
                 s.push(' ');
@@ -698,7 +698,7 @@ pub fn nl_variants(desc_zh: &str) -> Vec<String> {
         return Vec::new();
     }
     vec![
-        format!("{d}"),
+        d.to_string(),
         format!("帮我{d}"),
         format!("我想{d}"),
         format!("怎么{d}？"),

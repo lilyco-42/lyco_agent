@@ -95,7 +95,7 @@ fn cmd_t1(args: &[String]) -> i32 {
     // 组合命令逐段查缺参（与 router::plan_from_raw 口径一致）
     let parts: Vec<&str> = v
         .command
-        .split(|c| c == ';' || c == '|')
+        .split([';', '|'])
         .flat_map(|x| x.split("&&"))
         .map(str::trim)
         .filter(|x| !x.is_empty())
@@ -856,7 +856,6 @@ fn cmd_manual(args: &[String]) -> i32 {
     let mut n_data = 0usize;
     if let Some(dp) = flag(args, "--data") {
         let mut samples = cli_zh::to_samples(&cli, &zh, min_cov);
-        let n_actions = samples.len();
         samples.extend(cli_zh::reject_samples(&cli));
         n_data = samples.len();
         let body: String = samples
@@ -1030,7 +1029,8 @@ fn cmd_do(args: &[String]) -> i32 {
 
     // ── 3. 判定：人（或 --pick）──
     let picked = match preset_pick {
-        Some(k) if k == 0 => Picked::None,
+        // ⚠️ 顺序有意义：0 = 人明确拒绝（是**拒绝正样本**），超范围 = 参数错误（直接报错）
+        Some(0) => Picked::None,
         Some(k) if k <= choices.len() => Picked::Idx(k),
         Some(k) => {
             eprintln!("--pick {k} 超出范围（1..={}）", choices.len());

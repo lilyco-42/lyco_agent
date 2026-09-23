@@ -60,7 +60,19 @@
 
 | # | 需求 | 验收标准 |
 |---|---|---|
-| P1-1 | **Tier-0 微型控制器**（候选：Cactus Needle 3，121M，Apache-2.0，已核实） | 在 **5 / 20 / 50 / 100 tools** 下测：tool acc、arg acc、**hallucinated tool rate**、TTFT、RSS；目标**覆盖 ≥60% 的简单路由**且 RSS ≤ 100MB |
+| P1-1 | **Tier-0 微型控制器**（候选已核实，2026-09-23 更新） | 在 **5 / 20 / 50 / 100 tools** 下测：tool acc、arg acc、**hallucinated tool rate**、TTFT、RSS；目标**覆盖 ≥60% 的简单路由**且 RSS ≤ 100MB |
+
+**Tier-0 候选矩阵**（均为 2026-09-23 实查，非转述）：
+
+| 候选 | 规格 | 许可 | 运行时 | 定位与风险 |
+|---|---|---|---|---|
+| **Cactus Needle 3** ⭐ | 121M（hidden 768 / 20 层 / vocab 8192 / 滑窗 1024，可按设备跑 2~20 层），低比特 ≈24-30MB | Apache-2.0 | **自定义引擎**（`NeedleForToolCalling` 3.0.0，非 GGUF） | 官方给 linux-arm64/android/wasm 二进制；**无匹配 tool 时输出空列表**（正对我们拒绝率 0%）。风险=集成成本 |
+| **Jev-Style-Qwen3.5-2B-Decision-GGUF** | Qwen3.5-2B → **Q4_K_M 1.31GB** | Apache-2.0 | **标准 llama.cpp**（现成） | 判定式（Choice/Score/Noul）路线；云端 Jev 1.13.0 实测跨域选择 12/12、出域拒绝 10/10、分离度 0.283。⚠️ **开源 2B 蒸馏未必复现，必须在同一尺子上重测**；且 1.31GB 对 A7A(4GB) 偏重 |
+| `com-kotobalabs/open-jev-deberta-v3-large` | deberta-v3-large (1.74GB) + 10MB head | Apache-2.0 | ONNX/Torch | 打分行路线（直读 logits，不训分类头）；体积对收益偏低 |
+| `ZefanCai/Open-Jev-2B / -9B` | 占位（**权重未发布**） | Apache-2.0 | — | ⛔ **别计入方案**，仅跟踪 |
+
+**顺序**：Needle 3 先（内存小 40 倍）→ 不够再上 Jev-Style 2B 做「判定/拒绝专场」。
+**共同纪律**：任何 Tier-0 都要在**同一批任务、同一 runtimes、同一量化档**下与我们 0.6B/v13 对照（变量清单先列后测）。
 | P1-2 | **Failure Ledger + 四层评测** | 每个失败自动分桶 `MODEL / ROUTING / SCHEMA / TRANSPORT / EXECUTION / VERIFY / RECOVERY / RESOURCE`；评测输出四层（Selection / Execution / **Recovery** / **Workflow Success**）+ `Tokens per Successful Step`、`RAM / Successful Turn` |
 | P1-3 | **经验资产化**（`lbrush`：NL→cmd→exit_code） | trace 同时可供：训练数据 / 评测集 / 调度优化 / 复现；成功 trace = 训练资产，失败 trace = recovery 资产 |
 

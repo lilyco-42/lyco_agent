@@ -112,14 +112,24 @@ impl ParamCheck {
 /// - `kill` / `pkill` → 必须有目标（`-l` 列信号除外）
 const RULES: &[(&str, &str, &[&str], &[&str])] = &[
     // 包管理：装东西必须说清装什么
-    ("npm", "install", &["<pkg>"], &["-g", "--global", "-D", "--save-dev", "-S", "--save"]),
+    (
+        "npm",
+        "install",
+        &["<pkg>"],
+        &["-g", "--global", "-D", "--save-dev", "-S", "--save"],
+    ),
     ("npm", "i", &["<pkg>"], &["-g", "--global"]),
     ("npm", "uninstall", &["<pkg>"], &["-g", "--global"]),
     ("npm", "rm", &["<pkg>"], &["-g", "--global"]),
     ("pnpm", "add", &["<pkg>"], &["-g", "--global", "-D"]),
     ("pnpm", "install", &["<pkg>"], &["-g"]),
     ("yarn", "add", &["<pkg>"], &["-D", "--dev"]),
-    ("pip", "install", &["<pkg>"], &["-r", "--requirement", "-U", "--upgrade"]),
+    (
+        "pip",
+        "install",
+        &["<pkg>"],
+        &["-r", "--requirement", "-U", "--upgrade"],
+    ),
     ("pip3", "install", &["<pkg>"], &["-r", "--requirement"]),
     ("cargo", "add", &["<crate>"], &["--dev", "--build"]),
     ("cargo", "install", &["<crate>"], &["--git", "--path"]),
@@ -129,14 +139,24 @@ const RULES: &[(&str, &str, &[&str], &[&str])] = &[
     // git：需要对象的写操作（两级动词用 "a b" 形式）
     ("git", "remote add", &["<name>", "<url>"], &[]),
     ("git", "checkout", &["<branch>"], &["-b", "-B"]),
-    ("git", "branch", &["<branch>"], &["-a", "-r", "-d", "-D", "-m", "-l", "--list", "-v"]),
+    (
+        "git",
+        "branch",
+        &["<branch>"],
+        &["-a", "-r", "-d", "-D", "-m", "-l", "--list", "-v"],
+    ),
     ("git", "clone", &["<repo>"], &[]),
     ("git", "tag", &["<tag>"], &["-l", "--list", "-d"]),
     // 容器：跑容器必须说跑什么镜像
     ("docker", "run", &["<image>"], &["-i", "--interactive"]),
     ("docker", "pull", &["<image>"], &[]),
     ("docker", "push", &["<image>"], &[]),
-    ("docker", "exec", &["<container>", "<cmd>"], &["-i", "-t", "-it"]),
+    (
+        "docker",
+        "exec",
+        &["<container>", "<cmd>"],
+        &["-i", "-t", "-it"],
+    ),
     ("docker", "build", &["<context>"], &["-t", "--tag"]),
     ("kubectl", "exec", &["<pod>"], &["-i", "-t", "-it"]),
     // 网络：请求必须有目标
@@ -146,7 +166,12 @@ const RULES: &[(&str, &str, &[&str], &[&str])] = &[
     ("kill", "", &["<pid>"], &["-l", "-L", "-s"]),
     ("pkill", "", &["<pattern>"], &["-l", "-L"]),
     // FFmpeg：必须说输入（-i）
-    ("ffmpeg", "", &["-i <input>"], &["-version", "-h", "--help", "-formats", "-codecs"]),
+    (
+        "ffmpeg",
+        "",
+        &["-i <input>"],
+        &["-version", "-h", "--help", "-formats", "-codecs"],
+    ),
 ];
 
 /// 判断一个 token 是否像 flag（`-x` / `--xyz`）
@@ -159,9 +184,29 @@ fn is_flag(t: &str) -> bool {
 fn takes_value(flag: &str) -> bool {
     matches!(
         flag,
-        "-t" | "--tag" | "-m" | "--message" | "-C" | "--cwd" | "-o" | "--output"
-            | "-b" | "-B" | "-c" | "--config" | "-p" | "--port" | "-n" | "--name"
-            | "-u" | "--user" | "-e" | "--env" | "-v" | "--volume" | "--git" | "--path"
+        "-t" | "--tag"
+            | "-m"
+            | "--message"
+            | "-C"
+            | "--cwd"
+            | "-o"
+            | "--output"
+            | "-b"
+            | "-B"
+            | "-c"
+            | "--config"
+            | "-p"
+            | "--port"
+            | "-n"
+            | "--name"
+            | "-u"
+            | "--user"
+            | "-e"
+            | "--env"
+            | "-v"
+            | "--volume"
+            | "--git"
+            | "--path"
     )
 }
 
@@ -183,12 +228,10 @@ pub fn check(raw_cmd: &str) -> ParamCheck {
     // 跳过 env 前缀（`sudo npm install` / `FOO=1 cmd`）。
     // `cmd_idx` = 真程序名在 tokens 里的下标；动词紧随其后。
     let (prog, cmd_idx) = match prog.as_str() {
-        "sudo" | "env" | "time" | "nohup" => {
-            match tokens.get(1) {
-                Some(t) => (t.to_ascii_lowercase(), 1),
-                None => return ParamCheck::unchecked(&prog),
-            }
-        }
+        "sudo" | "env" | "time" | "nohup" => match tokens.get(1) {
+            Some(t) => (t.to_ascii_lowercase(), 1),
+            None => return ParamCheck::unchecked(&prog),
+        },
         _ => (prog, 0),
     };
     let verb_idx = cmd_idx + 1;
@@ -337,7 +380,11 @@ mod tests {
     fn multi_slot_partial_is_caught() {
         let c = check("git remote add origin");
         assert_eq!(c.status, Status::NeedsParam, "got={c:?}");
-        assert!(c.missing.contains(&"<url>".to_string()), "missing={:?}", c.missing);
+        assert!(
+            c.missing.contains(&"<url>".to_string()),
+            "missing={:?}",
+            c.missing
+        );
         // 补全后放行
         let ok = check("git remote add origin https://github.com/a/b");
         assert_eq!(ok.status, Status::Ok);
@@ -409,9 +456,19 @@ mod tests {
     /// 信息类调用不算缺参（`curl --version` / `ffmpeg -h` 是合法命令）
     #[test]
     fn informational_flags_are_exempt() {
-        for c in ["curl --version", "curl -V", "ffmpeg -version", "ffmpeg -h", "wget -V"] {
+        for c in [
+            "curl --version",
+            "curl -V",
+            "ffmpeg -version",
+            "ffmpeg -h",
+            "wget -V",
+        ] {
             let r = check(c);
-            assert_ne!(r.status, Status::NeedsParam, "{c} 是合法信息调用, 不该判缺参: {r:?}");
+            assert_ne!(
+                r.status,
+                Status::NeedsParam,
+                "{c} 是合法信息调用, 不该判缺参: {r:?}"
+            );
         }
         // 但没有目标 URL 的裸 `curl` 仍必须判缺参
         assert!(needs_param("curl"));

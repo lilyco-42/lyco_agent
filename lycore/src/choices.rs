@@ -39,7 +39,11 @@ pub struct Choice {
 ///
 /// `max_n` 为 0 表示不截断（v18 实测：截断是净损失）。
 pub fn build_choices(actions: &[HelpAction], max_n: usize) -> Vec<Choice> {
-    let n = if max_n == 0 { actions.len() } else { max_n.min(actions.len()) };
+    let n = if max_n == 0 {
+        actions.len()
+    } else {
+        max_n.min(actions.len())
+    };
     actions
         .iter()
         .take(n)
@@ -116,7 +120,8 @@ pub fn parse_picked(text: &str, n_choices: usize) -> Picked {
 pub fn shell_quote_if_needed(s: &str) -> String {
     let safe = !s.is_empty()
         && s.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '@' | '+' | ':' | ',' | '=')
+            c.is_ascii_alphanumeric()
+                || matches!(c, '_' | '-' | '.' | '/' | '@' | '+' | ':' | ',' | '=')
         });
     if safe {
         s.to_string()
@@ -130,7 +135,10 @@ pub fn shell_quote_if_needed(s: &str) -> String {
 pub enum Assembled {
     Ready(String),
     /// 示例里仍有未填占位符 → 这些槽位要回问用户（**绝不猜值**）
-    NeedsSlots { cmd: String, missing: Vec<String> },
+    NeedsSlots {
+        cmd: String,
+        missing: Vec<String>,
+    },
 }
 
 /// 从示例动作出发，用给定槽位值填占位符（确定性，无猜测）。
@@ -140,7 +148,10 @@ pub enum Assembled {
 ///
 /// 没有示例时：退回 `full_cmd`；若它本身含占位符 → 同样走 `NeedsSlots`。
 pub fn assemble(action: &HelpAction, slots: &[String]) -> Assembled {
-    let tpl = action.example.clone().unwrap_or_else(|| action.full_cmd.clone());
+    let tpl = action
+        .example
+        .clone()
+        .unwrap_or_else(|| action.full_cmd.clone());
     let ph = find_placeholders(&tpl);
     if ph.is_empty() {
         // 无占位符：把槽位值按顺序追加（例如 `git commit -m "doc"` 的 "doc"）
@@ -191,7 +202,8 @@ pub fn find_placeholders(tpl: &str) -> Vec<String> {
         for tok in tpl.split_whitespace() {
             let t = tok.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
             if t.len() >= 2
-                && t.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+                && t.chars()
+                    .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
                 && t.chars().any(|c| c.is_ascii_uppercase())
             {
                 ph.push(t.to_string());
@@ -249,7 +261,11 @@ mod tests {
 
     #[test]
     fn assemble_fills_placeholders_in_order() {
-        let a = act("docker logs <CONTAINER>", Some("docker logs <CONTAINER>"), true);
+        let a = act(
+            "docker logs <CONTAINER>",
+            Some("docker logs <CONTAINER>"),
+            true,
+        );
         assert_eq!(
             assemble(&a, &["web".to_string()]),
             Assembled::Ready("docker logs web".to_string())
@@ -258,9 +274,15 @@ mod tests {
 
     #[test]
     fn assemble_reports_missing_slots_instead_of_guessing() {
-        let a = act("git commit -m <MSG> <PATH>", Some("git commit -m <MSG> <PATH>"), false);
+        let a = act(
+            "git commit -m <MSG> <PATH>",
+            Some("git commit -m <MSG> <PATH>"),
+            false,
+        );
         match assemble(&a, &["\"doc\"".to_string()]) {
-            Assembled::NeedsSlots { missing, .. } => assert_eq!(missing, vec!["<PATH>".to_string()]),
+            Assembled::NeedsSlots { missing, .. } => {
+                assert_eq!(missing, vec!["<PATH>".to_string()])
+            }
             other => panic!("应当报缺槽位，实际 {other:?}"),
         }
     }
@@ -301,14 +323,20 @@ mod quoting_tests {
     fn bare_when_safe() {
         assert_eq!(shell_quote_if_needed("web"), "web");
         assert_eq!(shell_quote_if_needed("23"), "23");
-        assert_eq!(shell_quote_if_needed("/var/log/app.log"), "/var/log/app.log");
+        assert_eq!(
+            shell_quote_if_needed("/var/log/app.log"),
+            "/var/log/app.log"
+        );
     }
 
     #[test]
     fn quoted_when_whitespace_or_specials() {
         assert_eq!(shell_quote_if_needed("add doc"), "\"add doc\"");
         assert_eq!(shell_quote_if_needed("a;rm -rf /"), "\"a;rm -rf /\"");
-        assert_eq!(shell_quote_if_needed("he said \"hi\""), "\"he said \\\"hi\\\"\"");
+        assert_eq!(
+            shell_quote_if_needed("he said \"hi\""),
+            "\"he said \\\"hi\\\"\""
+        );
     }
 
     #[test]

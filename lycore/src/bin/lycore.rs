@@ -32,6 +32,8 @@ fn main() {
         "tools" => cmd_tools(&args[1..]),
         "backend" => cmd_backend(&args[1..]),
         "help-parse" => cmd_help_parse(&args[1..]),
+        "manual" => cmd_manual(&args[1..]),
+        "do" => cmd_do(&args[1..]),
         "vision" => cmd_vision(&args[1..]),
         "npu" => cmd_npu(&args[1..]),
         "t1" => cmd_t1(&args[1..]),
@@ -127,13 +129,21 @@ fn cmd_t1(args: &[String]) -> i32 {
         println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
     } else {
         println!("命令   : {}", v.command);
-        println!("风险   : {} ({})", v.risk.as_str(), v.matched.as_deref().unwrap_or("-"));
+        println!(
+            "风险   : {} ({})",
+            v.risk.as_str(),
+            v.matched.as_deref().unwrap_or("-")
+        );
         println!("分诊   : {decision}");
-        println!("参数   : {}{}", p.status.as_str(), if p.missing.is_empty() {
-            String::new()
-        } else {
-            format!("  缺: {}", p.missing.join(" "))
-        });
+        println!(
+            "参数   : {}{}",
+            p.status.as_str(),
+            if p.missing.is_empty() {
+                String::new()
+            } else {
+                format!("  缺: {}", p.missing.join(" "))
+            }
+        );
         if !p.reason.is_empty() {
             println!("提示   : {}", p.reason);
         }
@@ -252,7 +262,10 @@ fn cmd_vision(args: &[String]) -> i32 {
                 println!("{image} → {verdict}  (conf {conf:.2})");
                 for e in &experts {
                     let tag = if e.needs_training { " [未训练]" } else { "" };
-                    println!("   {:<12} act={:.3} {} (conf {:.2}){tag}", e.neuron, e.activation, e.verdict, e.conf);
+                    println!(
+                        "   {:<12} act={:.3} {} (conf {:.2}){tag}",
+                        e.neuron, e.activation, e.verdict, e.conf
+                    );
                 }
                 if !queue.is_empty() {
                     println!("   → 已加入学习队列 {} 条", queue.len());
@@ -730,10 +743,7 @@ fn cmd_backend(args: &[String]) -> i32 {
         DeviceClass::Npu => "NPU",
     };
     println!("本机可用后端 ({} 个, 优先级降序):", avail.len());
-    println!(
-        "  {:<14} {:<4} {:<5} ORT EP",
-        "ID", "类", "优先级",
-    );
+    println!("  {:<14} {:<4} {:<5} ORT EP", "ID", "类", "优先级",);
     for b in &avail {
         let ep = b.ep.unwrap_or("—");
         println!(
@@ -776,6 +786,457 @@ fn cmd_tools(args: &[String]) -> i32 {
         None => println!("{}", serde_json::to_string_pretty(&tools).expect("序列化")),
     }
     0
+}
+
+// ══════════════ manual —— CLI 中文说明书 + 冷启动训练数据 ══════════════
+//
+// 需求（用户 2026-09-23）：「写一个 CLI 说明书 和本地翻译（为了以后发展），
+// 提供 cli --help 解析为中文，帮助我做初步训练数据。」
+//
+// 链路：`cli --help` → `parse_help`（确定性）→ `cli_zh` 本地词典翻译（零模型）
+//       → ① 中文说明书（给人看）② 训练样本（nl 中文 → cmd）
+//
+// 为什么翻译必须本地：端侧要离线；且译文**会成为训练数据** ——
+// 掺进模型的幻觉等于把噪声训进权重（v13 失败的一个来源）。
+
+/// 取 help 文本：优先 `--help-text <file>`，否则实跑 `cli --help`。
+fn grab_help_text(cli: &str, args: &[String]) -> Result<String, String> {
+    if let Some(f) = flag(args, "--help-text") {
+        return std::fs::read_to_string(&f).map_err(|e| format!("读 {f} 失败: {e}"));
+    }
+    lycore::router::grab_help(cli).ok_or_else(|| {
+        format!(
+            "无法取得 `{cli} --help`（命令不存在或输出过短）。可用 --help-text <file> 直接喂文本"
+        )
+    })
+}
+
+/// manual —— 把 `cli --help` 变成中文说明书，并可选产出训练数据。
+///
+/// 用法:
+///   lycore manual --cli docker                          # 打印中文说明书
+///   lycore manual --cli docker --out docker.md          # 落成 markdown
+///   lycore manual --cli docker --data docker.jsonl      # 出冷启动训练数据
+///   lycore manual --cli docker --help-text h.txt --json
+fn cmd_manual(args: &[String]) -> i32 {
+    use lycore::cli_zh;
+    use lycore::help_parse::{parse_help, rank_by_frequency};
+
+    let Some(cli) = flag(args, "--cli") else {
+        eprintln!(
+            "用法: lycore manual --cli <name> [--help-text <file>] [--out <md>] [--data <jsonl>] [--json]"
+        );
+        return 2;
+    };
+    let raw = match grab_help_text(&cli, args) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+
+    // 说明书要**全覆盖**（不只只读）—— 用户要知道这个 CLI 到底能干什么，
+    // 安全性交给 T1 门，不靠"藏起来"。
+    let acts = rank_by_frequency(&parse_help(&cli, &raw));
+    if acts.is_empty() {
+        eprintln!("`{cli} --help` 解析出 0 条动作（help 版式未覆盖）。不产出垃圾说明书。");
+        return 1;
+    }
+    let zh: Vec<cli_zh::ZhAction> = acts.iter().map(cli_zh::translate_action).collect();
+    let st = cli_zh::stats(&zh);
+
+    // ── 训练数据（可选）──
+    // 🔴 质量门禁：翻译覆盖率低于阈值的动作**不进训练数据**。
+    //    半吊子译文与幻觉只有一线之隔，宁可少几千条也不要几百条错的
+    //    （这是 v13 失败的直接教训：合成语料装的是"我们的想象"）。
+    let min_cov: f64 = flag(args, "--min-coverage")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.8);
+    let mut n_data = 0usize;
+    if let Some(dp) = flag(args, "--data") {
+        let mut samples = cli_zh::to_samples(&cli, &zh, min_cov);
+        let n_actions = samples.len();
+        samples.extend(cli_zh::reject_samples(&cli));
+        n_data = samples.len();
+        let body: String = samples
+            .iter()
+            .filter_map(|s| serde_json::to_string(s).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Err(e) = std::fs::write(&dp, format!("{body}\n")) {
+            eprintln!("写 {dp} 失败: {e}");
+            return 1;
+        }
+    }
+
+    let md = cli_zh::render_manual(&cli, &zh, raw.len());
+
+    if args.iter().any(|a| a == "--json") {
+        let out = serde_json::json!({
+            "cli": cli,
+            "help_len": raw.len(),
+            "stats": st,
+            "actions": zh,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    } else if let Some(outp) = flag(args, "--out") {
+        if let Err(e) = std::fs::write(&outp, &md) {
+            eprintln!("写 {outp} 失败: {e}");
+            return 1;
+        }
+        println!(
+            "{} 条动作 → {outp}（只读 {} / 写 {}，平均覆盖率 {:.0}%，完全未译 {}）",
+            st.total,
+            st.readonly,
+            st.write,
+            st.avg_coverage * 100.0,
+            st.untranslated
+        );
+    } else {
+        println!("{md}");
+    }
+
+    if n_data > 0 {
+        let kept = cli_zh::eligible(&zh, min_cov);
+        println!(
+            "→ 训练数据 {} 条（{} 条动作样本 + {} 条出域拒绝样本）\n\
+             \x20  质量门禁：覆盖率 ≥{:.0}% 的 {} 条动作入选，{} 条因翻译不可靠被挡在数据之外",
+            n_data,
+            n_data - cli_zh::REJECT_NLS.len(),
+            cli_zh::REJECT_NLS.len(),
+            min_cov * 100.0,
+            kept,
+            st.total - kept
+        );
+    }
+    0
+}
+
+// ══════════════ do —— 人机闭环（人先当模型）══════════════
+//
+// 这是判定式脊的**第一个真实调用者**。2026-09-23 的接线审计发现：
+// `plan_choice` / `router::plan` / `t1gate` 全都没有产品调用者 —— 所有
+// 41.7% / 85.0% 的分数都来自评测脚本，产品里从没有一条路径走过
+// 「新 CLI → help → 判定 → 执行」。
+//
+// 这里把「模型」那一环换成**人**，其余全部复用已有确定性代码。
+// 副产品：每次执行都落一条 `(nl, cmd, exit_code)` —— 我们全部训练数据里
+// 唯一从来没有过的东西。
+
+/// 读一行（提示写 stderr，结果留 stdout 给 `--json`）
+fn prompt_line(msg: &str) -> String {
+    use std::io::Write;
+    eprint!("{msg}");
+    let _ = std::io::stderr().flush();
+    let mut s = String::new();
+    if std::io::stdin().read_line(&mut s).is_err() {
+        return String::new();
+    }
+    s.trim().to_string()
+}
+
+/// do —— 一句话 → 候选 → 人选 → 填槽 → T1 门 → 执行 → 落盘。
+///
+/// 用法:
+///   lycore do "看看有哪些容器在跑"                 # 交互
+///   lycore do "看看有哪些容器在跑" --dry-run        # 只出计划不执行
+///   lycore do "..." --cli docker --pick 1          # 非交互（脚本/评测）
+fn cmd_do(args: &[String]) -> i32 {
+    use lycore::choices::{
+        build_choices, find_placeholders, parse_picked, render_choices, shell_quote_if_needed,
+        Picked,
+    };
+    use lycore::help_parse::{parse_help, rank_by_frequency};
+    use lycore::lbrush::{self, GateDecision, LbrushRecord};
+
+    let dry_run = args.iter().any(|a| a == "--dry-run");
+    let yes = args.iter().any(|a| a == "--yes") || args.iter().any(|a| a == "-y");
+    let json = args.iter().any(|a| a == "--json");
+    let top: usize = flag(args, "--top")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(40);
+    let preset_pick: Option<usize> = flag(args, "--pick").and_then(|s| s.parse().ok());
+    let record_path = flag(args, "--record")
+        .map(PathBuf::from)
+        .unwrap_or_else(lbrush::default_record_path);
+
+    // ── 自然语言 = 所有非 flag 参数（跳过 flag 的值）──
+    let val_flags = [
+        "--cli",
+        "--top",
+        "--pick",
+        "--record",
+        "--help-text",
+        "--cwd",
+        "--slot",
+    ];
+    let mut nl_parts: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if val_flags.contains(&a.as_str()) {
+            i += 2;
+            continue;
+        }
+        if a.starts_with("--") {
+            i += 1;
+            continue;
+        }
+        nl_parts.push(a.clone());
+        i += 1;
+    }
+    let nl = nl_parts.join(" ");
+    if nl.trim().is_empty() {
+        eprintln!(
+            "用法: lycore do \"<一句话>\" [--cli <name>] [--dry-run] [--pick N] [--record <file>]"
+        );
+        return 2;
+    }
+
+    // ── 1. CLI 选择：显式 --cli 优先，否则从人话里猜 ──
+    let Some(cli) = flag(args, "--cli").or_else(|| lycore::router::guess_cli(&nl)) else {
+        eprintln!("猜不出要用哪个 CLI（可用 --cli <name> 指定）");
+        return 1;
+    };
+
+    // ── 2. 取 help → 确定性动作表 ──
+    let raw = match grab_help_text(&cli, args) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let acts = rank_by_frequency(&parse_help(&cli, &raw));
+    if acts.is_empty() {
+        eprintln!("`{cli} --help` 解析出 0 条动作。");
+        return 1;
+    }
+    let choices = build_choices(&acts, top);
+
+    if !json {
+        println!(
+            "[CLI] {cli}（help {} 字符 → {} 条动作，展示 {} 条）",
+            raw.len(),
+            acts.len(),
+            choices.len()
+        );
+        println!("[人话] {nl}");
+        println!();
+        print!("{}", render_choices(&cli, &choices));
+        println!();
+    }
+
+    // ── 3. 判定：人（或 --pick）──
+    let picked = match preset_pick {
+        Some(k) if k == 0 => Picked::None,
+        Some(k) if k <= choices.len() => Picked::Idx(k),
+        Some(k) => {
+            eprintln!("--pick {k} 超出范围（1..={}）", choices.len());
+            return 2;
+        }
+        None => {
+            let line = prompt_line("选哪个? （编号，0 = 都不合适，直接回车取消）");
+            if line.is_empty() {
+                println!("已取消。");
+                return 0;
+            }
+            parse_picked(&line, choices.len())
+        }
+    };
+
+    // 拒绝态：一个候选都不合适 —— 这是我们 reject 0% 的**正样本**来源，必须落盘
+    let idx = match picked {
+        Picked::None => 0,
+        Picked::Idx(k) => k,
+        Picked::Unparsable => {
+            eprintln!("没看懂编号，请输 1..={} 或 0", choices.len());
+            return 2;
+        }
+    };
+
+    let Some(choice) = choices.iter().find(|c| c.idx == idx).cloned() else {
+        // 人明确说"都不合适" → 记录一条拒绝样本（plan 用一个占位动作）
+        let placeholder = lycore::help_parse::HelpAction {
+            full_cmd: String::new(),
+            desc: "（人判定：候选里没有合适的动作）".into(),
+            readonly: true,
+            example: None,
+        };
+        let plan = lbrush::plan_human(&cli, &placeholder, &[]);
+        let mut rec = LbrushRecord::new(&nl, &cli, 0, &plan, &[]);
+        // 空命令会被 classify 判成 Danger("空命令, 不执行")，但语义是**拒绝**不是危险。
+        // 不覆盖的话，拒绝样本在下游会被误读成"一条被拦下的危险命令"，污染归因。
+        rec.risk = "read".to_string();
+        rec.decision = "reject".to_string();
+        if let Err(e) = lbrush::append(&rec, &record_path) {
+            eprintln!("[警告] 记录失败: {e}");
+        }
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({"decision": "reject", "idx": 0, "cli": cli})
+            );
+        } else {
+            println!("已记录：候选里没有合适动作（不执行）。这条就是「拒绝」的正样本。");
+        }
+        return 0;
+    };
+
+    // ── 4. 填槽位（不猜：缺就回问）──
+    let tpl = choice
+        .example
+        .clone()
+        .unwrap_or_else(|| choice.full_cmd.clone());
+    let phs = find_placeholders(&tpl);
+    let mut slots: Vec<String> = Vec::new();
+    for p in &phs {
+        let v = if let Some(v) = flag(args, "--slot") {
+            v
+        } else {
+            prompt_line(&format!("  填 {p}: "))
+        };
+        let v = v.trim();
+        if v.is_empty() {
+            eprintln!("[{p}] 没填 → 不执行（空跑会静默失效，绝不猜值）");
+            return 1;
+        }
+        slots.push(shell_quote_if_needed(v));
+    }
+
+    // ── 5. 组装 + T1 门 + 缺参检查（全部确定性）──
+    let action = lycore::help_parse::HelpAction {
+        full_cmd: choice.full_cmd.clone(),
+        desc: String::new(),
+        readonly: choice.readonly,
+        example: choice.example.clone(),
+    };
+    let plan = lbrush::plan_human(&cli, &action, &slots);
+    let decision = match plan.decision.as_str() {
+        "run" => GateDecision::Run,
+        "confirm" => GateDecision::Confirm,
+        "block" => GateDecision::Block,
+        _ => GateDecision::NeedsParam,
+    };
+
+    if !json {
+        println!("[命令] {}", plan.cmd);
+        println!("[风险] {}（{}）", plan.risk, plan.reason);
+        println!("[决策] {}", plan.decision);
+        if !plan.missing.is_empty() {
+            println!("[缺槽] {}", plan.missing.join(" "));
+        }
+        if !plan.param_missing.is_empty() {
+            println!("[缺参] {}", plan.param_missing.join(" "));
+        }
+    }
+
+    if decision == GateDecision::NeedsParam {
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({"decision": "needs_param", "plan": plan})
+            );
+        } else {
+            println!("\n→ 不执行：参数不全，空跑等于静默失效。请补全后重试。");
+        }
+        let rec = LbrushRecord::new(&nl, &cli, idx, &plan, &slots);
+        let _ = lbrush::append(&rec, &record_path);
+        return 0;
+    }
+
+    // ── 6. 放行判定（人确认 / 危险 override）──
+    let mut confirmed = yes;
+    let mut override_danger = args.iter().any(|a| a == "--i-know");
+    if !dry_run && !lbrush::may_execute(decision, confirmed, override_danger) {
+        if decision == GateDecision::Confirm {
+            confirmed = prompt_line("这是写操作，确认执行? [y/N] ").eq_ignore_ascii_case("y");
+        } else if decision == GateDecision::Block {
+            let l = prompt_line("⚠️ 这是破坏性/不可逆操作。要执行请输入 I-KNOW: ");
+            override_danger = l == "I-KNOW";
+            confirmed = override_danger;
+        }
+    }
+
+    let allowed = dry_run || lbrush::may_execute(decision, confirmed, override_danger);
+    if !allowed {
+        if !json {
+            println!("\n→ 已拦截，未执行。");
+        }
+        let mut rec = LbrushRecord::new(&nl, &cli, idx, &plan, &slots);
+        rec.executed = false;
+        let _ = lbrush::append(&rec, &record_path);
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({"decision": plan.decision, "executed": false, "plan": plan})
+            );
+        }
+        return 0;
+    }
+
+    if dry_run {
+        if !json {
+            println!("\n[dry-run] 通过全部门禁，未执行。");
+        }
+        let mut rec = LbrushRecord::new(&nl, &cli, idx, &plan, &slots);
+        rec.executed = false;
+        let _ = lbrush::append(&rec, &record_path);
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({"decision": plan.decision, "executed": false, "dry_run": true, "plan": plan})
+            );
+        }
+        return 0;
+    }
+
+    // ── 7. 执行 + **真实退出码**（我们所有旧数据都没有这个信号）──
+    let cwd = flag(args, "--cwd").map(PathBuf::from);
+    let (code, so, se) = match lycore::tools_runtime::shell_exec_capture(&plan.cmd, cwd.as_deref())
+    {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("执行失败: {e}");
+            return 1;
+        }
+    };
+
+    let mut rec = LbrushRecord::new(&nl, &cli, idx, &plan, &slots);
+    rec.executed = true;
+    rec.exit_code = code;
+    if let Err(e) = lbrush::append(&rec, &record_path) {
+        eprintln!("[警告] 记录失败: {e}");
+    }
+
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "decision": plan.decision, "executed": true,
+                "exit_code": code, "stdout": so, "stderr": se, "plan": plan,
+                "record": record_path.to_string_lossy(),
+            })
+        );
+    } else {
+        let body = if so.trim().is_empty() { &se } else { &so };
+        println!(
+            "[退出码] {}",
+            code.map(|c| c.to_string())
+                .unwrap_or_else(|| "无（超时/信号终止）".into())
+        );
+        if !body.trim().is_empty() {
+            println!("{}", body.trim());
+        }
+        println!("[已记录] {}", record_path.display());
+    }
+    // T1 门的 exit_code 语义：命令成功 = 0；拦截仍然算"平台成功"
+    if code == Some(0) {
+        0
+    } else {
+        1
+    }
 }
 
 /// help-parse —— 把 CLI 的 `--help` **确定性**解析成只读动作表。
@@ -881,7 +1342,11 @@ fn cmd_help_parse(args: &[String]) -> i32 {
             let o = cmd.output().ok()?;
             let mut t = String::from_utf8_lossy(&o.stdout).to_string();
             t.push_str(&String::from_utf8_lossy(&o.stderr));
-            if t.trim().len() > 20 { Some(t) } else { None }
+            if t.trim().len() > 20 {
+                Some(t)
+            } else {
+                None
+            }
         };
         lycore::help_parse::deepen_with_subcommand_usage(&cli, &mut head, probe_top, &helper);
         // 用补好的 head 覆盖回 acts 的对应位置

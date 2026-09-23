@@ -50,10 +50,10 @@ pub struct HelpAction {
 /// 但 `docker rm` 必须是。粒度按「**是否可能损坏用户数据/影响他人**」划，
 /// 而不是「是否产生写 IO」—— 这是 v17 修正后的口径。
 pub const READ_VERBS: &[&str] = &[
-    "get", "list", "ls", "ps", "show", "status", "logs", "log", "describe", "inspect",
-    "stats", "top", "tree", "version", "info", "diff", "branch",
-    "tag", "check", "test", "bench", "validate", "plan", "search", "find", "query",
-    "why", "outdated", "audit", "doctor", "trace", "which", "help", "man", "docs",
+    "get", "list", "ls", "ps", "show", "status", "logs", "log", "describe", "inspect", "stats",
+    "top", "tree", "version", "info", "diff", "branch", "tag", "check", "test", "bench",
+    "validate", "plan", "search", "find", "query", "why", "outdated", "audit", "doctor", "trace",
+    "which", "help", "man", "docs",
 ];
 
 /// 危险动作黑名单 —— 命中即判为**非只读**（可能损坏数据 / 影响他人 / 外呼）。
@@ -62,27 +62,86 @@ pub const READ_VERBS: &[&str] = &[
 /// 它们最多浪费磁盘，不该让能力表整个空掉（v17 实测的过度惩罚）。
 pub const WRITE_VERBS: &[&str] = &[
     // 破坏性 / 不可逆
-    "delete", "remove", "rm", "rmi", "prune", "destroy", "terminate", "kill", "wipe",
-    "reset", "revert", "drop", "truncate", "revoke", "clean", "purge", "gc",
+    "delete",
+    "remove",
+    "rm",
+    "rmi",
+    "prune",
+    "destroy",
+    "terminate",
+    "kill",
+    "wipe",
+    "reset",
+    "revert",
+    "drop",
+    "truncate",
+    "revoke",
+    "clean",
+    "purge",
+    "gc",
     // 影响他人 / 外呼
-    "publish", "push", "deploy", "release", "upload", "promote", "notify",
+    "publish",
+    "push",
+    "deploy",
+    "release",
+    "upload",
+    "promote",
+    "notify",
     // 改他人可见状态
-    "apply", "patch", "rollout", "scale", "set", "edit", "update", "upgrade",
-    "restart", "stop", "start", "attach", "exec", "uninstall",
-    "commit", "merge", "rebase", "cherry-pick", "stash",
-    "checkout", "switch", "restore", "mv", "clone",
+    "apply",
+    "patch",
+    "rollout",
+    "scale",
+    "set",
+    "edit",
+    "update",
+    "upgrade",
+    "restart",
+    "stop",
+    "start",
+    "attach",
+    "exec",
+    "uninstall",
+    "commit",
+    "merge",
+    "rebase",
+    "cherry-pick",
+    "stash",
+    "checkout",
+    "switch",
+    "restore",
+    "mv",
+    "clone",
     // 🔴 v19 补：会**改写工作区**或**外呼**却曾被漏判为只读的动词。
     //    `git pull` = fetch + merge（改工作区 + 外呼 + 可能留冲突文件），
     //    `git backfill` 下载对象，`git history` 的 help 自述 "Rewrite history"。
     //    不补这三条 → T1 门读 risk=Read → **自动放行一个会覆盖用户未提交改动的命令**。
-    "pull", "backfill", "history",
+    "pull",
+    "backfill",
+    "history",
     // 装 / 发布 / 授权
-    "install", "add", "login", "logout", "token", "auth",
+    "install",
+    "add",
+    "login",
+    "logout",
+    "token",
+    "auth",
     // 建实体（会往磁盘/远端落新东西，不算「无害查询」）
     // v17c 实测：git init / cargo new / cargo init 之前被白名单模式误判为只读
-    "init", "new", "create", "generate", "generate-lockfile", "vendor", "migrate",
+    "init",
+    "new",
+    "create",
+    "generate",
+    "generate-lockfile",
+    "vendor",
+    "migrate",
     // 可能改写工作区状态、需要人来判断的
-    "bisect", "worktree", "submodule", "hook", "note", "filter-branch",
+    "bisect",
+    "worktree",
+    "submodule",
+    "hook",
+    "note",
+    "filter-branch",
     // 改写历史（`git filter-repo` / 旧版 `git filter-branch`）——
     // 注意 `git log` 的 `history` 是描述词不是动作，白名单里不该有 history
     "filter-repo",
@@ -152,9 +211,13 @@ pub fn is_readonly(cmd: &str) -> bool {
     let has_bare_positional = cmd
         .split_whitespace()
         .skip(2) // 跳过 CLI 名与锚动词本身
-        .any(|t| !t.starts_with('-') && !t.contains('=') && !t.starts_with('[') && !t.starts_with('<'));
+        .any(|t| {
+            !t.starts_with('-') && !t.contains('=') && !t.starts_with('[') && !t.starts_with('<')
+        });
     if has_bare_positional
-        && toks.iter().any(|t| WRITE_WITH_POSITIONAL.contains(&t.as_str()))
+        && toks
+            .iter()
+            .any(|t| WRITE_WITH_POSITIONAL.contains(&t.as_str()))
     {
         return false;
     }
@@ -361,8 +424,18 @@ fn is_flagish_line(s: &str) -> bool {
 /// git（`or:`）、以及常见的中文/大写标题。
 fn is_section_header(s: &str) -> bool {
     const HEADS: &[&str] = &[
-        "Usage:", "usage:", "Arguments:", "Options:", "Commands:", "Global Options:",
-        "or:", "Aliases:", "Examples:", "Commands", "OPTIONS", "ARGS",
+        "Usage:",
+        "usage:",
+        "Arguments:",
+        "Options:",
+        "Commands:",
+        "Global Options:",
+        "or:",
+        "Aliases:",
+        "Examples:",
+        "Commands",
+        "OPTIONS",
+        "ARGS",
     ];
     if HEADS.iter().any(|h| s.starts_with(h)) {
         return true;
@@ -517,6 +590,122 @@ fn split_cmd_and_args(cand: &str) -> Option<(String, String)> {
     Some((sub, args))
 }
 
+/// 把「已带 CLI 前缀」的一行拆成**可执行命令骨架**，补上 [`split_cmd_and_args`] 做不到的两件事。
+///
+/// ## 1. 多级子命令（原来只收 1 级）
+///
+/// 原逻辑把**第二个**子命令词当作"散文里切出来的别名"直接丢弃：
+///
+/// ```text
+/// hw led blue on|off|status|blink [n]   →  hw led   ← blue 没了
+/// hw gpio get <chip> <line>             →  hw gpio  ← get 没了
+/// ```
+///
+/// 后果不是"少解析几条"，而是**静默失败**：`hw led` 会被当成合法候选选中，
+/// 执行报 `hw: led 需要 blue|green`（exit 2）。这正是本模块最忌讳的
+/// 「解析出垃圾比解析出 0 条更危险」（Radxa `hw` 2026-09-24 实测）。
+///
+/// ## 2. `a|b|c` 选择分支**展开成多条命令**
+///
+/// `hw led blue on|off|status|blink [n]` 在 help 里是**一行**，但它是 4 条真实命令。
+/// 不展开，候选里永远不会有 `hw led blue off` —— 而"关灯"要的正是这一条。
+///
+/// 展开不是花活，它就是「CLI 本身就是选项集」的字面实现：一行 help 天然是一组选项。
+/// ⚠️ 只展开**纯字母**分支，避免把值域 `status|0-255` 展开成一条 `hw fan 0-255` 这样的垃圾。
+fn expand_command_paths(cli: &str, body: &str) -> Vec<String> {
+    let toks: Vec<&str> = body.split_whitespace().collect();
+    let mut path: Vec<String> = Vec::new();
+    let mut rest_start = 0usize;
+    for (i, t) in toks.iter().enumerate() {
+        let bare = t.trim_end_matches(',');
+        if !is_subcommand_word(bare) {
+            break;
+        }
+        path.push(bare.to_string());
+        rest_start = i + 1;
+    }
+    if path.is_empty() {
+        return Vec::new();
+    }
+    let base = format!("{cli} {}", path.join(" "));
+
+    // ① 选择分支：展开成多条命令
+    for t in &toks[rest_start..] {
+        let bare = t.trim_end_matches(',');
+        if !bare.contains('|') {
+            continue;
+        }
+        let bs: Vec<String> = bare
+            .split('|')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        if bs.len() > 1
+            && bs
+                .iter()
+                .all(|b| b.chars().all(|c| c.is_ascii_alphabetic()))
+        {
+            return bs.iter().map(|b| format!("{base} {b}")).collect();
+        }
+    }
+
+    // ② 无分支：剩余里**像参数**的 token 接回骨架（占位符 `-x` `<X>` / 大写 / 非小写开头）。
+    //    可选参数 `[n]` 不进骨架 —— 可执行命令不带它。
+    let args: Vec<String> = toks[rest_start..]
+        .iter()
+        .filter(|t| {
+            let bare = t.trim_end_matches(',');
+            t.starts_with('<')
+                || t.starts_with('-')
+                || bare.chars().next().is_some_and(|c| !c.is_ascii_lowercase())
+        })
+        .map(|t| (*t).to_string())
+        .collect();
+    if args.is_empty() {
+        vec![base]
+    } else {
+        vec![format!("{base} {}", args.join(" "))]
+    }
+}
+
+/// 把描述**开头**的 `a|b|c` 动作枚举展开成多条命令。
+///
+/// ## 为什么它必须存在（Radxa `hw` 实测）
+///
+/// 真实 help 长这样（`blue` 后是**双空格**对齐）：
+///
+/// ```text
+///   hw led blue  on|off|status|blink [n]    用户蓝灯 (radxa:blue:user)
+/// ```
+///
+/// [`split_line`] 的判据是「同行内第一个双空格」，于是切成
+/// `cand=hw led blue` + `desc=on|off|status|blink [n] 用户蓝灯` ——
+/// **动作枚举落在描述里，不在命令里**。
+///
+/// 不做这一步，候选只会是 `hw led blue`（执行报"缺动作"），
+/// 而「关灯」要的 `hw led blue off` **永远不会出现**。
+///
+/// ⚠️ 判据刻意严格（只看描述**第一个** token、且必须全为纯字母），
+/// 否则会把散文里的 `foo|bar` 误当选项 —— 宁可不展开，也不造垃圾。
+fn expand_desc_branches(cmd: &str, desc: &str) -> Vec<String> {
+    let Some(first) = desc.split_whitespace().next() else {
+        return vec![cmd.to_string()];
+    };
+    if !first.contains('|') {
+        return vec![cmd.to_string()];
+    }
+    let bs: Vec<&str> = first.split('|').filter(|s| !s.is_empty()).collect();
+    if bs.len() < 2
+        || !bs
+            .iter()
+            .all(|b| b.chars().all(|c| c.is_ascii_alphabetic()))
+    {
+        return vec![cmd.to_string()];
+    }
+    bs.iter().map(|b| format!("{cmd} {b}")).collect()
+}
+
 /// 解析 `--help` 原始输出 → 动作表。
 ///
 /// - `cli`：CLI 名（用于补前缀与识别节标题）
@@ -586,7 +775,13 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
             //     没有逗号，不会与 npm 的逗号列表路径冲突。
             if let Some((c, d)) = split_line_multiline(&lines, idx) {
                 if looks_like_subcommand(cli, &c) {
-                    push_unique(&mut out, &mut seen, cli, format!("{cli} {}", normalize_alias(&c)), d);
+                    push_unique(
+                        &mut out,
+                        &mut seen,
+                        cli,
+                        format!("{cli} {}", normalize_alias(&c)),
+                        d,
+                    );
                 }
                 // 即使不是子命令（是 flag），也**必须** continue：
                 // 否则会落进下面的逗号列表路径，把 flag 参数名当命令。
@@ -607,22 +802,23 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
         // 前缀式（`kubectl get ...`）若先过 normalize_alias，
         // 它会把 `kubectl get` 当别名叫法压成 `kubectl` —— v17c 实测回归。
         let first = cand.split_whitespace().next().unwrap_or("");
-        let full = if first == cli {
-            // 已带前缀：剥掉前缀后重新解析「子命令 + 语法参数」
+        let fulls: Vec<String> = if first == cli {
+            // 已带前缀：剥掉前缀后解析「多级子命令 + 语法参数 + | 分支展开」
             let body = cand[first.len()..].trim();
             if body.is_empty() {
                 continue;
             }
-            match split_cmd_and_args(body) {
-                Some((sub, args)) if args.is_empty() => format!("{cli} {sub}"),
-                Some((sub, args)) => format!("{cli} {sub} {args}"),
-                None => continue,
-            }
+            expand_command_paths(cli, body)
         } else {
             // 缩进式（docker）：无前缀、可能有别名叫法 → 先规范化再补前缀
-            format!("{cli} {}", normalize_alias(&cand))
+            vec![format!("{cli} {}", normalize_alias(&cand))]
         };
-        push_unique(&mut out, &mut seen, cli, full, desc);
+        for f in fulls {
+            // 描述开头的 `a|b|c` 也是选项：`hw led blue` + `on|off|...` → 4 条命令
+            for c in expand_desc_branches(&f, &desc) {
+                push_unique(&mut out, &mut seen, cli, c, desc.clone());
+            }
+        }
     }
 
     // ── 版式 D：无子命令 CLI（jq 类）—— help 里只有 flag 列表 ──
@@ -676,7 +872,12 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
 fn lead_has_command_word(lead: &str) -> bool {
     let l = lead.to_ascii_lowercase();
     const CMD_WORDS: &[&str] = &[
-        "command", "commands", "subcommand", "subcommands", "可用命令", "子命令",
+        "command",
+        "commands",
+        "subcommand",
+        "subcommands",
+        "可用命令",
+        "子命令",
     ];
     CMD_WORDS.iter().any(|w| l.contains(w))
 }
@@ -689,7 +890,11 @@ fn is_comma_list_line(line: &str) -> bool {
     if n_comma == 0 || (!t.ends_with(',') && n_comma < 2) {
         return false;
     }
-    let toks: Vec<&str> = t.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let toks: Vec<&str> = t
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
     toks.len() >= 3 && toks.iter().all(|w| is_subcommand_word(w))
 }
 
@@ -764,7 +969,12 @@ fn parse_comma_list(
     };
     let lead_l = lead.trim().to_ascii_lowercase();
     const CMD_WORDS: &[&str] = &[
-        "command", "commands", "subcommand", "subcommands", "可用命令", "子命令",
+        "command",
+        "commands",
+        "subcommand",
+        "subcommands",
+        "可用命令",
+        "子命令",
     ];
     if !CMD_WORDS.iter().any(|w| lead_l.contains(w)) {
         return Vec::new();
@@ -937,13 +1147,41 @@ fn fill_example(cmd: &str) -> Option<String> {
 /// 2. CLI 在已知的参数语法型名单里（不在名单里则宁可不给，避免编造语义）
 pub const ARG_SYNTAX_CLIS: &[(&str, &str, &str)] = &[
     // (CLI 名, 惯用动作, 一句话说明)
-    ("jq", "jq . <文件>", "格式化/美化 JSON。示例：jq . config.json"),
-    ("jq", "jq .<字段> <文件>", "抽取某个字段。示例：jq .name config.json"),
-    ("curl", "curl <URL>", "请求一个地址。示例：curl https://example.com"),
-    ("sed", "sed -n '<范围>p' <文件>", "按行范围打印。示例：sed -n '1,10p' config.json"),
-    ("awk", "awk '{print $<列号>}' <文件>", "按列打印。示例：awk '{print $1}' data.txt"),
-    ("grep", "grep <模式> <文件>", "按模式搜索。示例：grep TODO main.rs"),
-    ("yq", "yq .<字段> <文件>", "抽取 YAML 字段。示例：yq .name config.yaml"),
+    (
+        "jq",
+        "jq . <文件>",
+        "格式化/美化 JSON。示例：jq . config.json",
+    ),
+    (
+        "jq",
+        "jq .<字段> <文件>",
+        "抽取某个字段。示例：jq .name config.json",
+    ),
+    (
+        "curl",
+        "curl <URL>",
+        "请求一个地址。示例：curl https://example.com",
+    ),
+    (
+        "sed",
+        "sed -n '<范围>p' <文件>",
+        "按行范围打印。示例：sed -n '1,10p' config.json",
+    ),
+    (
+        "awk",
+        "awk '{print $<列号>}' <文件>",
+        "按列打印。示例：awk '{print $1}' data.txt",
+    ),
+    (
+        "grep",
+        "grep <模式> <文件>",
+        "按模式搜索。示例：grep TODO main.rs",
+    ),
+    (
+        "yq",
+        "yq .<字段> <文件>",
+        "抽取 YAML 字段。示例：yq .name config.yaml",
+    ),
 ];
 
 /// 若该 CLI 是参数语法型，补一条惯用动作（放在最前，提升命中率）。
@@ -998,7 +1236,8 @@ fn scan_subcommand_args(cli: &str, raw: &str) -> std::collections::HashMap<Strin
         } else if let Some(r) = t.strip_prefix("usage:") {
             r.to_string()
         } else if !t.is_empty()
-            && t.chars().all(|c| !c.is_alphanumeric() || c.is_ascii_uppercase())
+            && t.chars()
+                .all(|c| !c.is_alphanumeric() || c.is_ascii_uppercase())
             && t.eq_ignore_ascii_case("usage:")
         {
             // 形态 2：kubectl 把语法放在**下一个缩进行**：
@@ -1025,7 +1264,8 @@ fn scan_subcommand_args(cli: &str, raw: &str) -> std::collections::HashMap<Strin
                 && !w.starts_with('[')
                 && !w.starts_with('<')
                 && w.len() >= 2
-                && w.chars().all(|c| c.is_ascii_lowercase() || c == '-' || c == '_')
+                && w.chars()
+                    .all(|c| c.is_ascii_lowercase() || c == '-' || c == '_')
         }) else {
             continue;
         };
@@ -1040,7 +1280,8 @@ fn scan_subcommand_args(cli: &str, raw: &str) -> std::collections::HashMap<Strin
                 // 大写纯字母（CONTAINER / IMAGE）或尖括号（<file>）
                 (w.starts_with('<') && w.ends_with('>'))
                     || (w.len() >= 2
-                        && w.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c == '-')
+                        && w.chars()
+                            .all(|c| c.is_ascii_uppercase() || c == '_' || c == '-')
                         && w.chars().any(|c| c.is_ascii_uppercase()))
             })
             .map(|w| {
@@ -1100,7 +1341,9 @@ pub fn deepen_with_subcommand_usage(
             continue;
         };
         probed += 1;
-        let Some(txt) = helper(cli, sub) else { continue };
+        let Some(txt) = helper(cli, sub) else {
+            continue;
+        };
         let argmap = scan_subcommand_args(cli, &txt);
         // usage 行里的子命令名与子命令本身一致时，取它的必需参数
         if let Some(args) = argmap.get(sub) {
@@ -1210,13 +1453,15 @@ fn parse_flags_as_actions(cli: &str, raw: &str) -> Vec<HelpAction> {
         // 判据：在 `cand` 里定位 flag 之后**紧随的第一个值占位符**
         // （形如 `<NUM>` / `<FILE>` / `[FILE]`），带上它；没有就不带。
         // 不猜语义、不编值 —— 只做到「如实转写 help 里写了的语法」。
-        let after = cand.find(flag).map(|p| &cand[p + flag.len()..]).unwrap_or("");
+        let after = cand
+            .find(flag)
+            .map(|p| &cand[p + flag.len()..])
+            .unwrap_or("");
         let val = after
             .split_whitespace()
             .map(|w| w.trim_matches(','))
             .find(|w| {
-                (w.starts_with('<') && w.ends_with('>'))
-                    || (w.starts_with('[') && w.ends_with(']'))
+                (w.starts_with('<') && w.ends_with('>')) || (w.starts_with('[') && w.ends_with(']'))
             });
         let cmd = match val {
             Some(v) => format!("{cli} {flag} {v}"),
@@ -1262,9 +1507,10 @@ pub fn readonly_only(actions: &[HelpAction]) -> Vec<HelpAction> {
 /// 把真正常用的 logs/inspect/stats 挤出了 top-N。
 /// 这里用一份跨 CLI 通用的**高频动作表**把常用项提到前面，提升注入命中率。
 const COMMON_ACTIONS: &[&str] = &[
-    "status", "ps", "list", "ls", "get", "logs", "log", "show", "inspect",
-    "stats", "info", "images", "version", "describe", "tree", "branch",
-    "diff", "test", "check", "build", "plan", "config", "top",
+    "status", "ps", "list", "ls", "get", "logs", "log", "show", "inspect", "stats", "info",
+    "images", "version", "describe", "tree", "branch", "diff", "test", "check", "build", "plan",
+    "config",
+    "top",
     // ⚠️ v19 移出：`history` 曾在此表内，会把 **`git history`（help 自述
     //    "Rewrite history"）** 提升到注入集前部 —— 与 WRITE_VERBS 的意图自相矛盾
     //    （见本文件 WRITE_VERBS 上方注释「白名单里不该有 history」）。
@@ -1281,7 +1527,7 @@ pub fn rank_by_frequency(actions: &[HelpAction]) -> Vec<HelpAction> {
         let best = COMMON_ACTIONS
             .iter()
             .position(|w| cmd.split_whitespace().any(|t| t.eq_ignore_ascii_case(w)));
-        best.unwrap_or(usize::MAX)  // 未命中排最后
+        best.unwrap_or(usize::MAX) // 未命中排最后
     });
     idx.into_iter().map(|i| actions[i].clone()).collect()
 }
@@ -1297,8 +1543,13 @@ pub fn render_schema(cli: &str, actions: &[HelpAction], max_n: usize) -> String 
     for a in actions.iter().take(max_n) {
         match &a.example {
             Some(ex) => s.push_str(&format!("- {} ：{}。示例：{}\n", a.full_cmd, a.desc, ex)),
-            None if a.desc.is_empty() => s.push_str(&format!("- {}。示例：{}\n", a.full_cmd, a.full_cmd)),
-            None => s.push_str(&format!("- {} ：{}。示例：{}\n", a.full_cmd, a.desc, a.full_cmd)),
+            None if a.desc.is_empty() => {
+                s.push_str(&format!("- {}。示例：{}\n", a.full_cmd, a.full_cmd))
+            }
+            None => s.push_str(&format!(
+                "- {} ：{}。示例：{}\n",
+                a.full_cmd, a.desc, a.full_cmd
+            )),
         }
     }
     // v18c：术语同义词只能靠声明式补（help 文本里结构上不可见）。
@@ -1363,7 +1614,6 @@ const THIN_ACTION_THRESHOLD: usize = 15;
 /// cargo / kubectl 的 help 为数 KB 级，走结构化路径。
 const RAW_INLINE_LIMIT: usize = 4096;
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1413,7 +1663,10 @@ Commands:
 ";
         let acts = parse_help("cargo", raw);
         let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
-        assert!(cmds.contains(&"cargo build"), "cargo 节标题未展开: {cmds:?}");
+        assert!(
+            cmds.contains(&"cargo build"),
+            "cargo 节标题未展开: {cmds:?}"
+        );
         assert!(cmds.contains(&"cargo check"));
         assert!(cmds.contains(&"cargo test"));
         assert!(cmds.contains(&"cargo tree"));
@@ -1453,7 +1706,10 @@ kubectl controls the Kubernetes cluster manager.
             "logs 缺 POD: {cmds:?}"
         );
         // 不在方言表里的（version）保持原样
-        assert!(cmds.contains(&"kubectl version"), "version 被误改: {cmds:?}");
+        assert!(
+            cmds.contains(&"kubectl version"),
+            "version 被误改: {cmds:?}"
+        );
     }
 
     /// 可见性：方言补充只填空缺，不覆盖 usage 行扫到的真实语法
@@ -1493,9 +1749,9 @@ Usage:  kubectl get TYPE [NAME]
             ("terraform plan", true),
             ("kubectl get pods", true),
             ("cargo check", true),
-            ("cargo build", true),   // 写自己产物 → 不危险 → 只读
-            ("cargo test", true),    // 同上
-            ("cargo tree", true),    // 纯查询
+            ("cargo build", true), // 写自己产物 → 不危险 → 只读
+            ("cargo test", true),  // 同上
+            ("cargo tree", true),  // 纯查询
             ("jq . config.json", true),
             // 危险 / 影响他人
             ("docker rm redis", false),
@@ -1526,7 +1782,10 @@ Usage:  kubectl get TYPE [NAME]
             ("git fetch", true),
         ] {
             let got = is_readonly(cmd);
-            assert_eq!(got, want_ro, "is_readonly({cmd}) 应为 {want_ro}, 实得 {got}");
+            assert_eq!(
+                got, want_ro,
+                "is_readonly({cmd}) 应为 {want_ro}, 实得 {got}"
+            );
         }
     }
 
@@ -1579,7 +1838,10 @@ examine the history and state
         assert!(!s.contains("原始输出"), "厚 help 不该追加原文: {s}");
 
         // 原文过长时同样不追加
-        let long_raw = format!("usage: git [cmd]\n\n   log   Show commit logs\n\n{}", "x".repeat(5000));
+        let long_raw = format!(
+            "usage: git [cmd]\n\n   log   Show commit logs\n\n{}",
+            "x".repeat(5000)
+        );
         let a2 = readonly_only(&parse_help("git", &long_raw));
         if a2.len() < THIN_ACTION_THRESHOLD {
             let s2 = render_schema_with_raw_fallback("git", &a2, &long_raw, usize::MAX);
@@ -1673,7 +1935,11 @@ Options:
             .iter()
             .find(|a| a.full_cmd.contains("debug"))
             .expect("未抽出 debug flag");
-        assert_eq!(dbg.desc, "Enable debug mode", "同行描述被串改: {:?}", dbg.desc);
+        assert_eq!(
+            dbg.desc, "Enable debug mode",
+            "同行描述被串改: {:?}",
+            dbg.desc
+        );
     }
 
     /// ── v19d 三条修复的单测（全部由 L1 池 ground 校验反查出）──
@@ -1807,7 +2073,10 @@ Commands:
         assert!(cmds.contains(&"docker ps"));
         assert!(cmds.contains(&"docker stats"));
         assert!(!cmds.contains(&"docker rm"), "rm 不该进只读集: {cmds:?}");
-        assert!(!cmds.contains(&"docker kill"), "kill 不该进只读集: {cmds:?}");
+        assert!(
+            !cmds.contains(&"docker kill"),
+            "kill 不该进只读集: {cmds:?}"
+        );
     }
 
     /// 示例填充（v18）：人工 schema 有「示例：」，漏了它 base06b 从 100% 掉到 59.4%
@@ -1829,7 +2098,10 @@ Commands:
             "容器名未填成 web"
         );
         assert_eq!(
-            by("docker inspect <容器名或镜像名>").unwrap().example.as_deref(),
+            by("docker inspect <容器名或镜像名>")
+                .unwrap()
+                .example
+                .as_deref(),
             Some("docker inspect web")
         );
         assert_eq!(
@@ -1842,7 +2114,10 @@ Commands:
         );
         // 认不出的占位符 → 宁可不给示例（不得编造语义）
         assert_eq!(
-            by("docker tune <莫名其妙的东西>").unwrap().example.as_deref(),
+            by("docker tune <莫名其妙的东西>")
+                .unwrap()
+                .example
+                .as_deref(),
             None,
             "未知占位符不该被乱填"
         );
@@ -1867,7 +2142,8 @@ Usage:  jq [options...] filter [files...]
         assert!(!acts.is_empty());
         // 惯用动作必须排在最前（否则排在几十条 flag 之后等于没注入）
         assert_eq!(
-            acts[0].full_cmd, "jq . <文件>",
+            acts[0].full_cmd,
+            "jq . <文件>",
             "参数语法型动作未置顶: {:?}",
             acts.iter().map(|a| &a.full_cmd).collect::<Vec<_>>()
         );
@@ -1909,7 +2185,10 @@ Commands:
             "  get         Display one or many resources\n  logs        Print the logs\n",
         ));
         let s = render_schema("kubectl", &acts, 8);
-        assert!(s.contains("术语提示："), "kubectl schema 缺同义词提示:\n{s}");
+        assert!(
+            s.contains("术语提示："),
+            "kubectl schema 缺同义词提示:\n{s}"
+        );
         assert!(s.contains("get svc"), "应给出完整命令样例:\n{s}");
         // 关键（v18d/v18e 两次血训）：提示里不得出现**裸的单词列表**，
         // 否则模型会把列表项提升成命令（曾产出 `kubectl svc` / `kubectl nodes`）。
@@ -1960,7 +2239,6 @@ Commands:
             "未去重: {acts:?}"
         );
     }
-
 
     /// 版式 E：逗号列表（npm 的 `All commands:` 段）
     #[test]
@@ -2074,15 +2352,23 @@ Commands:
     /// 且**不能**把 usize::MAX 印成 18446744073709551615（CLI 侧曾有该打印缺陷）。
     #[test]
     fn render_schema_with_usize_max_means_full() {
-        let raw = "Commands:\n  ps   List containers\n  images   List images\n  info   Display info\n";
+        let raw =
+            "Commands:\n  ps   List containers\n  images   List images\n  info   Display info\n";
         let acts = readonly_only(&parse_help("docker", raw));
         let full = render_schema("docker", &acts, usize::MAX);
         let exact = render_schema("docker", &acts, acts.len());
         assert_eq!(full, exact, "usize::MAX 应当等于全量渲染");
         for a in &acts {
-            assert!(full.contains(&a.full_cmd), "全量渲染漏了 {}:\n{full}", a.full_cmd);
+            assert!(
+                full.contains(&a.full_cmd),
+                "全量渲染漏了 {}:\n{full}",
+                a.full_cmd
+            );
         }
-        assert!(!full.contains("18446744073709551615"), "不得把 usize::MAX 印进 schema:\n{full}");
+        assert!(
+            !full.contains("18446744073709551615"),
+            "不得把 usize::MAX 印进 schema:\n{full}"
+        );
     }
 
     /// v19e-1：**散文段落不得产出动作**。
@@ -2131,7 +2417,10 @@ Commands:
             cmds.contains(&"cargo run [OPTIONS] [ARGS]..."),
             "变长参数被句点守卫误杀: {cmds:?}"
         );
-        assert!(cmds.iter().any(|c| c.starts_with("cargo add")), "add 丢失: {cmds:?}");
+        assert!(
+            cmds.iter().any(|c| c.starts_with("cargo add")),
+            "add 丢失: {cmds:?}"
+        );
     }
 
     /// v19e-2：值枚举（缩进浅、无 command 引导语）不得产出命令。
@@ -2178,9 +2467,121 @@ All commands:
 ";
         let acts = parse_help("npm", raw);
         let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
-        for want in ["npm search", "npm set", "npm shrinkwrap", "npm star", "npm start",
-                     "npm stop", "npm team", "npm token", "npm uninstall"] {
-            assert!(cmds.contains(&want), "长列表列尾丢失: {want} / 共 {} 条 {cmds:?}", cmds.len());
+        for want in [
+            "npm search",
+            "npm set",
+            "npm shrinkwrap",
+            "npm star",
+            "npm start",
+            "npm stop",
+            "npm team",
+            "npm token",
+            "npm uninstall",
+        ] {
+            assert!(
+                cmds.contains(&want),
+                "长列表列尾丢失: {want} / 共 {} 条 {cmds:?}",
+                cmds.len()
+            );
         }
+    }
+
+    // ══ 多级子命令 + 描述分支展开（Radxa `hw` 2026-09-24 实测缺陷的回归）══
+    //
+    // 缺陷：原 `split_cmd_and_args` 只收**第一个**子命令词，第二个起当"别名"丢弃；
+    // 且 `on|off|status` 被 `split_line` 的双空格判据划进**描述**里。
+    // 后果是 `hw led blue off`（关灯）永远解析不出来，候选里只剩残缺的 `hw led`
+    // —— 它会被当成合法候选执行，报 `hw: led 需要 blue|green`（exit 2）→ **静默失败**。
+
+    /// `hw --help` 的真实输出（注意 `blue` 后是**双空格**，对齐用的）
+    const HW_HELP: &str = "\
+hw —— Radxa A7A 硬件 CLI
+
+用法:
+  hw led blue  on|off|status|blink [n]    用户蓝灯 (radxa:blue:user)
+  hw led green on|off|status              电源绿灯 (radxa:green:power)
+  hw temp                                 CPU 温度 (全部 thermal zone)
+  hw gpio get <chip> <line>               读 GPIO (gpiod; gpio 组免 root)
+  hw info                                 板子信息
+";
+
+    #[test]
+    fn multilevel_subcommand_is_not_truncated_to_two_words() {
+        let acts = parse_help("hw", HW_HELP);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        // 关灯命令必须完整存在 —— 这是整个 P0 的验收点
+        assert!(
+            cmds.contains(&"hw led blue off"),
+            "关灯命令必须被解析出来；实际 {cmds:?}"
+        );
+        assert!(cmds.contains(&"hw led blue on"), "实际 {cmds:?}");
+        assert!(cmds.contains(&"hw led green off"), "实际 {cmds:?}");
+        assert!(
+            cmds.contains(&"hw gpio get <chip> <line>"),
+            "多级子命令 gpio get 必须保留（原来只出 hw gpio）；实际 {cmds:?}"
+        );
+        assert!(cmds.contains(&"hw temp"), "实际 {cmds:?}");
+        assert!(cmds.contains(&"hw info"), "实际 {cmds:?}");
+    }
+
+    #[test]
+    fn truncated_broken_command_no_longer_appears() {
+        let acts = parse_help("hw", HW_HELP);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        // `hw led` 执行必然失败（脚本报"led 需要 blue|green"），不允许再出现
+        assert!(
+            !cmds.contains(&"hw led"),
+            "残缺命令 hw led 必须消失，否则会被当成合法候选静默失败；实际 {cmds:?}"
+        );
+    }
+
+    #[test]
+    fn desc_branch_expansion_is_conservative() {
+        // 描述开头的 `a|b|c` 才展开；散文/值域/单个词都不动
+        assert_eq!(
+            expand_desc_branches("hw led blue", "on|off|status|blink [n] 用户蓝灯"),
+            vec![
+                "hw led blue on",
+                "hw led blue off",
+                "hw led blue status",
+                "hw led blue blink"
+            ]
+        );
+        // 值域不是选项：不展开
+        assert_eq!(
+            expand_desc_branches("hw fan", "status|0-255 风扇转速"),
+            vec!["hw fan".to_string()]
+        );
+        // 普通英文描述：不展开
+        assert_eq!(
+            expand_desc_branches("git log", "Show commit logs"),
+            vec!["git log".to_string()]
+        );
+        // 单段（无 |）：不展开
+        assert_eq!(
+            expand_desc_branches("hw temp", "CPU 温度"),
+            vec!["hw temp".to_string()]
+        );
+    }
+
+    #[test]
+    fn command_path_expansion_supports_multilevel_and_args() {
+        // 多级路径
+        assert_eq!(
+            expand_command_paths("hw", "led blue"),
+            vec!["hw led blue".to_string()]
+        );
+        // 多级路径 + 位置参数
+        assert_eq!(
+            expand_command_paths("hw", "gpio get <chip> <line>"),
+            vec!["hw gpio get <chip> <line>".to_string()]
+        );
+        // 单级
+        assert_eq!(
+            expand_command_paths("hw", "temp"),
+            vec!["hw temp".to_string()]
+        );
+        // 非子命令开头（占位符）→ 一条都不出，交给调用方 continue
+        assert!(expand_command_paths("hw", "<file>").is_empty());
     }
 }

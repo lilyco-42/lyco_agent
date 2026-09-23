@@ -433,6 +433,67 @@ pub fn shell_exec(command: &str, cwd: Option<&Path>) -> RunOutcome {
     }
 }
 
+/// 执行命令并**捕获真实退出码** —— lbrush 采集的必需品。
+///
+/// 为什么不能复用 [`shell_exec`]：它只给 `ok: bool`，而「命令跑成功了」与
+/// 「命令干成了活」是两件事（`npm install` 空跑退出码 0 却什么都没装）。
+/// 采集器要存的是**可判别的真实信号**，所以这里回传 `status.code()`。
+///
+/// 返回 `(exit_code, stdout, stderr)`；`exit_code == None` 表示被信号终止或超时。
+pub fn shell_exec_capture(
+    command: &str,
+    cwd: Option<&Path>,
+) -> std::io::Result<(Option<i32>, String, String)> {
+    let (prog, dash_c) = pick_shell();
+    let mut c = std::process::Command::new(&prog);
+    if dash_c {
+        c.args(["-c", command]);
+    } else {
+        c.args(["/C", command]);
+    }
+    if let Some(d) = cwd {
+        if !d.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("工作目录不存在: {}", d.display()),
+            ));
+        }
+        c.current_dir(d);
+    }
+    run_with_timeout_code(c, 120)
+}
+
+/// 同 [`run_with_timeout`]，但保留退出码（`None` = 超时/信号终止）。
+fn run_with_timeout_code(
+    mut cmd: std::process::Command,
+    secs: u64,
+) -> std::io::Result<(Option<i32>, String, String)> {
+    use std::io::Read;
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let mut so = String::new();
+            let mut se = String::new();
+            if let Some(mut o) = child.stdout.take() {
+                let _ = o.read_to_string(&mut so);
+            }
+            if let Some(mut e) = child.stderr.take() {
+                let _ = e.read_to_string(&mut se);
+            }
+            return Ok((status.code(), so, se));
+        }
+        if start.elapsed() > Duration::from_secs(secs) {
+            let _ = child.kill();
+            return Ok((None, String::new(), format!("超时 {secs}s (已终止)")));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// file_write: 写文本文件 (自动建父目录)
 pub fn file_write(path: &Path, content: &str) -> RunOutcome {
     if let Some(p) = path.parent() {

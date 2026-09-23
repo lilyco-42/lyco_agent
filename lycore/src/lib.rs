@@ -11,9 +11,11 @@ pub mod agent;
 pub mod backend; // 硬件无关执行后端: CPU 恒可用兜底, NPU/GPU probe 后静默降级
 pub mod capability; // P0: 能力层 (Capability Layer) 一等公民组件
 pub mod choices; // 判定式脊: CLI 即选项集 → 编号候选 + 只回编号 + Rust 组装 (证据: Jev 100% vs 我们 41.7%)
+pub mod cli_zh; // CLI 说明书的本地中文翻译 (零网络零模型): --help → 中文说明书 → 冷启动训练数据
 pub mod datagen; // P1: 训练语料生成 (answer-first / ToolGrad 式, 学习队列→SFT 语料)
 pub mod executor;
 pub mod help_parse; // v17 正解: `--help` 确定性解析成动作表 (提炼不该用神经网络)
+pub mod lbrush; // 人机闭环采集器: 人先当模型, 每次成功调用 → (nl, cmd, exit_code) 金标准语料
 pub mod learn;
 pub mod learn_cli;
 pub mod lernen;
@@ -23,11 +25,11 @@ pub mod pack;
 pub mod paramcheck; // T1 门第二道闸: 必需参数校验 (v18 F4 `npm install` 静默失效)
 pub mod project; // 项目目录扫描 + 启动脚本生成 (识别 paper.jar → 关联知识 → 时间窗启动脚本)
 pub mod rewrite;
-pub mod search; // agent 自主检索 (SearXNG/离线占位) + 检索结果学习进知识包
 pub mod router; // v13 路由器接线 (MVP 能力①): NL -> 命令 -> T1 分诊 -> brush
+pub mod search; // agent 自主检索 (SearXNG/离线占位) + 检索结果学习进知识包
 pub mod serve;
-pub mod t1gate; // T1 执行门: 模型层不拒绝(reject 0% 实证), 执行层必须兜底
 pub mod skill; // P0: 技能描述符 { capabilities, risk, verifier, executor }
+pub mod t1gate; // T1 执行门: 模型层不拒绝(reject 0% 实证), 执行层必须兜底
 pub mod tokens;
 pub mod toolrag; // P1: ToolRAG 语义召回层 (embedding Top-K + 裁剪 tools_openai.json)
 pub mod tools_runtime;

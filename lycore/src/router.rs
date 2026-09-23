@@ -18,7 +18,8 @@
 use crate::t1gate::{classify, normalize, Risk, Verdict};
 
 /// v13 训练时的 system prompt — 逐字对齐, 改一个字都要重训
-pub const V13_SYS: &str = "你是 lyco_agent 的命令路由器。把用户的日常意图翻译成**一条**本地 CLI 命令。\
+pub const V13_SYS: &str =
+    "你是 lyco_agent 的命令路由器。把用户的日常意图翻译成**一条**本地 CLI 命令。\
 支持的域：hw(硬件)/gh(github)/ff(ffmpeg)/lb(行情持仓只读)/brush(shell 通用命令)。\
 只输出命令本身，不要解释；不支持的请求输出 (无需调用硬件命令)。";
 
@@ -214,7 +215,10 @@ pub fn extract_literals(nl: &str) -> Vec<String> {
         if t.is_empty() {
             continue;
         }
-        let lead_num: String = t.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+        let lead_num: String = t
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
         if !lead_num.is_empty() && lead_num.chars().any(|c| c.is_ascii_digit()) {
             out.push(t.to_string());
         }
@@ -264,10 +268,9 @@ pub fn plan_choice(model: &mut dyn CommandModel, nl: &str, max_n: usize) -> anyh
     use crate::choices::{build_choices, render_choices};
     use crate::help_parse::{parse_help, rank_by_frequency};
 
-    let (cli, actions) = match guess_cli(nl).and_then(|c| {
-        grab_help(&c)
-            .map(|raw| (c.clone(), parse_help(&c, &raw)))
-    }) {
+    let (cli, actions) = match guess_cli(nl)
+        .and_then(|c| grab_help(&c).map(|raw| (c.clone(), parse_help(&c, &raw))))
+    {
         Some((c, acts)) if !acts.is_empty() => (c, rank_by_frequency(&acts)),
         _ => return plan_with_help(model, nl, max_n),
     };
@@ -391,8 +394,8 @@ pub struct HelpAware {
 /// 故意做得保守：宁可返回 None，也不要猜出一个不存在的 CLI 去执行。
 pub fn guess_cli(nl: &str) -> Option<String> {
     const STOP: &[&str] = &[
-        "the", "a", "an", "and", "or", "to", "for", "with", "in", "on", "of",
-        "json", "file", "files", "dir", "path", "log", "list", "show", "get",
+        "the", "a", "an", "and", "or", "to", "for", "with", "in", "on", "of", "json", "file",
+        "files", "dir", "path", "log", "list", "show", "get",
     ];
     let mut fallback: Option<String> = None;
     for tok in nl.split(|c: char| c.is_whitespace() || c == '，' || c == '。' || c == '、') {
@@ -525,8 +528,16 @@ mod tests {
         assert!(h.parsed > 0, "解析为空: {h:?}");
         assert!(h.schema.contains("- git "), "schema 缺前缀:\n{}", h.schema);
         // 不得把写操作注入进去
-        assert!(!h.schema.contains("git commit"), "写操作漏进 schema:\n{}", h.schema);
-        assert!(!h.schema.contains("git push"), "写操作漏进 schema:\n{}", h.schema);
+        assert!(
+            !h.schema.contains("git commit"),
+            "写操作漏进 schema:\n{}",
+            h.schema
+        );
+        assert!(
+            !h.schema.contains("git push"),
+            "写操作漏进 schema:\n{}",
+            h.schema
+        );
     }
 
     /// 出域自动接入的负向用例：CLI 不存在 → None（不得猜出不存在的命令）
@@ -591,7 +602,10 @@ usage: demo [cmd]
         let mut m = scripted("gh issue list");
         let _ = plan(&mut m, "列出没关的 issue").unwrap();
         assert_eq!(m.seen_system, V13_SYS);
-        assert!(V13_SYS.contains("brush(shell 通用命令)"), "brush 域必须在 prompt 里");
+        assert!(
+            V13_SYS.contains("brush(shell 通用命令)"),
+            "brush 域必须在 prompt 里"
+        );
     }
 
     /// 出域自动接入闭环：第一次判定 noop → 抓 help → 二次询问拿到命令
@@ -613,7 +627,10 @@ usage: demo [cmd]
                 })
             }
         }
-        let mut m = Escalate { n: 0, systems: vec![] };
+        let mut m = Escalate {
+            n: 0,
+            systems: vec![],
+        };
         // 只有 docker 存在于任何环境？不一定 —— 用 git（开发机必有）
         let p = plan_with_help(&mut m, "用 git 看下提交历史", usize::MAX).unwrap();
         if m.systems.len() < 2 {
@@ -684,8 +701,14 @@ usage: demo [cmd]
         ] {
             let p = plan_from_raw("发布/清理", raw);
             assert_eq!(p.decision, Decision::Block, "{raw}");
-            assert!(!may_execute(&p, true, false), "仅确认不足以放行危险命令: {raw}");
-            assert!(may_execute(&p, true, true), "确认+显式 override 才行: {raw}");
+            assert!(
+                !may_execute(&p, true, false),
+                "仅确认不足以放行危险命令: {raw}"
+            );
+            assert!(
+                may_execute(&p, true, true),
+                "确认+显式 override 才行: {raw}"
+            );
         }
     }
 
@@ -784,7 +807,11 @@ mod choice_spine_tests {
     fn docker_actions() -> Vec<HelpAction> {
         vec![
             act("docker ps", Some("docker ps"), true),
-            act("docker logs <CONTAINER>", Some("docker logs <CONTAINER>"), true),
+            act(
+                "docker logs <CONTAINER>",
+                Some("docker logs <CONTAINER>"),
+                true,
+            ),
             act("docker images", Some("docker images"), true),
         ]
     }
@@ -793,8 +820,8 @@ mod choice_spine_tests {
     fn picks_nth_candidate_and_fills_slot() {
         let acts = docker_actions();
         // 模型只回编号 2，槽位来自用户原话（引号里的 web）
-        let p = plan_choice_from("看下 \"web\" 的日志", "docker", &acts, "2", 0)
-            .expect("应当产出计划");
+        let p =
+            plan_choice_from("看下 \"web\" 的日志", "docker", &acts, "2", 0).expect("应当产出计划");
         assert_eq!(p.command, "docker logs web", "编号+槽位应被组装成真命令");
         assert_eq!(p.decision, Decision::Run, "docker logs 是只读 → Run");
     }
@@ -803,7 +830,11 @@ mod choice_spine_tests {
     fn choice_zero_is_a_real_rejection() {
         let acts = docker_actions();
         let p = plan_choice_from("帮我把数据库删了", "docker", &acts, "0", 0).unwrap();
-        assert_eq!(p.decision, Decision::Noop, "选 0 = 不执行；这是我们 reject 0% 的解药");
+        assert_eq!(
+            p.decision,
+            Decision::Noop,
+            "选 0 = 不执行；这是我们 reject 0% 的解药"
+        );
     }
 
     #[test]
@@ -819,7 +850,10 @@ mod choice_spine_tests {
     fn extracts_literals_from_both_quotes_and_numbers() {
         let lits = extract_literals("把空调调到 23 并提交 -m \"doc\"");
         assert!(lits.contains(&"23".to_string()), "数字字面量: {lits:?}");
-        assert!(lits.contains(&"doc".to_string()), "引号内文本（按需加引号，安全字符裸写）: {lits:?}");
+        assert!(
+            lits.contains(&"doc".to_string()),
+            "引号内文本（按需加引号，安全字符裸写）: {lits:?}"
+        );
     }
 
     #[test]

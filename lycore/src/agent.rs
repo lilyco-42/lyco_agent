@@ -72,7 +72,6 @@ pub const ASSISTANT_SYS_NEUTRAL: &str =
 /// 小白机上只保留**选择题**(能力清单式引导), 候选命令由模型给、由用户挑。
 pub const OUT_OF_SCOPE_REPLY: &str = "我只负责把你说的日常需求翻译成一条命令；闲聊这类不归我管。";
 
-
 /// 编排结果
 #[derive(Debug, Serialize)]
 pub struct Turn {

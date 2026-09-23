@@ -58,7 +58,15 @@ pub fn strip_brush(cmd: &str) -> String {
     t.to_string()
 }
 
-/// 剥掉模型可能残留的 think 块与首尾引号/反引号
+/// 剥掉模型可能残留的 think 块与**整串包裹**的引号/反引号。
+///
+/// ⚠️ 2026-09-23 修的真 bug：原实现是 `.trim_matches('`').trim_matches('"')`，
+/// 它会把**命令内部的引号**一起削掉 —— `git commit -m "doc"` 变成 `git commit -m "doc`
+/// （尾部引号静默丢失，命令直接坏掉）。而带引号是命令的**常态**
+/// （`-m "msg"` / `--name "a b"` / `curl -H "K: v"`），所以这个削法会改坏真实命令。
+///
+/// 正确语义：**只有整串被同一引号包裹时**才剥（`` `docker ps` `` / `"docker ps"`），
+/// 且要求首尾同符、长度 ≥ 2。内部引号一律不动。
 pub fn normalize(raw: &str) -> String {
     let mut s = raw.to_string();
     // Qwen3 偶发 still 输出 <think>...</think>
@@ -69,12 +77,22 @@ pub fn normalize(raw: &str) -> String {
             s = s[..i].to_string();
         }
     }
-    strip_brush(&s)
-        .trim()
-        .trim_matches('`')
-        .trim_matches('"')
-        .trim()
-        .to_string()
+    let t = strip_brush(&s).trim().to_string();
+    strip_wrapping_quotes(&t)
+}
+
+/// 仅在**整串被同一引号包裹**时剥离外层引号。
+///
+/// 首尾字符若存在必为 ASCII 单字节（`"` / `'` / `` ` ``），所以切片不会切进多字节字符。
+fn strip_wrapping_quotes(s: &str) -> String {
+    let b = s.as_bytes();
+    if b.len() >= 2 {
+        let (f, l) = (b[0], b[b.len() - 1]);
+        if f == l && matches!(f, b'"' | b'\'' | b'`') {
+            return s[1..s.len() - 1].trim().to_string();
+        }
+    }
+    s.to_string()
 }
 
 /// 命令的第一个 token (程序名), 小写
@@ -152,11 +170,16 @@ pub fn classify(raw_cmd: &str) -> Verdict {
 
     // ---- 1. 破坏性 (程序级: 这些程序本身就是删除/破坏原语) ----
     const DANGER_PROGS: &[&str] = &[
-        "rm", "rmdir", "del", "shred", "dd", "mkfs", "format", "shutdown", "reboot",
-        "poweroff", "halt", "truncate", "diskpart", "kill", "killall", "pkill",
+        "rm", "rmdir", "del", "shred", "dd", "mkfs", "format", "shutdown", "reboot", "poweroff",
+        "halt", "truncate", "diskpart", "kill", "killall", "pkill",
     ];
     if DANGER_PROGS.contains(&p.as_str()) {
-        return verdict(Risk::Danger, &cmd, &p, format!("`{p}` 会删除或破坏数据, 不可逆"));
+        return verdict(
+            Risk::Danger,
+            &cmd,
+            &p,
+            format!("`{p}` 会删除或破坏数据, 不可逆"),
+        );
     }
 
     // ---- 2. 通用危险 flag / 覆盖重定向 (任何命令) ----
@@ -177,29 +200,126 @@ pub fn classify(raw_cmd: &str) -> Verdict {
     // 这样 `gh issue list` 的 list(只读) 不会被 issue 误判成写,
     // `docker system prune` 的 prune 也不会因为不在首位而漏判。
     const DANGER_VERBS: &[&str] = &[
-        "rm", "delete", "destroy", "publish", "uninstall", "prune", "clean", "purge",
-        "drop", "truncate", "format", "erase", "reset",
+        "rm",
+        "delete",
+        "destroy",
+        "publish",
+        "uninstall",
+        "prune",
+        "clean",
+        "purge",
+        "drop",
+        "truncate",
+        "format",
+        "erase",
+        "reset",
     ];
     const WRITE_VERBS: &[&str] = &[
-        "add", "create", "new", "edit", "commit", "push", "checkout", "merge", "rebase",
-        "restore", "stash", "switch", "tag", "apply", "install", "run", "build", "test",
-        "update", "sync", "mv", "cp", "write", "exec", "set", "init", "import", "close",
-        "comment", "abandon", "squash", "describe", "move", "patch", "scale", "start",
-        "stop", "open", "uninstall-pkg", "generate", "fmt", "fix", "upgrade",
+        "add",
+        "create",
+        "new",
+        "edit",
+        "commit",
+        "push",
+        "checkout",
+        "merge",
+        "rebase",
+        "restore",
+        "stash",
+        "switch",
+        "tag",
+        "apply",
+        "install",
+        "run",
+        "build",
+        "test",
+        "update",
+        "sync",
+        "mv",
+        "cp",
+        "write",
+        "exec",
+        "set",
+        "init",
+        "import",
+        "close",
+        "comment",
+        "abandon",
+        "squash",
+        "describe",
+        "move",
+        "patch",
+        "scale",
+        "start",
+        "stop",
+        "open",
+        "uninstall-pkg",
+        "generate",
+        "fmt",
+        "fix",
+        "upgrade",
     ];
     const READ_VERBS: &[&str] = &[
         // ⚠️ 复数/别名必须显式列出：白名单只做 token 精确匹配，
         //    漏一个就退化成"要确认"（实测 `docker logs` / `kubectl logs` 曾因此被判写操作）
-        "list", "ls", "get", "show", "status", "log", "logs", "diff", "view", "search", "cat",
-        "ps", "du", "df", "info", "plan", "check", "clippy", "help", "version", "stats",
-        "top", "which", "pwd", "head", "tail", "find", "grep", "wc", "tree", "env",
-        "history", "fetch", "describe-only", "preview", "validate", "dry-run",
+        "list",
+        "ls",
+        "get",
+        "show",
+        "status",
+        "log",
+        "logs",
+        "diff",
+        "view",
+        "search",
+        "cat",
+        "ps",
+        "du",
+        "df",
+        "info",
+        "plan",
+        "check",
+        "clippy",
+        "help",
+        "version",
+        "stats",
+        "top",
+        "which",
+        "pwd",
+        "head",
+        "tail",
+        "find",
+        "grep",
+        "wc",
+        "tree",
+        "env",
+        "history",
+        "fetch",
+        "describe-only",
+        "preview",
+        "validate",
+        "dry-run",
     ];
 
     // 程序名即写原语 (touch/mkdir/cp/mv/... — 它们没有"子命令", 只能靠程序名认)
     const WRITE_PROGS: &[&str] = &[
-        "touch", "mkdir", "cp", "mv", "tee", "sed", "awk", "install", "chmod", "chown",
-        "write", "unlink", "ln", "rsync", "scp", "systemctl", "service",
+        "touch",
+        "mkdir",
+        "cp",
+        "mv",
+        "tee",
+        "sed",
+        "awk",
+        "install",
+        "chmod",
+        "chown",
+        "write",
+        "unlink",
+        "ln",
+        "rsync",
+        "scp",
+        "systemctl",
+        "service",
     ];
     if WRITE_PROGS.contains(&p.as_str()) {
         return verdict(Risk::Write, &cmd, &p, format!("`{p}` 会改动文件/系统状态"));

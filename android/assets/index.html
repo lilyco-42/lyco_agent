@@ -142,8 +142,10 @@ function grab() {
   go();
 }
 
-function ssh(c, cmd) {
-  try { return JSON.parse(Ssh.exec(c.host, c.user, c.pass, cmd)); }
+// sudo=true：命令走 `sudo -S`，密码从 stdin 喂（不改板子的 sudoers 配置）。
+// 关灯/开灯要写 sysfs 的 brightness，必须 root。
+function ssh(c, cmd, sudo) {
+  try { return JSON.parse(Ssh.exec(c.host, c.user, c.pass, cmd, !!sudo)); }
   catch (e) { alert('SSH 调用失败：' + e); return null; }
 }
 
@@ -227,7 +229,8 @@ function run1(i) {
   var box = $('gatebox');
   box.innerHTML += '<div class="empty">执行中…</div>';
 
-  var r = ssh(c, cmd);
+  // 写操作（confirm）必须 sudo —— 灯/风扇要写 sysfs，root 才动得了
+  var r = ssh(c, cmd, true);
   var old = $('result');
   if (old) { old.remove(); }
   var d = document.createElement('div');

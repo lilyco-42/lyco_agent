@@ -13,6 +13,7 @@ import com.jcraft.jsch.Session;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 
@@ -126,8 +127,15 @@ public class MainActivity extends Activity {
      */
     final class Ssh {
 
+        /**
+         * @param sudo 是否用 sudo 提权（`hw led blue off` 要写 sysfs，必须 root）
+         *
+         * <p><b>刻意不改 sudoers</b>：改 {@code /etc/sudoers.d/} 属于系统配置，
+         * 那是需要显式确认的事。这里走 {@code sudo -S} 从 <b>stdin</b> 喂密码 ——
+         * 密码不会出现在命令行里（{@code ps} 看不到），效果相同但零系统改动。
+         */
         @JavascriptInterface
-        public String exec(String host, String user, String pass, String cmd) {
+        public String exec(String host, String user, String pass, String cmd, boolean sudo) {
             Session session = null;
             ChannelExec ch = null;
             try {
@@ -138,7 +146,12 @@ public class MainActivity extends Activity {
                 session.connect(8000);
 
                 ch = (ChannelExec) session.openChannel("exec");
-                ch.setCommand(cmd);
+                // `-p ''`：不要 sudo 的密码提示符，免得混进 stdout
+                ch.setCommand(sudo ? ("sudo -S -p '' " + cmd) : cmd);
+                if (sudo) {
+                    ch.setInputStream(
+                        new ByteArrayInputStream((pass + "\n").getBytes("UTF-8")));
+                }
                 ByteArrayOutputStream errs = new ByteArrayOutputStream();
                 ch.setErrStream(errs);
                 InputStream in = ch.getInputStream();

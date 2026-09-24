@@ -15,6 +15,7 @@ pub mod cli_zh; // CLI 说明书的本地中文翻译 (零网络零模型): --he
 pub mod datagen; // P1: 训练语料生成 (answer-first / ToolGrad 式, 学习队列→SFT 语料)
 pub mod executor;
 pub mod help_parse; // v17 正解: `--help` 确定性解析成动作表 (提炼不该用神经网络)
+pub mod jni_bridge; // Android APK 的 JNI 入口: parseHelp / manual / gate / version (不含模型)
 pub mod lbrush; // 人机闭环采集器: 人先当模型, 每次成功调用 → (nl, cmd, exit_code) 金标准语料
 pub mod learn;
 pub mod learn_cli;

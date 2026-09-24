@@ -132,6 +132,61 @@ pub extern "system" fn Java_lyco_Lycore_gate<'local>(
     to_jstring(&mut env, json.to_string())
 }
 
+/// `lyco.Lycore.rank(cli, helpText, nl) -> JSON 候选（按人话排序，带 score）`
+///
+/// 解析 → 中文翻译 → **按人话排序**。排序用的是 [`crate::choices::score_action`]，
+/// **确定性、不含模型**。
+///
+/// ⚠️ 它是范围缩小器不是判定器：能把"关灯"的候选从 9 条缩到 4 条，
+/// 但分不出 `on` / `off`（那需要语义）。所以 UI 要把 score 显示出来，
+/// 并列的一起给用户挑，别自作主张替他选。
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_lyco_Lycore_rank<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    cli: JString<'local>,
+    help: JString<'local>,
+    nl: JString<'local>,
+) -> jstring {
+    let Some(c) = to_rust_string(&mut env, &cli) else {
+        return std::ptr::null_mut();
+    };
+    let Some(h) = to_rust_string(&mut env, &help) else {
+        return std::ptr::null_mut();
+    };
+    let Some(q) = to_rust_string(&mut env, &nl) else {
+        return std::ptr::null_mut();
+    };
+
+    let acts = crate::help_parse::parse_help(&c, &h);
+    let mut scored: Vec<serde_json::Value> = acts
+        .iter()
+        .map(crate::cli_zh::translate_action)
+        .map(|a| {
+            let s = crate::choices::score_action(&q, &a.full_cmd, &a.desc_zh);
+            match serde_json::to_value(&a) {
+                Ok(mut v) => {
+                    v["score"] = serde_json::json!(s);
+                    v
+                }
+                Err(_) => serde_json::json!({"full_cmd": a.full_cmd, "score": s}),
+            }
+        })
+        .collect();
+
+    scored.sort_by(|a, b| {
+        let fa = a["score"].as_f64().unwrap_or(0.0);
+        let fb = b["score"].as_f64().unwrap_or(0.0);
+        fb.partial_cmp(&fa).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    to_jstring(
+        &mut env,
+        serde_json::to_string(&scored).unwrap_or_else(|_| "[]".to_string()),
+    )
+}
+
 /// `lyco.Lycore.version() -> &str`
 ///
 /// 冒烟用：APK 起来先调一次，确认 `.so` 真的加载了、JNI 名字没对错。

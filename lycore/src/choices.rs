@@ -113,6 +113,28 @@ pub fn parse_picked(text: &str, n_choices: usize) -> Picked {
     }
 }
 
+/// 人话与一条候选的匹配分（0.0–1.0）。**确定性，不含模型。**
+///
+/// ## 它是"范围缩小器"，不是"判定器"
+///
+/// 判据很朴素：人话里有多少字符出现在「命令 + 中文说明」里。
+/// 对"关灯"它能把 9 条候选缩到 4 条（都含"灯"字），但**区分不了 on/off** ——
+/// 那是语义，该留给模型或人。
+///
+/// 刻意不做"更聪明"的启发式：
+/// * 中文没有空格分词，任何"关键词切分"都是猜；
+/// * 猜错的排序比不排序更危险 —— 它会把错误答案排到第一位，而用户一眼就信了。
+/// 宁可并列，也不假装能分。
+pub fn score_action(nl: &str, cmd: &str, desc_zh: &str) -> f64 {
+    let hay: Vec<char> = format!("{cmd} {desc_zh}").chars().collect();
+    let want: Vec<char> = nl.chars().filter(|c| !c.is_whitespace()).collect();
+    if want.is_empty() {
+        return 0.0;
+    }
+    let hit = want.iter().filter(|c| hay.contains(c)).count();
+    hit as f64 / want.len() as f64
+}
+
 /// 只在**必要时**给槽位值加引号（shell 安全），避免把 `web` 变成 `"web"`。
 ///
 /// 判据：全字符都在安全集内（字母数字与 `_ - . / @ + : , =`）→ 裸写；
@@ -306,6 +328,31 @@ mod tests {
             assemble(&a, &["23".to_string()]),
             Assembled::Ready("hw condition 23 set".to_string())
         );
+    }
+
+    #[test]
+    fn score_narrows_candidates_but_does_not_pretend_to_disambiguate() {
+        use crate::choices::score_action;
+        // "关灯" 两字都出现在 led 相关的说明里 → 满分
+        let led = score_action("关灯", "hw led blue off", "关闭 用户蓝灯");
+        // temp 的说明里既没有"关"也没有"灯" → 0
+        let temp = score_action("关灯", "hw temp", "CPU 温度");
+        assert!(
+            led > temp,
+            "led 相关必须排在 temp 前面: led={led} temp={temp}"
+        );
+        assert_eq!(temp, 0.0);
+
+        // ⚠️ 诚实的一面：on/off 得分相同 —— 它分不出语义，别假装分得出
+        let on = score_action("关灯", "hw led blue on", "打开 用户蓝灯");
+        assert!((on - led).abs() < 1e-9, "确定性评分本来就分不出 on/off");
+    }
+
+    #[test]
+    fn score_is_zero_for_empty_input_and_full_for_exact_cover() {
+        use crate::choices::score_action;
+        assert_eq!(score_action("", "hw temp", "CPU 温度"), 0.0);
+        assert_eq!(score_action("CPU", "hw temp", "CPU 温度"), 1.0);
     }
 
     #[test]

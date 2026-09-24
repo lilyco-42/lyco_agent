@@ -87,9 +87,11 @@
 
 <!-- ② help 原文 + 解析 -->
 <div class="card">
-  <h2>② <kbd>--help</kbd> 原文</h2>
+  <h2>② 想干什么（人话，可不填）</h2>
+  <input type="text" id="nl" placeholder="例如：关灯">
+  <label style="margin-top:8px"><kbd>--help</kbd> 原文</label>
   <textarea id="help" placeholder="点上面按钮从板子抓，或手动粘贴"></textarea>
-  <button onclick="go()">解析成中文候选</button>
+  <button onclick="go()">解析并排序</button>
 </div>
 
 <!-- ③ 候选 + 执行 -->
@@ -195,8 +197,12 @@ function go() {
   if (!cli)  { out.innerHTML = '<div class="empty">先填 CLI 名字</div>'; return; }
   if (!help.trim()) { out.innerHTML = '<div class="empty">先弄一份 --help 原文</div>'; return; }
 
+  var nl = $('nl').value.trim();
   var acts;
-  try { acts = JSON.parse(Lycore.parseHelp(cli, help)); }
+  try {
+    // 填了人话就用 rank（按匹配度排序），没填就原样列出
+    acts = JSON.parse(nl ? Lycore.rank(cli, help, nl) : Lycore.parseHelp(cli, help));
+  }
   catch (e) { out.innerHTML = '<div class="empty">调用失败：' + esc(e) + '</div>'; return; }
 
   if (acts && acts.error) { out.innerHTML = '<div class="empty">' + esc(acts.error) + '</div>'; return; }
@@ -206,10 +212,26 @@ function go() {
     return;
   }
 
+  // 并列检测：得分相同的得让人自己选，不能假装排出来了
+  var tie = false, prev = null, tops = 0;
+  if (nl) {
+    for (var k = 0; k < acts.length; k++) {
+      var sc = acts[k].score || 0;
+      if (sc <= 0) { break; }
+      if (prev !== null && Math.abs(sc - prev) < 1e-9) { tie = true; }
+      prev = sc; tops++;
+    }
+  }
+
   var h = '';
+  if (nl && tie) {
+    h += '<div class="box needs">前 ' + tops + ' 条得分相同 —— '
+       + '排序只负责缩小范围，<b>分不出 on/off</b>，请你自己挑。</div>';
+  }
   for (var i = 0; i < acts.length; i++) {
     var a = acts[i];
     var cov = Math.round((a.coverage || 0) * 100);
+    var sc = nl ? Math.round((a.score || 0) * 100) : null;
     // 覆盖率 <60% 说明大半没翻出来，标红：别把半吊子译文当真
     h += '<div class="row" onclick="pick(' + i + ')">'
        +   '<div><span class="cmd">' + esc(a.full_cmd) + '</span>'
@@ -217,7 +239,10 @@ function go() {
        +   (a.readonly ? '只读' : '写操作') + '</span>'
        +   '<div class="zh">' + esc(a.desc_zh) + '</div>'
        +   '<div class="en">' + esc(a.desc_en) + '</div></div>'
-       +   '<div class="cov' + (cov < 60 ? ' low' : '') + '">' + cov + '%</div>'
+       +   '<div style="text-align:right">'
+       +   (sc !== null ? '<div class="cov">' + sc + '%</div>' : '')
+       +   '<div class="cov' + (cov < 60 ? ' low' : '') + '">译 ' + cov + '%</div>'
+       +   '</div>'
        + '</div>';
   }
   out.innerHTML = h;

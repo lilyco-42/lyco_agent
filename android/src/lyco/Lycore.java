@@ -37,6 +37,15 @@ public final class Lycore {
     public static native String manual(String cli, String help);
 
     /**
+     * 解析 + 中文翻译 + **按人话排序** → 候选 JSON（带 {@code score}）。
+     *
+     * <p>排序是确定性的、不含模型。它能把"关灯"的候选从 9 条缩到 4 条，
+     * 但<b>分不出 {@code on} / {@code off}</b>（那需要语义）。
+     * 所以 UI 要把 score 显示出来，并列的一起给用户挑，别替他选。
+     */
+    public static native String rank(String cli, String help, String nl);
+
+    /**
      * 执行前的最后一道闸：{@code {risk, decision, reason, param}}。
      *
      * <p>{@code decision}：{@code run}（只读，可直接执行）/

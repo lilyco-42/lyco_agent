@@ -113,6 +113,15 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String rank(String cli, String help, String nl) {
+            try {
+                return Lycore.rank(cli, help, nl);
+            } catch (Throwable t) {
+                return err(t);
+            }
+        }
+
+        @JavascriptInterface
         public String gate(String cmd) {
             try {
                 return Lycore.gate(cmd);

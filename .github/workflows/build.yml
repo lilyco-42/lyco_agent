@@ -105,6 +105,80 @@ jobs:
           path: lycore/target/${{ matrix.target }}/release/lycore
           if-no-files-found: error
 
+  # ══ help-parse 池回归 ══════════════════════════════════════════════
+  #
+  # 为什么必须有这个 job（2026-09-24 的教训，代价是 8 个缺陷）：
+  # `scripts/helpfixtures/` 里早就写好了四层池设计、采集脚本、回归脚本、diff 脚本，
+  # 也**早就诊断出根因**——「池内回归全绿只证明『对池内那类 CLI 是对的』，不证明泛用性」。
+  # 但 CI 一次都没调用过它们，池子目录一直是空的。
+  # 结果：防缺陷的器械自己沦为孤岛，同类缺陷（多级子命令截断、分支语义缺失、
+  # 占位符当词……）一个接一个地漏到真机上才暴露。
+  #
+  # 所以这个 job 的存在意义不是"多跑几条测试"，而是**把防缺陷机制接进必经之路**：
+  # 改 `help_parse` 必须过这一关，池内条数对不上就红。
+  help-parse-regress:
+    name: help-parse 池回归
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: lycore
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            lycore/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('lycore/Cargo.lock') }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: 解析池里每一个 fixture
+        # ⚠️ 固定口径，与 scripts/helpfixtures/README.md 一致：
+        #   --include-writes（否则只看到只读子集）、--top 9999（不截断）
+        run: |
+          set -e
+          BIN=target/release/lycore
+          OUT=fixture-counts.txt
+          : > "$OUT"
+          for f in ../scripts/helpfixtures/fixtures/*.txt; do
+            cli=$(basename "$f" .txt)
+            n=$("$BIN" help-parse --cli "$cli" --help-text "$f" \
+                --top 9999 --include-writes 2>/dev/null \
+                | head -1 | grep -oE '解析出 [0-9]+ 条' | grep -oE '[0-9]+' || echo 0)
+            echo "$cli $n" >> "$OUT"
+          done
+          echo "=== 本轮解析条数 ==="
+          cat "$OUT"
+
+      - name: 与基线比对
+        run: |
+          LOCK=../scripts/helpfixtures/fixtures.lock
+          if [ ! -f "$LOCK" ]; then
+            echo "::warning::fixtures.lock 不存在 —— 跳过比对，本次结果见 artifact（需人工固化基线）"
+            cp fixture-counts.txt "$LOCK"
+          else
+            if ! diff -u "$LOCK" fixture-counts.txt; then
+              echo "::error::help-parse 池内回归：解析条数与基线不一致。"
+              echo "若为**有意**的改进（条数增加 / 占位符补齐），请更新 fixtures.lock；"
+              echo "若为**无意**的破坏，必须回退重做。"
+              exit 1
+            fi
+            echo "✅ 池内零回归"
+          fi
+
+      - name: 上传本轮条数
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-counts
+          path: lycore/fixture-counts.txt
+          if-no-files-found: error
+
   # 静态 musl 构建: 无 glibc 依赖 → 任意 aarch64 Linux 可跑。
   # 动机: gnu 二进制动态链 glibc≥2.39 (CI runner 24.04), 但 Radxa 主流镜像
   # (Ubuntu22.04=2.35 / Debian12=2.36) 更低 → 预编译跑不起来。musl 静态根治。

@@ -928,6 +928,28 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
             }
             continue;
         }
+        // ── 定义列表不是命令表（python Arguments 段实测 2026-09-25）──────
+        //
+        // `file   : program read from script file` —— 说明**以冒号开头** =
+        // 「词条: 释义」分隔符。真命令表的说明永远不以冒号开头（gh 版式里
+        // 冒号贴在 cand 上，不落进 desc）。cand 恰好是小写词（file/arg），
+        // 不拦会产出 `python file` 这种把字面词条当脚本名的垃圾。
+        if desc.starts_with(':') {
+            continue;
+        }
+        // ── 版本横幅不是命令（ffmpeg 实测 2026-09-25）─────────────────
+        //
+        // `libavutil      61.  1.101 / 61.  1.101` —— 库版本行被宽间隔切成
+        // cand="libavutil" + desc="61. 1.101 / …"，cand 是合法小写词
+        // → 产出 `ffmpeg libavutil` 垃圾 ×7（库名数量），还把 flag 回退堵死
+        // （out 非空 ⇒ 回退不触发 ⇒ ffmpeg 的真 flag 全部丢失）。
+        // 判据：说明首 token 是纯数字/点（版本号指纹）。
+        // 真命令的说明不是版本号；「64-bit mode」这类带连字符不受影响。
+        if let Some(t0) = desc.split_whitespace().next() {
+            if !t0.is_empty() && t0.chars().all(|c| c.is_ascii_digit() || c == '.') {
+                continue;
+            }
+        }
         // 补前缀：v17 的 F1「掉前缀」根因就在这里。
         //
         // ⚠️ 关键顺序：`normalize_alias` **只能用在没带前缀的行上**。
@@ -1544,65 +1566,145 @@ pub fn synonym_hint(cli: &str) -> Option<&'static str> {
 }
 
 /// 无子命令 CLI 的回退解析：把「有说明文本的 flag 行」抽成动作。
+///
+/// 覆盖三种实测版式（2026-09-25，python/sqlite3/ffmpeg 三池样本逼出来的；
+/// 旧规则只认 `--` 长选项 ⇒ sqlite3 单横杠全丢=0 条、python 冒号版式全丢、
+/// ffmpeg 被版本横幅垃圾堵门 ⇒ 三条 CLI 全废）：
+///
+/// 1. python：`-c cmd : program passed in as string` —— " : " 是说明分隔符，
+///    flag 与冒号之间的 token **全是值占位符**（help 原文逐字转写）；
+/// 2. 附冒号长选项：`--help-env: print help about …` —— 冒号直接贴在 flag 后；
+/// 3. 通用对齐列：`--warmup <NUM>`（clap/hyperfine）、sqlite3 单横杠
+///    `-cmd COMMAND`、ffmpeg `-f <fmt>` —— 宽间隔之前就是语法列。
+///
+/// 值转写纪律（v19d 血训延续）：help 里写了值就**逐字带上**，
+/// `sqlite3 -cmd`（丢值）是跑不起来的静默失效命令；没写值就绝不编。
 fn parse_flags_as_actions(cli: &str, raw: &str) -> Vec<HelpAction> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let lines: Vec<&str> = raw.lines().collect();
     for (idx, line) in lines.iter().enumerate() {
-        // 版式 A（同行描述）优先；失败则试版式 G（描述在下一行，clap long-help）。
-        // ⚠️ oha 实测：这段回退原先只认 split_line，于是 clap 版式的 CLI
-        //    「子命令路径 0 条 + flag 回退 0 条」→ 整条 CLI 完全不可用。
+        // 版式 1（python " : "）最特异，先行接管；版式 2 其次；
+        // 版式 A（同行描述）与版式 G（描述在下一行，clap long-help，oha 实测）兜底。
+        if let Some((cand, desc)) = split_python_flag_line(line) {
+            if let Some(pair) = flag_action(cli, &cand, &desc, true) {
+                push_unique(&mut out, &mut seen, cli, pair.0, pair.1);
+            }
+            continue;
+        }
+        if let Some((cand, desc)) = split_attached_colon_flag(line) {
+            if let Some(pair) = flag_action(cli, &cand, &desc, false) {
+                push_unique(&mut out, &mut seen, cli, pair.0, pair.1);
+            }
+            continue;
+        }
         let pair = split_line(line).or_else(|| split_line_multiline(&lines, idx));
         let Some((cand, desc)) = pair else {
             continue;
         };
-        // 找到形如 `--long-name` 的长选项
-        let long = cand
-            .split([',', ' '])
-            .map(str::trim)
-            .find(|s| s.starts_with("--") && s.len() > 3);
-        let Some(flag) = long else { continue };
-        // 长选项名必须是纯小写字母/数字/连字符
-        let name = flag.trim_start_matches('-');
-        if name.is_empty()
-            || !name
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        {
-            continue;
+        if let Some(pair) = flag_action(cli, &cand, &desc, false) {
+            push_unique(&mut out, &mut seen, cli, pair.0, pair.1);
         }
-        // ── 🆕 v19d：把 flag **后面的值占位符**一起带上 ──────────────────
-        //
-        // 血训（L1 池 ground 校验反查）：这里原先只 `format!("{cli} {flag}")`，
-        // 于是 `-w, --warmup <NUM>` 被剥成 `hyperfine --warmup` ——
-        // **示例字段也随之变成 `示例：hyperfine --warmup`，这条命令跑不起来**
-        // （hyperfine 会报缺参）。注入给模型的每条 flag 都是不可执行的形态，
-        // 模型据此输出静默失效命令，正是 T1 门「缺参=静默失效」要防的场景。
-        //
-        // ⚠️ 为什么池内 CLI 没暴露：docker/git/cargo/jq 的 flag **全是裸 flag**
-        //    （`--slurp` / `--compact-output`），本来就不带值 → 恰好不显形。
-        //    与 clap long-help 盲区同源：**池子同质化掩盖了整类缺陷**。
-        //
-        // 判据：在 `cand` 里定位 flag 之后**紧随的第一个值占位符**
-        // （形如 `<NUM>` / `<FILE>` / `[FILE]`），带上它；没有就不带。
-        // 不猜语义、不编值 —— 只做到「如实转写 help 里写了的语法」。
-        let after = cand
-            .find(flag)
-            .map(|p| &cand[p + flag.len()..])
-            .unwrap_or("");
-        let val = after
-            .split_whitespace()
-            .map(|w| w.trim_matches(','))
-            .find(|w| {
-                (w.starts_with('<') && w.ends_with('>')) || (w.starts_with('[') && w.ends_with(']'))
-            });
-        let cmd = match val {
-            Some(v) => format!("{cli} {flag} {v}"),
-            None => format!("{cli} {flag}"),
-        };
-        push_unique(&mut out, &mut seen, cli, cmd, desc);
     }
     out
+}
+
+/// 版式 1（python）：`-c cmd : program passed in as string`。
+///
+/// " : "（空格冒号空格）是说明分隔符；head 必须以 '-' 开头。
+/// `file   : program read from script file` 这类**定义行** head 是裸词
+/// → 不认（定义行不是选项，主循环另有定义列表守卫）。
+fn split_python_flag_line(line: &str) -> Option<(String, String)> {
+    let t = line.trim_start();
+    let i = t.find(" : ")?;
+    let head = t[..i].trim();
+    if !head.starts_with('-') {
+        return None;
+    }
+    let desc = t[i + 3..].trim();
+    if desc.is_empty() {
+        return None;
+    }
+    Some((head.to_string(), desc.to_string()))
+}
+
+/// 版式 2（附冒号长选项）：`--help-env: print help about …`。
+///
+/// 冒号**直接贴在 flag 后**、说明跟在冒号后。head 必须是**单个** flag token
+/// （带值的 `-c cmd : …` 由 [`split_python_flag_line`] 先行接管；
+/// 说明里含冒号的行（`… Default: '|'`）head 必然多 token → 不认）。
+fn split_attached_colon_flag(line: &str) -> Option<(String, String)> {
+    let t = line.trim_start();
+    let i = t.find(':')?;
+    let head = t[..i].trim();
+    if head.split_whitespace().count() != 1 || !head.starts_with('-') || head.len() < 3 {
+        return None;
+    }
+    let desc = t[i + 1..].trim();
+    if desc.is_empty() {
+        return None;
+    }
+    Some((head.to_string(), desc.to_string()))
+}
+
+/// 从「flag 候选片段」造动作：返回 `(full_cmd, desc)`。
+///
+/// flag 选取：**优先长选项**（`-v, --verbose` 取 `--verbose`，与旧口径一致；
+/// `-w, --warmup <NUM>` 取 `--warmup` 并带 `<NUM>`），否则单横杠也认
+/// （sqlite3 `-append` / ffmpeg `-license` 都是真实形态）。
+/// 名必须只含字母/数字/连字符 —— `-[no]header` 复合写法不认（宁缺勿垃圾）。
+///
+/// 值转写：
+/// - verbatim（python " : " 版式）：flag 与冒号之间的 token **全部**是值；
+/// - 通用（对齐列）：宽间隔之前的 cand 就是语法列，取 flag 之后**非 flag**
+///   （不以 '-' 开头）的 token 逐字作值；没有值就不带 —— 绝不编。
+fn flag_action(
+    cli: &str,
+    cand: &str,
+    desc: &str,
+    values_verbatim: bool,
+) -> Option<(String, String)> {
+    let toks: Vec<&str> = cand
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    let bare = |s: &str| s.trim_end_matches(',');
+    let flagpos = toks
+        .iter()
+        .position(|s| bare(s).starts_with('-') && bare(s).len() > 1)?;
+    let mut flag = bare(toks[flagpos]);
+    // 优先长选项：同片段里有 `--x` 就用它（信息更全）
+    if !flag.starts_with("--") {
+        if let Some(long) = toks[flagpos..]
+            .iter()
+            .map(|s| bare(s))
+            .find(|s| s.starts_with("--"))
+        {
+            flag = long;
+        }
+    }
+    let name = flag.trim_start_matches('-');
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return None;
+    }
+    let fpos = toks.iter().position(|s| bare(s) == flag).unwrap_or(flagpos);
+    let after = &toks[fpos + 1..];
+    let vals: Vec<&str> = if values_verbatim {
+        after.to_vec()
+    } else {
+        after
+            .iter()
+            .copied()
+            .filter(|w| !w.starts_with('-'))
+            .collect()
+    };
+    let mut cmd = format!("{cli} {flag}");
+    for v in vals {
+        cmd.push(' ');
+        cmd.push_str(v);
+    }
+    Some((cmd, desc.to_string()))
 }
 
 fn push_unique(
@@ -2725,6 +2827,85 @@ All commands:
                 "Authenticate gh and git with GitHub".to_string()
             ))
         );
+    }
+
+    // ── P1：选项型 CLI 的动作策略（python/sqlite3/ffmpeg，2026-09-25）────
+    //
+    // 池基线：python=1（还是垃圾 `python file`）、sqlite3=0、ffmpeg=7（全是
+    // 版本横幅垃圾）。三条 CLI 的「能力」其实全在 flag 里 —— 选项型 CLI 的
+    // flag 就是它的动作表（与 jq 同理，jq 早在 v17 就靠这层回退活了）。
+    #[test]
+    fn python_flag_definition_lines_become_flag_actions_not_garbage() {
+        const PY_HELP: &str = include_str!("../../scripts/helpfixtures/fixtures/python.txt");
+        let acts = parse_help("python", PY_HELP);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        // Arguments 段的定义行绝不能变成命令（`python file` = 把字面词条当脚本名）
+        assert!(
+            !cmds.contains(&"python file"),
+            "垃圾命令 python file 泄漏：{cmds:?}"
+        );
+        // 选项成为动作；值占位符按 help 原文逐字转写（丢值=跑不起来的静默失效）
+        for c in [
+            "python -b",
+            "python -V",
+            "python -OO",
+            "python -c cmd",
+            "python -m mod",
+            "python -W arg",
+            "python -X opt",
+            "python --help-env",
+        ] {
+            assert!(cmds.contains(&c), "缺少 {c}；实际 {cmds:?}");
+        }
+        assert!(
+            cmds.len() >= 20,
+            "python 应解析出 ≥20 条，实际 {}：{cmds:?}",
+            cmds.len()
+        );
+    }
+
+    #[test]
+    fn sqlite3_single_dash_long_flags_are_actions() {
+        const SQ_HELP: &str = include_str!("../../scripts/helpfixtures/fixtures/sqlite3.txt");
+        let acts = parse_help("sqlite3", SQ_HELP);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        for c in [
+            "sqlite3 -append",
+            "sqlite3 -cmd COMMAND",
+            "sqlite3 -readonly",
+            "sqlite3 -version",
+            "sqlite3 -lookaside SIZE N",
+        ] {
+            assert!(cmds.contains(&c), "缺少 {c}；实际 {cmds:?}");
+        }
+        // 裸 `--` 不是动作；带值的 flag 不许丢值（丢值=不可执行的静默失效）
+        assert!(!cmds.contains(&"sqlite3 --"), "裸 -- 泄漏：{cmds:?}");
+        assert!(
+            !cmds.contains(&"sqlite3 -cmd"),
+            "-cmd 丢值=跑不起来：{cmds:?}"
+        );
+        assert!(!cmds.contains(&"sqlite3 -escape"), "-escape 丢值：{cmds:?}");
+        assert!(
+            cmds.len() >= 40,
+            "sqlite3 应解析出 ≥40 条，实际 {}：{cmds:?}",
+            cmds.len()
+        );
+    }
+
+    #[test]
+    fn ffmpeg_version_banner_is_not_commands() {
+        const FF_HELP: &str = include_str!("../../scripts/helpfixtures/fixtures/ffmpeg.txt");
+        let acts = parse_help("ffmpeg", FF_HELP);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        // 版本横幅（libavutil 61.1.101 …）绝不能成为命令
+        assert!(
+            !cmds.iter().any(|c| c.starts_with("ffmpeg lib")),
+            "版本横幅泄漏成命令：{cmds:?}"
+        );
+        // 横幅垃圾清掉后 out 为空 → flag 回退得以触发，真 flag 必须进表
+        for c in ["ffmpeg -L", "ffmpeg -license", "ffmpeg -f <fmt>"] {
+            assert!(cmds.contains(&c), "缺少 {c}；实际 {cmds:?}");
+        }
     }
 
     #[test]

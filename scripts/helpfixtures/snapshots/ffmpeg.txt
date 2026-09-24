@@ -1,0 +1,7 @@
+ffmpeg libavutil
+ffmpeg libavcodec
+ffmpeg libavformat
+ffmpeg libavdevice
+ffmpeg libavfilter
+ffmpeg libswscale
+ffmpeg libswresample

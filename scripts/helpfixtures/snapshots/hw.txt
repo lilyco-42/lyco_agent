@@ -1,0 +1,14 @@
+hw led blue status
+hw led green status
+hw gpio get <chip> <line>
+hw info
+hw led blue on
+hw led blue off
+hw led blue blink
+hw led green on
+hw led green off
+hw temp
+hw cpu
+hw mem
+hw disk
+hw gpio set <chip> <line> <0|1>

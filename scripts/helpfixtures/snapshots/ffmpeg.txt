@@ -1,7 +1,31 @@
-ffmpeg libavutil
-ffmpeg libavcodec
-ffmpeg libavformat
-ffmpeg libavdevice
-ffmpeg libavfilter
-ffmpeg libswscale
-ffmpeg libswresample
+ffmpeg -h
+ffmpeg -L
+ffmpeg -license
+ffmpeg -h <topic>
+ffmpeg -version
+ffmpeg -muxers
+ffmpeg -demuxers
+ffmpeg -devices
+ffmpeg -decoders
+ffmpeg -encoders
+ffmpeg -filters
+ffmpeg -layouts
+ffmpeg -v <loglevel>
+ffmpeg -y
+ffmpeg -n
+ffmpeg -stats
+ffmpeg -f <fmt>
+ffmpeg -t <duration>
+ffmpeg -to <time_stop>
+ffmpeg -ss <time_off>
+ffmpeg -vn
+ffmpeg -vcodec <codec>
+ffmpeg -vf <filter_graph>
+ffmpeg -b <bitrate>
+ffmpeg -aq <quality>
+ffmpeg -an
+ffmpeg -acodec <codec>
+ffmpeg -ab <bitrate>
+ffmpeg -af <filter_graph>
+ffmpeg -sn
+ffmpeg -scodec <codec>

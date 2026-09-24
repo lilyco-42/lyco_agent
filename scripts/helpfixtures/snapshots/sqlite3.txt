@@ -1,0 +1,44 @@
+sqlite3 -append
+sqlite3 -ascii
+sqlite3 -bail
+sqlite3 -batch
+sqlite3 -box
+sqlite3 -cmd COMMAND
+sqlite3 -column
+sqlite3 -csv
+sqlite3 -deserialize
+sqlite3 -echo
+sqlite3 -escape T
+sqlite3 -init FILENAME
+sqlite3 -help
+sqlite3 -html
+sqlite3 -ifexists
+sqlite3 -interactive
+sqlite3 -json
+sqlite3 -line
+sqlite3 -list
+sqlite3 -lookaside SIZE N
+sqlite3 -markdown
+sqlite3 -maxsize N
+sqlite3 -memtrace
+sqlite3 -mmap N
+sqlite3 -newline SEP
+sqlite3 -nofollow
+sqlite3 -noinit
+sqlite3 -nonce STRING
+sqlite3 -no-rowid-in-view
+sqlite3 -nullvalue TEXT
+sqlite3 -pagecache SIZE N
+sqlite3 -pcachetrace
+sqlite3 -quote
+sqlite3 -readonly
+sqlite3 -safe
+sqlite3 -screenwidth N
+sqlite3 -separator SEP
+sqlite3 -stats
+sqlite3 -table
+sqlite3 -tabs
+sqlite3 -unsafe-testing
+sqlite3 -version
+sqlite3 -vfs NAME
+sqlite3 -vfstrace

@@ -179,6 +179,7 @@ jobs:
           fi
 
       - name: 上传本轮快照与条数
+        if: always() # 快照 diff 红（预期或意外）时更要拿到核对材料 —— 基线人工固化靠它
         uses: actions/upload-artifact@v4
         with:
           name: help-parse-snapshots

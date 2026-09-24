@@ -1,1 +1,24 @@
-python file
+python -b
+python -B
+python -c cmd
+python -d
+python -E
+python -h
+python -i
+python -I
+python -m mod
+python -O
+python -OO
+python -P
+python -q
+python -s
+python -S
+python -u
+python -v
+python -V
+python -W arg
+python -x
+python -X opt
+python --help-env
+python --help-xoptions
+python --help-all

@@ -122,8 +122,9 @@ pub fn parse_picked(text: &str, n_choices: usize) -> Picked {
 /// 那是语义，该留给模型或人。
 ///
 /// 刻意不做"更聪明"的启发式：
-/// * 中文没有空格分词，任何"关键词切分"都是猜；
-/// * 猜错的排序比不排序更危险 —— 它会把错误答案排到第一位，而用户一眼就信了。
+///   * 中文没有空格分词，任何"关键词切分"都是猜；
+///   * 猜错的排序比不排序更危险 —— 它会把错误答案排到第一位，而用户一眼就信了。
+///
 /// 宁可并列，也不假装能分。
 pub fn score_action(nl: &str, cmd: &str, desc_zh: &str) -> f64 {
     let hay: Vec<char> = format!("{cmd} {desc_zh}").chars().collect();

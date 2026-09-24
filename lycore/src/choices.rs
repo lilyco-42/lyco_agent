@@ -332,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn score_narrows_candidates_but_does_not_pretend_to_disambiguate() {
+    fn score_narrows_candidates_and_can_separate_off_from_on() {
         use crate::choices::score_action;
         // "关灯" 两字都出现在 led 相关的说明里 → 满分
         let led = score_action("关灯", "hw led blue off", "关闭 用户蓝灯");
@@ -344,9 +344,12 @@ mod tests {
         );
         assert_eq!(temp, 0.0);
 
-        // ⚠️ 诚实的一面：on/off 得分相同 —— 它分不出语义，别假装分得出
+        // 🎯 分得出 off / on —— 但这**不是字符串算法的功劳**，
+        //    是 `expand_desc_branches` 把分支词语义补进了说明：
+        //    「关灯」的「关」命中「关闭」，不命中「打开」。
+        //    反过来说：没有那张 BRANCH_VERBS 词典，这里就只能并列。
         let on = score_action("关灯", "hw led blue on", "打开 用户蓝灯");
-        assert!((on - led).abs() < 1e-9, "确定性评分本来就分不出 on/off");
+        assert!(led > on, "「关灯」应更匹配 off: off={led} on={on}");
     }
 
     #[test]

@@ -80,7 +80,9 @@
   <div class="grid">
     <div><label style="margin-top:6px">CLI</label><input type="text" id="cli" value="hw"></div>
   </div>
-  <button class="ghost" onclick="grab()">从板子抓 <kbd>--help</kbd></button>
+  <button class="ghost" onclick="discover()">自动找板子（mDNS）</button>
+  <div id="devs"></div>
+  <button onclick="grab()">从板子抓 <kbd>--help</kbd></button>
 </div>
 
 <!-- ② help 原文 + 解析 -->
@@ -124,6 +126,42 @@ function creds() {
   };
   ['host','user','pass','cli'].forEach(function(k){ localStorage.setItem('lyco_'+k, $(k).value); });
   return c;
+}
+
+// ── mDNS 自动找板子 ──────────────────────────────────────────
+// IP 会漂、还会被别的设备抢占，手填迟早填错。
+function discover() {
+  var box = $('devs');
+  box.innerHTML = '<div class="empty">扫描中…</div>';
+  var list;
+  try { list = JSON.parse(Ssh.discover()); }
+  catch (e) { box.innerHTML = '<div class="empty">发现失败：' + esc(e) + '</div>'; return; }
+
+  if (!list || !list.length) {
+    box.innerHTML = '<div class="empty">没扫到设备。<br>'
+      + '确认板子的 avahi 在广播，或直接在上面手填地址。</div>';
+    return;
+  }
+
+  var h = '<div style="margin-top:8px">';
+  for (var i = 0; i < list.length; i++) {
+    var d = list[i];
+    // 名字带 radxa 的标出来，但**不过滤** —— 板子改名了也得能手动认
+    h += '<div class="row" onclick="useDev(' + i + ')">'
+       +   '<div><span class="cmd">' + esc(d.host) + '</span>'
+       +   (d.radxa ? '<span class="tag">radxa</span>' : '')
+       +   '<div class="en">' + esc(d.name) + '</div></div></div>';
+  }
+  h += '</div>';
+  box.innerHTML = h;
+  window._devs = list;
+}
+
+function useDev(i) {
+  var d = window._devs[i];
+  $('host').value = d.host;
+  localStorage.setItem('lyco_host', d.host);
+  $('devs').innerHTML = '<div class="empty">已选 ' + esc(d.host) + '</div>';
 }
 
 // ── 从板子抓 --help ──────────────────────────────────────────

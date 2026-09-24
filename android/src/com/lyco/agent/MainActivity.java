@@ -1,7 +1,12 @@
 package com.lyco.agent;
 
 import android.app.Activity;
+import android.content.Context;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -11,11 +16,18 @@ import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.Session;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import lyco.Lycore;
 
@@ -33,6 +45,9 @@ import lyco.Lycore;
  * 实际全部跑在手机本地 —— 不联网、不调云端模型。
  */
 public class MainActivity extends Activity {
+
+    /** mDNS 服务类型 —— 与 radxa-monitor 一致（板子 avahi 广播的就是这个） */
+    private static final String SERVICE_TYPE = "_http._tcp.";
 
     private WebView web;
 
@@ -201,6 +216,127 @@ public class MainActivity extends Activity {
                     }
                 }
             }
+        }
+
+        /**
+         * {@code window.Ssh.discover()} —— mDNS 自动找板子。
+         *
+         * <p><b>为什么必须自动发现</b>：板子 IP 会漂、还会被别的设备抢占，
+         * 让人手填 IP 迟早填错（radxa-monitor 的 {@code nsdDiscover()} 就为这个存在）。
+         *
+         * <p>返回 {@code [{name, host, port, radxa}]}。
+         * <b>返回候选列表而不是只取第一个</b>：局域网里 {@code _http._tcp} 服务往往不止一个
+         * （打印机 / NAS / 其它开发板），只取第一个会连到错误的机器上 ——
+         * 而"连错机器"正是 IP 漂移事故里最难查的那种错。
+         *
+         * <p>⚠️ NsdManager 内部用 AsyncChannel，需要 Looper；JS 桥跑在没有 Looper 的
+         * JavaBridge 线程上，所以必须 post 到主线程再等待。
+         */
+        @JavascriptInterface
+        public String discover() {
+            final NsdManager nsd = (NsdManager) getSystemService(Context.NSD_SERVICE);
+            if (nsd == null) {
+                return "[]";
+            }
+            final Handler ui = new Handler(Looper.getMainLooper());
+            final CountDownLatch latch = new CountDownLatch(1);
+            final List<JSONObject> hits = Collections.synchronizedList(new ArrayList<JSONObject>());
+            final AtomicReference<NsdManager.DiscoveryListener> dlRef =
+                    new AtomicReference<NsdManager.DiscoveryListener>();
+
+            ui.post(new Runnable() {
+                public void run() {
+                    NsdManager.DiscoveryListener dl = new NsdManager.DiscoveryListener() {
+                        public void onDiscoveryStarted(String t) { }
+                        public void onDiscoveryStopped(String t) { }
+                        public void onStartDiscoveryFailed(String t, int e) { latch.countDown(); }
+                        public void onStopDiscoveryFailed(String t, int e) { }
+                        public void onServiceLost(NsdServiceInfo s) { }
+                        public void onServiceFound(NsdServiceInfo si) {
+                            if (!SERVICE_TYPE.equals(si.getServiceType())) {
+                                return;
+                            }
+                            try {
+                                nsd.resolveService(si, new NsdManager.ResolveListener() {
+                                    public void onResolveFailed(NsdServiceInfo i, int e) { }
+                                    public void onServiceResolved(NsdServiceInfo info) {
+                                        if (info.getHost() == null) {
+                                            return;
+                                        }
+                                        String addr = info.getHost().getHostAddress();
+                                        if (addr == null) {
+                                            return;
+                                        }
+                                        String name = String.valueOf(info.getServiceName());
+                                        // 只是**排序偏好**不是过滤：未知设备也要列出来，
+                                        // 万一板子改了名字，用户还能手动认。
+                                        boolean isRadxa = name.toLowerCase().contains("radxa");
+                                        try {
+                                            JSONObject o = new JSONObject();
+                                            o.put("name", name);
+                                            o.put("host", addr);
+                                            o.put("port", info.getPort());
+                                            o.put("radxa", isRadxa);
+                                            hits.add(o);
+                                        } catch (Exception ignored) {
+                                        }
+                                        // 找到真板子就可以收工；否则等超时兜底
+                                        if (isRadxa) {
+                                            latch.countDown();
+                                        }
+                                    }
+                                });
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    };
+                    dlRef.set(dl);
+                    try {
+                        nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, dl);
+                    } catch (Exception e) {
+                        latch.countDown();
+                    }
+                }
+            });
+
+            try {
+                latch.await(4000, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                // 超时就返回已经收集到的，不强求
+            }
+
+            final NsdManager.DiscoveryListener dl = dlRef.get();
+            if (dl != null) {
+                ui.post(new Runnable() {
+                    public void run() {
+                        try {
+                            nsd.stopServiceDiscovery(dl);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                });
+            }
+
+            // 先拷贝再排序：hits 是同步表，直接 sort 可能 ConcurrentModificationException
+            List<JSONObject> copy;
+            synchronized (hits) {
+                copy = new ArrayList<JSONObject>(hits);
+            }
+            Collections.sort(copy, new java.util.Comparator<JSONObject>() {
+                public int compare(JSONObject a, JSONObject b) {
+                    boolean ra = a.optBoolean("radxa", false);
+                    boolean rb = b.optBoolean("radxa", false);
+                    if (ra != rb) {
+                        return ra ? -1 : 1;
+                    }
+                    return a.optString("name").compareTo(b.optString("name"));
+                }
+            });
+            JSONArray arr = new JSONArray();
+            for (JSONObject o : copy) {
+                arr.put(o);
+            }
+            return arr.toString();
         }
     }
 }

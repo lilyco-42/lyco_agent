@@ -1669,7 +1669,11 @@ fn flag_action(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
-    let bare = |s: &str| s.trim_end_matches(',');
+    // 闭包写法在新 rustc 下报 "lifetime may not live long enough"（返回 &str
+    // 涉及两个匿名生命周期）→ 用 fn item，零捕获、生命周期明确。
+    fn bare(s: &str) -> &str {
+        s.trim_end_matches(',')
+    }
     let flagpos = toks
         .iter()
         .position(|s| bare(s).starts_with('-') && bare(s).len() > 1)?;

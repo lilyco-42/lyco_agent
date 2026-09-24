@@ -2499,17 +2499,14 @@ All commands:
     // 后果是 `hw led blue off`（关灯）永远解析不出来，候选里只剩残缺的 `hw led`
     // —— 它会被当成合法候选执行，报 `hw: led 需要 blue|green`（exit 2）→ **静默失败**。
 
-    /// `hw --help` 的真实输出（注意 `blue` 后是**双空格**，对齐用的）
-    const HW_HELP: &str = "\
-hw —— Radxa A7A 硬件 CLI
-
-用法:
-  hw led blue  on|off|status|blink [n]    用户蓝灯 (radxa:blue:user)
-  hw led green on|off|status              电源绿灯 (radxa:green:power)
-  hw temp                                 CPU 温度 (全部 thermal zone)
-  hw gpio get <chip> <line>               读 GPIO (gpiod; gpio 组免 root)
-  hw info                                 板子信息
-";
+    /// **真机**抓的 `hw --help`（2026-09-24，A7A 板子 192.168.10.165，hostkey 已核对）。
+    ///
+    /// 比手写样本可信：这是脚本默认分支真正打印出来的东西，含全部双空格对齐。
+    /// 用 `include_str!` 而不是复制粘贴 —— 板子上的输出才是真值来源。
+    ///
+    /// ⚠️ 注意第一行是 `!/bin/sh` 不是 `#!/bin/sh`：脚本用 `sed 's/^# \{0,1\}//'`
+    /// 剥注释符号时把 shebang 的 `#` 也剥了。这个细节只有跑真机才知道。
+    const HW_HELP: &str = include_str!("../../scripts/helpfixtures/hw_help.txt");
 
     #[test]
     fn multilevel_subcommand_is_not_truncated_to_two_words() {

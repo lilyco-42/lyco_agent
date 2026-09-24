@@ -1,0 +1,14 @@
+!/bin/sh
+hw —— Radxa A7A 硬件 CLI（一整套硬件能力的统一入口，模型可路由）
+
+用法:
+  hw led blue  on|off|status|blink [n]    用户蓝灯 (radxa:blue:user)
+  hw led green on|off|status              电源绿灯 (radxa:green:power)
+  hw temp                                 CPU 温度 (全部 thermal zone)
+  hw cpu                                  频率 / 负载 / governor
+  hw mem                                  内存
+  hw disk                                 磁盘
+  hw gpio get <chip> <line>               读 GPIO (gpiod; gpio 组免 root)
+  hw gpio set <chip> <line> <0|1>         写 GPIO
+  hw info                                 板子信息
+

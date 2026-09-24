@@ -44,15 +44,25 @@ echo "== 1/5 aapt2 link =="
   --target-sdk-version 34 \
   --auto-add-overlay
 
+# JSch —— SSH 执行通道（`hw` 在板子上，必须远程跑）。jar 不入库，按需下载。
+# 0.2.17 是 radxa-monitor 验证过的版本；它是 mwiede 的维护分支（原 JCraft 已停更）。
+JSCH="libs/jsch-0.2.17.jar"
+if [ ! -f "$JSCH" ]; then
+  echo "== 下载 JSch =="
+  mkdir -p libs
+  curl -fsSL -o "$JSCH" \
+    https://repo1.maven.org/maven2/com/github/mwiede/jsch/0.2.17/jsch-0.2.17.jar
+fi
+
 echo "== 2/5 javac =="
 # --release 8 是必需的：JDK 21 默认产 class v65，d8 不认
 javac -encoding UTF-8 --release 8 \
-  -classpath "$PLAT/android.jar" \
+  -classpath "$PLAT/android.jar:$JSCH" \
   -d build/classes \
   $(find src build/gen -name '*.java')
 
 echo "== 3/5 d8 =="
-"$BT/d8" --lib "$PLAT/android.jar" --output build/ \
+"$BT/d8" --lib "$PLAT/android.jar" --lib "$JSCH" --output build/ \
   $(find build/classes -name '*.class')
 
 echo "== 4/5 打进 APK + zipalign =="

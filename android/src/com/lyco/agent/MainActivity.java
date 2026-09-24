@@ -7,6 +7,15 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import com.jcraft.jsch.ChannelExec;
+import com.jcraft.jsch.JSch;
+import com.jcraft.jsch.Session;
+
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+
 import lyco.Lycore;
 
 /**
@@ -37,6 +46,7 @@ public class MainActivity extends Activity {
         // 页面完全来自 assets，不跳外部浏览器
         web.setWebViewClient(new WebViewClient());
         web.addJavascriptInterface(new Bridge(), "Lycore");
+        web.addJavascriptInterface(new Ssh(), "Ssh");
         setContentView(web);
         web.loadUrl("file:///android_asset/index.html");
     }
@@ -100,6 +110,84 @@ public class MainActivity extends Activity {
             // JSON 字符串里不能出现裸引号/换行，否则 JS 的 JSON.parse 直接炸
             m = m.replace("\\", " ").replace("\"", "'").replace("\n", " ");
             return "{\"error\":\"" + m + "\"}";
+        }
+    }
+
+    /**
+     * {@code window.Ssh.exec(host, user, pass, cmd)} —— 在板子上真正跑命令。
+     *
+     * <p><b>这是「关灯」闭环的最后一环</b>：{@code hw} 是 Radxa 板子上的程序，
+     * 命令必须在板子上执行。手机只负责理解与展示，不假装自己是执行者。
+     * 通道直接借鉴 {@code radxa-monitor} 的 {@code runSsh()}（JSch ChannelExec）。
+     *
+     * <p>返回 {@code {exit, out, err}}。{@code exit} 是<b>真实退出码</b> ——
+     * 它比"命令发出去了"重要得多：{@code npm install} 空跑也是 0，
+     * 只有退出码 + 输出能判断到底干没干成。
+     */
+    final class Ssh {
+
+        @JavascriptInterface
+        public String exec(String host, String user, String pass, String cmd) {
+            Session session = null;
+            ChannelExec ch = null;
+            try {
+                JSch jsch = new JSch();
+                session = jsch.getSession(user, host, 22);
+                session.setPassword(pass);
+                session.setConfig("StrictHostKeyChecking", "no");
+                session.connect(8000);
+
+                ch = (ChannelExec) session.openChannel("exec");
+                ch.setCommand(cmd);
+                ByteArrayOutputStream errs = new ByteArrayOutputStream();
+                ch.setErrStream(errs);
+                InputStream in = ch.getInputStream();
+                ch.connect(10000);
+
+                ByteArrayOutputStream outs = new ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    outs.write(buf, 0, n);
+                }
+                // ⚠️ 必须等通道关闭再取退出码，否则恒为 -1（radxa-monitor 同款坑）
+                while (!ch.isClosed()) {
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                }
+                int code = ch.getExitStatus();
+
+                JSONObject o = new JSONObject();
+                o.put("exit", code);
+                o.put("out", outs.toString("UTF-8"));
+                o.put("err", errs.toString("UTF-8"));
+                return o.toString();
+            } catch (Throwable t) {
+                try {
+                    JSONObject o = new JSONObject();
+                    o.put("exit", -1);
+                    o.put("err", String.valueOf(t.getMessage()));
+                    return o.toString();
+                } catch (Exception e2) {
+                    return "{\"exit\":-1,\"err\":\"json fail\"}";
+                }
+            } finally {
+                if (ch != null) {
+                    try {
+                        ch.disconnect();
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (session != null) {
+                    try {
+                        session.disconnect();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
         }
     }
 }

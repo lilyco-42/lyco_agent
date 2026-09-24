@@ -17,58 +17,80 @@
     background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 12px;
     box-shadow: 0 1px 3px rgba(0,0,0,.06);
   }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: #1d1d1f; }
   label { display: block; font-size: 12px; color: #6e6e73; margin-bottom: 4px; }
-  input[type=text], textarea {
+  input[type=text], input[type=password], textarea {
     width: 100%; border: 1px solid #d2d2d7; border-radius: 6px;
     padding: 8px; font-size: 14px; font-family: inherit;
   }
-  textarea { height: 110px; font-family: monospace; font-size: 12px; resize: vertical; }
+  textarea { height: 96px; font-family: monospace; font-size: 12px; resize: vertical; }
+  .grid { display: flex; gap: 6px; }
+  .grid > div { flex: 1; }
   button {
     background: #0071e3; color: #fff; border: 0; border-radius: 6px;
     padding: 10px 16px; font-size: 15px; width: 100%; margin-top: 8px;
   }
   button:active { background: #0060c0; }
+  button.ghost { background: #e8e8ed; color: #1d1d1f; }
+  button.go { background: #34c759; }
+  button.danger { background: #ff3b30; }
   .row {
     display: flex; justify-content: space-between; align-items: baseline;
-    padding: 9px 0; border-bottom: 1px solid #f0f0f2;
+    padding: 9px 0; border-bottom: 1px solid #f0f0f2; cursor: pointer;
   }
   .row:last-child { border-bottom: 0; }
-  .cmd { font-family: monospace; font-size: 13px; color: #1d1d1f; }
+  .cmd { font-family: monospace; font-size: 13px; }
   .zh { font-size: 13px; }
   .en { font-size: 11px; color: #86868b; }
-  .ro {
+  .tag {
     font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 6px;
     background: #e8f5e9; color: #2e7d32;
   }
-  .wr { background: #fff3e0; color: #e65100; }
+  .tag.wr { background: #fff3e0; color: #e65100; }
   .cov { font-size: 10px; color: #86868b; }
   .cov.low { color: #c62828; }
-  .dec { font-size: 12px; margin-top: 8px; padding: 8px; border-radius: 6px; }
+  .box { font-size: 12px; margin-top: 8px; padding: 8px; border-radius: 6px; }
   .run { background: #e8f5e9; color: #2e7d32; }
   .confirm { background: #fff3e0; color: #e65100; }
   .block { background: #ffebee; color: #c62828; }
   .needs { background: #e3f2fd; color: #1565c0; }
   .empty { color: #86868b; font-size: 13px; text-align: center; padding: 16px; }
   .ver { font-size: 11px; color: #86868b; float: right; }
-  kbd {
-    background: #f0f0f2; border-radius: 3px; padding: 1px 4px;
-    font-family: monospace; font-size: 11px;
+  pre {
+    background: #1d1d1f; color: #e8e8ed; padding: 8px; border-radius: 6px;
+    font-size: 11px; overflow-x: auto; white-space: pre-wrap; margin: 8px 0 0;
   }
+  kbd { background: #f0f0f2; border-radius: 3px; padding: 1px 4px; font-family: monospace; font-size: 11px; }
 </style>
 </head>
 <body>
 
 <h1>lyco agent <span class="ver" id="ver">…</span></h1>
-<div class="sub">本地运行 · 离线可用 · 不用模型做解析</div>
+<div class="sub">本地解析 · 离线可用 · 命令在板子上执行</div>
 
+<!-- ① 连接：hw 命令在 Radxa 板子上，抓 help 与执行都得走 SSH -->
 <div class="card">
-  <label>CLI 名字（例如 hw / git / docker）</label>
-  <input type="text" id="cli" value="hw" placeholder="hw">
-  <label style="margin-top:8px">它的 <kbd>--help</kbd> 原文</label>
-  <textarea id="help" placeholder="把 `hw --help` 的输出粘进来"></textarea>
+  <h2>① 板子（SSH）</h2>
+  <div class="grid">
+    <div><label>地址</label><input type="text" id="host" placeholder="192.168.10.x"></div>
+    <div><label>用户</label><input type="text" id="user" value="radxa"></div>
+  </div>
+  <label style="margin-top:6px">密码</label>
+  <input type="password" id="pass" value="radxa">
+  <div class="grid">
+    <div><label style="margin-top:6px">CLI</label><input type="text" id="cli" value="hw"></div>
+  </div>
+  <button class="ghost" onclick="grab()">从板子抓 <kbd>--help</kbd></button>
+</div>
+
+<!-- ② help 原文 + 解析 -->
+<div class="card">
+  <h2>② <kbd>--help</kbd> 原文</h2>
+  <textarea id="help" placeholder="点上面按钮从板子抓，或手动粘贴"></textarea>
   <button onclick="go()">解析成中文候选</button>
 </div>
 
+<!-- ③ 候选 + 执行 -->
 <div class="card" id="out">
   <div class="empty">先给一份 <kbd>--help</kbd> 原文。<br>命令来自 help 本身，不是模型编的。</div>
 </div>
@@ -78,33 +100,66 @@ function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+function $(id) { return document.getElementById(id); }
+
+// 记住连接信息，省得每次重填
+['host','user','pass','cli'].forEach(function(k){
+  var v = localStorage.getItem('lyco_'+k);
+  if (v) { $(k).value = v; }
+});
 
 // 冒烟：能显示版本号就说明 .so 加载成功、JNI 名字对上了
 try {
-  var v = Lycore.version();
-  document.getElementById('ver').textContent = 'lycore ' + (v || '?');
+  $('ver').textContent = 'lycore ' + (Lycore.version() || '?');
 } catch (e) {
-  document.getElementById('ver').textContent = '内核未加载';
+  $('ver').textContent = '内核未加载';
 }
 
-function go() {
-  var cli = document.getElementById('cli').value.trim();
-  var help = document.getElementById('help').value;
-  var out = document.getElementById('out');
-  if (!cli) { out.innerHTML = '<div class="empty">先填 CLI 名字</div>'; return; }
-  if (!help.trim()) { out.innerHTML = '<div class="empty">先贴一份 --help 原文</div>'; return; }
+function creds() {
+  var c = {
+    host: $('host').value.trim(),
+    user: $('user').value.trim(),
+    pass: $('pass').value,
+    cli:  $('cli').value.trim()
+  };
+  ['host','user','pass','cli'].forEach(function(k){ localStorage.setItem('lyco_'+k, $(k).value); });
+  return c;
+}
 
-  var raw;
-  try { raw = Lycore.parseHelp(cli, help); }
-  catch (e) { out.innerHTML = '<div class="empty">调用失败：' + esc(e) + '</div>'; return; }
+// ── 从板子抓 --help ──────────────────────────────────────────
+function grab() {
+  var c = creds();
+  if (!c.host) { alert('先填板子地址'); return; }
+  var r = ssh(c, c.cli + ' --help');
+  if (!r) { return; }
+  if (r.exit !== 0 && !r.out) {
+    $('help').value = '';
+    alert('抓不到 help（退出码 ' + r.exit + '）\n' + (r.err || ''));
+    return;
+  }
+  // `hw` 没有 --help 选项，但它的默认分支会把用法打印出来（脚本头部注释）
+  $('help').value = r.out || r.err || '';
+  go();
+}
+
+function ssh(c, cmd) {
+  try { return JSON.parse(Ssh.exec(c.host, c.user, c.pass, cmd)); }
+  catch (e) { alert('SSH 调用失败：' + e); return null; }
+}
+
+// ── 解析 ─────────────────────────────────────────────────────
+function go() {
+  var cli = $('cli').value.trim();
+  var help = $('help').value;
+  var out = $('out');
+  if (!cli)  { out.innerHTML = '<div class="empty">先填 CLI 名字</div>'; return; }
+  if (!help.trim()) { out.innerHTML = '<div class="empty">先弄一份 --help 原文</div>'; return; }
 
   var acts;
-  try { acts = JSON.parse(raw); }
-  catch (e) { out.innerHTML = '<div class="empty">返回不是 JSON</div>'; return; }
+  try { acts = JSON.parse(Lycore.parseHelp(cli, help)); }
+  catch (e) { out.innerHTML = '<div class="empty">调用失败：' + esc(e) + '</div>'; return; }
 
-  if (acts && acts.error) {
-    out.innerHTML = '<div class="empty">' + esc(acts.error) + '</div>'; return;
-  }
+  if (acts && acts.error) { out.innerHTML = '<div class="empty">' + esc(acts.error) + '</div>'; return; }
   if (!acts || !acts.length) {
     out.innerHTML = '<div class="empty">解析出 0 条动作。<br>'
       + '这是<b>诚实的失败</b>：宁可不出，也不出残缺命令（残缺会静默执行失败）。</div>';
@@ -115,46 +170,79 @@ function go() {
   for (var i = 0; i < acts.length; i++) {
     var a = acts[i];
     var cov = Math.round((a.coverage || 0) * 100);
-    // 覆盖率 <60% 说明大半没翻出来，标红提醒：别把半吊子译文当真
-    var low = cov < 60 ? ' low' : '';
-    h += '<div class="row" onclick="gate(' + i + ')">'
+    // 覆盖率 <60% 说明大半没翻出来，标红：别把半吊子译文当真
+    h += '<div class="row" onclick="pick(' + i + ')">'
        +   '<div><span class="cmd">' + esc(a.full_cmd) + '</span>'
-       +   '<span class="' + (a.readonly ? 'ro' : 'ro wr') + '">'
+       +   '<span class="tag' + (a.readonly ? '' : ' wr') + '">'
        +   (a.readonly ? '只读' : '写操作') + '</span>'
        +   '<div class="zh">' + esc(a.desc_zh) + '</div>'
        +   '<div class="en">' + esc(a.desc_en) + '</div></div>'
-       +   '<div class="cov' + low + '">' + cov + '%</div>'
+       +   '<div class="cov' + (cov < 60 ? ' low' : '') + '">' + cov + '%</div>'
        + '</div>';
   }
   out.innerHTML = h;
   window._acts = acts;
-  window._cli = cli;
 }
 
-// 点一条 → 问 T1 门：这条命令该不该放行
-function gate(i) {
+// ── 选中一条：先过 T1 门，再决定能不能执行 ──────────────────
+function pick(i) {
   var a = window._acts[i];
   var cmd = a.example || a.full_cmd;
   var r;
   try { r = JSON.parse(Lycore.gate(cmd)); }
   catch (e) { return; }
-  var cls = {run:'run', confirm:'confirm', block:'block', needs_param:'needs'}[r.decision] || 'needs';
-  var txt = {
-    run:'可以直接执行（只读）',
-    confirm:'写操作，需要你确认',
-    block:'破坏性操作，已拦截',
-    needs_param:'缺参数，不执行（空跑等于静默失效）'
-  }[r.decision] || r.decision;
 
-  var box = document.createElement('div');
-  box.className = 'dec ' + cls;
-  box.innerHTML = '<b>' + esc(cmd) + '</b><br>' + esc(txt)
+  var map = {
+    run:         ['run',     '可以直接执行（只读）'],
+    confirm:     ['confirm', '写操作，需要你确认'],
+    block:       ['block',   '破坏性操作，已拦截'],
+    needs_param: ['needs',   '缺参数，不执行（空跑等于静默失效）']
+  };
+  var m = map[r.decision] || ['needs', r.decision];
+
+  var html = '<div class="box ' + m[0] + '"><b>' + esc(cmd) + '</b><br>' + m[1]
     + (r.reason ? '<br><span style="font-size:11px">' + esc(r.reason) + '</span>' : '');
-  var out = document.getElementById('out');
-  var old = document.getElementById('gatebox');
+
+  if (r.decision === 'run' || r.decision === 'confirm') {
+    var cls = r.decision === 'run' ? 'go' : 'danger';
+    html += '<br><button class="' + cls + '" onclick="run1(' + i + ')">在板子上执行</button>';
+  }
+  html += '</div>';
+
+  var old = $('gatebox');
   if (old) { old.remove(); }
+  var box = document.createElement('div');
   box.id = 'gatebox';
-  out.appendChild(box);
+  box.innerHTML = html;
+  $('out').appendChild(box);
+}
+
+// ── 真正执行：走 SSH 到板子 ──────────────────────────────────
+function run1(i) {
+  var a = window._acts[i];
+  var cmd = a.example || a.full_cmd;
+  var c = creds();
+  if (!c.host) { alert('先填板子地址'); return; }
+
+  var box = $('gatebox');
+  box.innerHTML += '<div class="empty">执行中…</div>';
+
+  var r = ssh(c, cmd);
+  var old = $('result');
+  if (old) { old.remove(); }
+  var d = document.createElement('div');
+  d.id = 'result';
+  if (!r) { d.innerHTML = '<div class="empty">SSH 失败</div>'; }
+  else {
+    var ok = r.exit === 0;
+    d.innerHTML = '<div class="box ' + (ok ? 'run' : 'block') + '">退出码 <b>' + r.exit + '</b>'
+      + (ok ? '（命令跑通了）' : '（没跑通）')
+      + '</div>'
+      + '<pre>' + esc((r.out || '') + (r.err ? '\n[stderr] ' + r.err : '')) + '</pre>';
+  }
+  $('out').appendChild(d);
+  var e = box.querySelector('.empty');
+  if (e) { e.remove(); }
 }
 </script>
 

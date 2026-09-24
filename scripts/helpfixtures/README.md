@@ -22,6 +22,18 @@
 | `collect.py` | 采集全部目标 CLI 的 `--help` 到 `fixtures/<cli>.txt`；`--parse` 再跑一遍 help-parse |
 | `regress.py` | **固定口径回归比对**：`--baseline` 建基线，无参数则比对并标红池内回归 |
 | `diffcheck.py` | **逐字 diff**：`save-before` / `save-after` / `compare`，比的是 `full_cmd`+`desc`+`example` 全文，不是条数 |
+| `snap.py` | **快照生成器**（CI 与本地共用）：把 help-parse --json 固化成 `snapshots/<cli>.txt`（一行一条 full_cmd） |
+
+## CI 强制回归（2026-09-25 起，最高优先级）
+
+GitHub Actions `build.yml` 的 `help-parse 池回归` job 对 `fixtures/*.txt` 全量跑固定口径，
+产出**逐字快照**并与池内已提交快照 `diff`：
+
+- **条数相同但命令被换掉**的内容级回归 → 红（条数比对抓不住这个，所以 2026-09-25 升级）
+- `fixtures.lock`（纯条数）已退役 —— 快照严格更强
+- 基线**永远人工固化**：diff 红了，逐条核对差异确属改进后，从 artifact 下载
+  `snapshots/` 覆盖提交；**绝不让 CI 自动写基线**，否则回归会被「自动更新基线」掩盖
+- `snapshots/*.txt` 经 `.gitattributes` 强制 LF（否则 Windows autocrlf 让 diff 永远失败）
 
 ### 固定口径（必须统一，否则数字不可比）
 

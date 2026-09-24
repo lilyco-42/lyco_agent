@@ -1,0 +1,3 @@
+# 逐字快照基线必须 LF：CI（Linux 生成 LF）与 Windows 检出（core.autocrlf=true）
+# 的逐字 diff 才能成立，否则 CRLF 会让快照比对永远失败。
+scripts/helpfixtures/snapshots/*.txt text eol=lf

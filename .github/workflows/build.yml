@@ -138,45 +138,53 @@ jobs:
       - name: Build (release)
         run: cargo build --release
 
-      - name: 解析池里每一个 fixture
+      - name: 解析池里每一个 fixture（条数 + 逐字快照）
         # ⚠️ 固定口径，与 scripts/helpfixtures/README.md 一致：
         #   --include-writes（否则只看到只读子集）、--top 9999（不截断）
+        # 2026-09-25 起同时产出**逐字快照**（snapshots/<cli>.txt，一行一条 full_cmd）：
+        # 条数比对抓不住「条数相同但命令被换掉」的内容级回归。
         run: |
           set -e
           BIN=target/release/lycore
           OUT=fixture-counts.txt
+          SNAP=snapshots
+          mkdir -p "$SNAP"
           : > "$OUT"
           for f in ../scripts/helpfixtures/fixtures/*.txt; do
             cli=$(basename "$f" .txt)
-            n=$("$BIN" help-parse --cli "$cli" --help-text "$f" \
-                --top 9999 --include-writes 2>/dev/null \
-                | head -1 | grep -oE '解析出 [0-9]+ 条' | grep -oE '[0-9]+' || echo 0)
-            echo "$cli $n" >> "$OUT"
+            "$BIN" help-parse --cli "$cli" --help-text "$f" \
+                --top 9999 --include-writes --json > "tmp-$cli.json" 2>/dev/null
+            python3 ../scripts/helpfixtures/snap.py "$cli" "tmp-$cli.json" "$SNAP"
+            echo "$cli $(wc -l < "$SNAP/$cli.txt")" >> "$OUT"
+            rm -f "tmp-$cli.json"
           done
-          echo "=== 本轮解析条数 ==="
+          echo "=== 本轮解析条数（逐字快照在 snapshots/）==="
           cat "$OUT"
 
-      - name: 与基线比对
+      - name: 与逐字快照比对
         run: |
-          LOCK=../scripts/helpfixtures/fixtures.lock
-          if [ ! -f "$LOCK" ]; then
-            echo "::warning::fixtures.lock 不存在 —— 跳过比对，本次结果见 artifact（需人工固化基线）"
-            cp fixture-counts.txt "$LOCK"
+          SRC=../scripts/helpfixtures/snapshots
+          if [ ! -d "$SRC" ]; then
+            echo "::warning::scripts/helpfixtures/snapshots/ 不存在 —— 首次运行。"
+            echo "请下载 help-parse-snapshots artifact，**逐条人工核对**后提交。"
+            echo "基线永远人工固化 —— 不让 CI 自动写基线，否则回归会被「自动更新基线」掩盖。"
           else
-            if ! diff -u "$LOCK" fixture-counts.txt; then
-              echo "::error::help-parse 池内回归：解析条数与基线不一致。"
-              echo "若为**有意**的改进（条数增加 / 占位符补齐），请更新 fixtures.lock；"
-              echo "若为**无意**的破坏，必须回退重做。"
+            if ! diff -ru "$SRC" snapshots; then
+              echo "::error::解析输出与快照逐字不一致 —— 内容级回归（条数相同但命令换了也逃不掉）。"
+              echo "若为有意改进：核对每条差异后更新 scripts/helpfixtures/snapshots/ 并提交；"
+              echo "若为无意破坏：必须回退重做。"
               exit 1
             fi
-            echo "✅ 池内零回归"
+            echo "✅ 逐字快照零差异"
           fi
 
-      - name: 上传本轮条数
+      - name: 上传本轮快照与条数
         uses: actions/upload-artifact@v4
         with:
-          name: fixture-counts
-          path: lycore/fixture-counts.txt
+          name: help-parse-snapshots
+          path: |
+            lycore/snapshots
+            lycore/fixture-counts.txt
           if-no-files-found: error
 
   # 静态 musl 构建: 无 glibc 依赖 → 任意 aarch64 Linux 可跑。

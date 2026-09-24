@@ -445,6 +445,33 @@ fn is_section_header(s: &str) -> bool {
         && s[..p].chars().all(|c| c.is_ascii_uppercase() || c == ' '))
 }
 
+/// 版式 H：冒号对齐命令表（gh）—— `auth:          Authenticate gh and git …`
+///
+/// 返回 `(子命令词, 描述)`。判据（刻意窄，缺一不可）：
+/// 1. 冒号前的词是合法子命令词（[`is_subcommand_word`]，小写字母开头、
+///    只含 `[a-z0-9-]`）—— 把 `Note:` / `Usage:` / `C:` 这类全挡在外面；
+/// 2. 冒号后必须接 **≥3 个空格**的宽间隔才是描述 —— 这是「对齐列」指纹。
+///    散文释义（`note: this means …`）冒号后是单空格，不认。
+///    释义行被当命令 = 垃圾命令，比缺一条命令危险得多。
+fn split_colon_line(line: &str) -> Option<(String, String)> {
+    let t = line.trim_start();
+    let i = t.find(':')?;
+    let word = &t[..i];
+    if !is_subcommand_word(word) {
+        return None;
+    }
+    let rest = &t[i + 1..];
+    let spaces = rest.len() - rest.trim_start_matches(' ').len();
+    if spaces < 3 {
+        return None;
+    }
+    let desc = rest.trim();
+    if desc.is_empty() {
+        return None;
+    }
+    Some((word.to_string(), desc.to_string()))
+}
+
 /// 判断一个候选片段是否像「子命令」而非「flag 列表 / 段落标题 / **散文行**」
 ///
 /// ## 🆕 v19e：**散文必须在这里被拦掉**（delta 血训）
@@ -799,6 +826,8 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
     //   · `:` 结尾且含 command 词 → 设为新的引导语
     //   · 其它行          → 清空（离开列表区）
     let mut last_lead: Option<&str> = None;
+    // 版式 I 追踪：当前是否处于 HELP TOPICS 类节（见循环内注释）
+    let mut in_topic_section = false;
 
     for (idx, line) in lines.iter().enumerate() {
         let line = *line;
@@ -812,6 +841,28 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
             last_lead = Some(leadline);
         } else {
             last_lead = None;
+        }
+        // ── 版式 I：HELP TOPICS 段列出的是**帮助文档页**，不是可执行命令 ──
+        //
+        // gh 2026-09-25 实测：HELP TOPICS 下 8 条（accessibility/exit-codes/…）
+        // 直接执行 `gh accessibility` 会报 unknown command —— 收进动作表=造垃圾，
+        // 而「垃圾比缺失更危险」是本模块红线。它们真实入口是 `gh help <topic>`。
+        //
+        // 判据刻意窄：只看**全大写节标题**里是否含 TOPIC（gh 的 `HELP TOPICS`、
+        // cobra 的 `ADDITIONAL HELP TOPICS` 都命中）；不对其它节做任何状态机判断，
+        // 主判定仍然逐行独立（这是「不用区块状态机」纪律的边界：只用节上下文
+        // 做**排除**，从不用它做**收录**）。
+        let tt = line.trim();
+        if !tt.is_empty()
+            && tt
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c == ' ' || c == ':')
+            && tt.chars().any(|c| c.is_ascii_uppercase())
+        {
+            in_topic_section = tt.to_ascii_uppercase().contains("TOPIC");
+        }
+        if in_topic_section {
+            continue;
         }
         // ── 版式 B：节标题式（cargo）：`cargo-build        编译当前包` ──
         let trimmed = line.trim_start();
@@ -859,6 +910,22 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
             continue;
         };
         if !looks_like_subcommand(cli, &cand) {
+            // ── 版式 H：冒号对齐命令表（gh 实测 2026-09-25）──────────────
+            //
+            // gh 的命令表是 `auth:          Authenticate gh and git with GitHub`
+            // —— 冒号**贴在命令名后**，后面才是宽间隔对齐列。`split_line` 切出
+            // cand="auth:"，而 [`is_subcommand_word`] 对 ':' 判 false
+            // → **41 条真命令全部丢弃**，只剩 flag 回退 2 条（池基线 gh=2 的根因）。
+            //
+            // 救援判据（窄，见 [`split_colon_line`]）：
+            //   1. 冒号前的词本身必须是合法子命令词；
+            //   2. 冒号后必须接 **≥3 空格的宽间隔**才认 —— 释义/术语行
+            //      （`note: this means …`）是单空格，被这条挡在外面。
+            //      宽间隔是「对齐列」的指纹，散文释义没有。
+            // 不满足 → 维持原判丢弃。宁缺，勿垃圾。
+            if let Some((w, d)) = split_colon_line(line) {
+                push_unique(&mut out, &mut seen, cli, format!("{cli} {w}"), d);
+            }
             continue;
         }
         // 补前缀：v17 的 F1「掉前缀」根因就在这里。
@@ -2591,6 +2658,72 @@ All commands:
         assert!(
             !cmds.contains(&"hw led"),
             "残缺命令 hw led 必须消失，否则会被当成合法候选静默失败；实际 {cmds:?}"
+        );
+    }
+
+    // ── 版式 H/I：gh 冒号对齐命令表（2026-09-25，池基线 gh=2 的修复）──────
+    //
+    // 真值来源：CI runner 实抓 `gh --help`（fixtures 池，非手写）。
+    // 修复前：41 条真命令全被 `is_subcommand_word("auth:")` 的冒号判否决，
+    // 只剩 flag 回退 2 条 —— 这是池子接进 CI 第一天照出来的头号盲区。
+    #[test]
+    fn gh_colon_aligned_command_table_is_parsed() {
+        const GH_HELP: &str = include_str!("../../scripts/helpfixtures/fixtures/gh.txt");
+        let acts = parse_help("gh", GH_HELP);
+        let cmds: Vec<&str> = acts.iter().map(|a| a.full_cmd.as_str()).collect();
+        // 命令表 12 CORE + 3 ACTIONS + 1 ALIAS + 18 ADDITIONAL = 34 条全部进表
+        assert!(
+            cmds.len() >= 34,
+            "gh 应解析出 ≥34 条，实际 {}：{cmds:?}",
+            cmds.len()
+        );
+        // 抽查四个节都有代表（CORE / GITHUB ACTIONS / ALIAS / ADDITIONAL）
+        for c in [
+            "gh auth",
+            "gh pr",
+            "gh run",
+            "gh co",
+            "gh api",
+            "gh agent-task",
+            "gh ssh-key",
+            "gh status",
+        ] {
+            assert!(cmds.contains(&c), "缺少 {c}；实际 {cmds:?}");
+        }
+        // 根因本体：冒号绝不能残留在命令名里
+        assert!(
+            cmds.iter().all(|c| !c.contains(':')),
+            "命令名残留冒号：{cmds:?}"
+        );
+        // 版式 I：HELP TOPICS 段不是可执行命令（`gh accessibility` 报 unknown command）
+        for bad in [
+            "gh accessibility",
+            "gh environment",
+            "gh exit-codes",
+            "gh telemetry",
+            "gh reference",
+        ] {
+            assert!(!cmds.contains(&bad), "HELP TOPICS 泄漏成命令：{bad}");
+        }
+        // flag 不该混进子命令表（flag 回退只在空表时触发，34>0 不应触发）
+        assert!(!cmds.contains(&"gh --help"), "flag 混入子命令表：{cmds:?}");
+    }
+
+    #[test]
+    fn colon_rescue_rejects_prose_glossary_lines() {
+        // 释义行（冒号后单空格）绝不能被救成命令 —— 垃圾比缺失危险
+        assert_eq!(split_colon_line("note: this means danger"), None);
+        assert_eq!(split_colon_line("warning: read carefully"), None);
+        // 大写开头 / 单字符不是子命令词
+        assert_eq!(split_colon_line("Note:          padded prose"), None);
+        assert_eq!(split_colon_line("C:             windows drive"), None);
+        // 宽间隔 + 合法子命令词 → 认（gh 真实版式）
+        assert_eq!(
+            split_colon_line("auth:          Authenticate gh and git with GitHub"),
+            Some((
+                "auth".to_string(),
+                "Authenticate gh and git with GitHub".to_string()
+            ))
         );
     }
 

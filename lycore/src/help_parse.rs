@@ -698,12 +698,44 @@ fn expand_command_paths(cli: &str, body: &str) -> Vec<String> {
 ///
 /// ⚠️ 判据刻意严格（只看描述**第一个** token、且必须全为纯字母），
 /// 否则会把散文里的 `foo|bar` 误当选项 —— 宁可不展开，也不造垃圾。
-fn expand_desc_branches(cmd: &str, desc: &str) -> Vec<String> {
+/// 分支动作词 → 中文语义。
+///
+/// ⚠️ 这张表是「关灯」能选出来的**前提**：`on|off|status|blink` 展开成 4 条后，
+/// 若它们共用同一句说明，那么 4 条候选长得一模一样 ——「关灯」根本选不出 `off`。
+const BRANCH_VERBS: &[(&str, &str)] = &[
+    ("on", "打开"),
+    ("off", "关闭"),
+    ("status", "查看状态"),
+    ("blink", "闪烁"),
+    ("start", "启动"),
+    ("stop", "停止"),
+    ("restart", "重启"),
+    ("reset", "重置"),
+    ("enable", "启用"),
+    ("disable", "禁用"),
+    ("up", "启动"),
+    ("down", "停止"),
+    ("open", "打开"),
+    ("close", "关闭"),
+    ("toggle", "切换"),
+    ("show", "显示"),
+    ("list", "列出"),
+    ("get", "获取"),
+    ("set", "设置"),
+    ("add", "添加"),
+    ("remove", "删除"),
+    ("check", "检查"),
+    ("info", "查看信息"),
+];
+
+/// 返回 `(命令, 说明)` —— **每条自带说明**，否则多条候选无法区分。
+fn expand_desc_branches(cmd: &str, desc: &str) -> Vec<(String, String)> {
+    let keep = || vec![(cmd.to_string(), desc.to_string())];
     let Some(first) = desc.split_whitespace().next() else {
-        return vec![cmd.to_string()];
+        return keep();
     };
     if !first.contains('|') {
-        return vec![cmd.to_string()];
+        return keep();
     }
     let bs: Vec<&str> = first.split('|').filter(|s| !s.is_empty()).collect();
     if bs.len() < 2
@@ -711,9 +743,32 @@ fn expand_desc_branches(cmd: &str, desc: &str) -> Vec<String> {
             .iter()
             .all(|b| b.chars().all(|c| c.is_ascii_alphabetic()))
     {
-        return vec![cmd.to_string()];
+        return keep();
     }
-    bs.iter().map(|b| format!("{cmd} {b}")).collect()
+    // 去掉分支枚举本身（以及可选参数 `[n]`），剩下的才是真正说明
+    let rest: Vec<&str> = desc
+        .split_whitespace()
+        .skip(1)
+        .filter(|t| !t.starts_with('['))
+        .collect();
+    let rest = rest.join(" ");
+
+    bs.iter()
+        .map(|b| {
+            let new_desc = match BRANCH_VERBS.iter().find(|(k, _)| *k == *b) {
+                Some((_, v)) => {
+                    if rest.is_empty() {
+                        (*v).to_string()
+                    } else {
+                        format!("{v} {rest}")
+                    }
+                }
+                // 词典没有 → 不编造，说明保持原样（分支词本身已在命令里）
+                None => rest.clone(),
+            };
+            (format!("{cmd} {b}"), new_desc)
+        })
+        .collect()
 }
 
 /// 解析 `--help` 原始输出 → 动作表。
@@ -824,9 +879,10 @@ pub fn parse_help(cli: &str, raw: &str) -> Vec<HelpAction> {
             vec![format!("{cli} {}", normalize_alias(&cand))]
         };
         for f in fulls {
-            // 描述开头的 `a|b|c` 也是选项：`hw led blue` + `on|off|...` → 4 条命令
-            for c in expand_desc_branches(&f, &desc) {
-                push_unique(&mut out, &mut seen, cli, c, desc.clone());
+            // 描述开头的 `a|b|c` 也是选项：`hw led blue` + `on|off|...` → 4 条命令，
+            // **每条带自己的说明**（否则 on/off 长得一样，"关灯"选不出来）
+            for (c, d) in expand_desc_branches(&f, &desc) {
+                push_unique(&mut out, &mut seen, cli, c, d);
             }
         }
     }
@@ -2544,26 +2600,59 @@ All commands:
         assert_eq!(
             expand_desc_branches("hw led blue", "on|off|status|blink [n] 用户蓝灯"),
             vec![
-                "hw led blue on",
-                "hw led blue off",
-                "hw led blue status",
-                "hw led blue blink"
+                ("hw led blue on".to_string(), "打开 用户蓝灯".to_string()),
+                ("hw led blue off".to_string(), "关闭 用户蓝灯".to_string()),
+                (
+                    "hw led blue status".to_string(),
+                    "查看状态 用户蓝灯".to_string()
+                ),
+                ("hw led blue blink".to_string(), "闪烁 用户蓝灯".to_string()),
             ]
         );
-        // 值域不是选项：不展开
+        // 值域不是选项：不展开（且说明保持原样）
         assert_eq!(
             expand_desc_branches("hw fan", "status|0-255 风扇转速"),
-            vec!["hw fan".to_string()]
+            vec![("hw fan".to_string(), "status|0-255 风扇转速".to_string())]
         );
         // 普通英文描述：不展开
         assert_eq!(
             expand_desc_branches("git log", "Show commit logs"),
-            vec!["git log".to_string()]
+            vec![("git log".to_string(), "Show commit logs".to_string())]
         );
         // 单段（无 |）：不展开
         assert_eq!(
             expand_desc_branches("hw temp", "CPU 温度"),
-            vec!["hw temp".to_string()]
+            vec![("hw temp".to_string(), "CPU 温度".to_string())]
+        );
+    }
+
+    #[test]
+    fn on_and_off_must_be_distinguishable_otherwise_guandeng_fails() {
+        // 这是「关灯」能被选出来的**前提**：展开后 on/off 若共用同一句说明，
+        // 候选里两条一模一样 —— 人/模型都选不出 `off`。
+        let acts = parse_help("hw", HW_HELP);
+        let off = acts
+            .iter()
+            .find(|a| a.full_cmd == "hw led blue off")
+            .expect("关灯命令必须存在");
+        let on = acts
+            .iter()
+            .find(|a| a.full_cmd == "hw led blue on")
+            .expect("开灯命令必须存在");
+
+        assert!(
+            off.desc.contains("关闭"),
+            "关灯说明应含「关闭」: {}",
+            off.desc
+        );
+        assert!(
+            on.desc.contains("打开"),
+            "开灯说明应含「打开」: {}",
+            on.desc
+        );
+        assert_ne!(
+            off.desc, on.desc,
+            "on/off 共用同一句说明 ⇒ 「关灯」根本选不出来"
         );
     }
 

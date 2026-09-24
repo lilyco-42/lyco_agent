@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lyco agent</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12px;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f5f7; color: #1d1d1f; font-size: 15px;
+  }
+  h1 { font-size: 18px; margin: 4px 0 2px; }
+  .sub { color: #6e6e73; font-size: 12px; margin-bottom: 12px; }
+  .card {
+    background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  label { display: block; font-size: 12px; color: #6e6e73; margin-bottom: 4px; }
+  input[type=text], textarea {
+    width: 100%; border: 1px solid #d2d2d7; border-radius: 6px;
+    padding: 8px; font-size: 14px; font-family: inherit;
+  }
+  textarea { height: 110px; font-family: monospace; font-size: 12px; resize: vertical; }
+  button {
+    background: #0071e3; color: #fff; border: 0; border-radius: 6px;
+    padding: 10px 16px; font-size: 15px; width: 100%; margin-top: 8px;
+  }
+  button:active { background: #0060c0; }
+  .row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 9px 0; border-bottom: 1px solid #f0f0f2;
+  }
+  .row:last-child { border-bottom: 0; }
+  .cmd { font-family: monospace; font-size: 13px; color: #1d1d1f; }
+  .zh { font-size: 13px; }
+  .en { font-size: 11px; color: #86868b; }
+  .ro {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 6px;
+    background: #e8f5e9; color: #2e7d32;
+  }
+  .wr { background: #fff3e0; color: #e65100; }
+  .cov { font-size: 10px; color: #86868b; }
+  .cov.low { color: #c62828; }
+  .dec { font-size: 12px; margin-top: 8px; padding: 8px; border-radius: 6px; }
+  .run { background: #e8f5e9; color: #2e7d32; }
+  .confirm { background: #fff3e0; color: #e65100; }
+  .block { background: #ffebee; color: #c62828; }
+  .needs { background: #e3f2fd; color: #1565c0; }
+  .empty { color: #86868b; font-size: 13px; text-align: center; padding: 16px; }
+  .ver { font-size: 11px; color: #86868b; float: right; }
+  kbd {
+    background: #f0f0f2; border-radius: 3px; padding: 1px 4px;
+    font-family: monospace; font-size: 11px;
+  }
+</style>
+</head>
+<body>
+
+<h1>lyco agent <span class="ver" id="ver">…</span></h1>
+<div class="sub">本地运行 · 离线可用 · 不用模型做解析</div>
+
+<div class="card">
+  <label>CLI 名字（例如 hw / git / docker）</label>
+  <input type="text" id="cli" value="hw" placeholder="hw">
+  <label style="margin-top:8px">它的 <kbd>--help</kbd> 原文</label>
+  <textarea id="help" placeholder="把 `hw --help` 的输出粘进来"></textarea>
+  <button onclick="go()">解析成中文候选</button>
+</div>
+
+<div class="card" id="out">
+  <div class="empty">先给一份 <kbd>--help</kbd> 原文。<br>命令来自 help 本身，不是模型编的。</div>
+</div>
+
+<script>
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// 冒烟：能显示版本号就说明 .so 加载成功、JNI 名字对上了
+try {
+  var v = Lycore.version();
+  document.getElementById('ver').textContent = 'lycore ' + (v || '?');
+} catch (e) {
+  document.getElementById('ver').textContent = '内核未加载';
+}
+
+function go() {
+  var cli = document.getElementById('cli').value.trim();
+  var help = document.getElementById('help').value;
+  var out = document.getElementById('out');
+  if (!cli) { out.innerHTML = '<div class="empty">先填 CLI 名字</div>'; return; }
+  if (!help.trim()) { out.innerHTML = '<div class="empty">先贴一份 --help 原文</div>'; return; }
+
+  var raw;
+  try { raw = Lycore.parseHelp(cli, help); }
+  catch (e) { out.innerHTML = '<div class="empty">调用失败：' + esc(e) + '</div>'; return; }
+
+  var acts;
+  try { acts = JSON.parse(raw); }
+  catch (e) { out.innerHTML = '<div class="empty">返回不是 JSON</div>'; return; }
+
+  if (acts && acts.error) {
+    out.innerHTML = '<div class="empty">' + esc(acts.error) + '</div>'; return;
+  }
+  if (!acts || !acts.length) {
+    out.innerHTML = '<div class="empty">解析出 0 条动作。<br>'
+      + '这是<b>诚实的失败</b>：宁可不出，也不出残缺命令（残缺会静默执行失败）。</div>';
+    return;
+  }
+
+  var h = '';
+  for (var i = 0; i < acts.length; i++) {
+    var a = acts[i];
+    var cov = Math.round((a.coverage || 0) * 100);
+    // 覆盖率 <60% 说明大半没翻出来，标红提醒：别把半吊子译文当真
+    var low = cov < 60 ? ' low' : '';
+    h += '<div class="row" onclick="gate(' + i + ')">'
+       +   '<div><span class="cmd">' + esc(a.full_cmd) + '</span>'
+       +   '<span class="' + (a.readonly ? 'ro' : 'ro wr') + '">'
+       +   (a.readonly ? '只读' : '写操作') + '</span>'
+       +   '<div class="zh">' + esc(a.desc_zh) + '</div>'
+       +   '<div class="en">' + esc(a.desc_en) + '</div></div>'
+       +   '<div class="cov' + low + '">' + cov + '%</div>'
+       + '</div>';
+  }
+  out.innerHTML = h;
+  window._acts = acts;
+  window._cli = cli;
+}
+
+// 点一条 → 问 T1 门：这条命令该不该放行
+function gate(i) {
+  var a = window._acts[i];
+  var cmd = a.example || a.full_cmd;
+  var r;
+  try { r = JSON.parse(Lycore.gate(cmd)); }
+  catch (e) { return; }
+  var cls = {run:'run', confirm:'confirm', block:'block', needs_param:'needs'}[r.decision] || 'needs';
+  var txt = {
+    run:'可以直接执行（只读）',
+    confirm:'写操作，需要你确认',
+    block:'破坏性操作，已拦截',
+    needs_param:'缺参数，不执行（空跑等于静默失效）'
+  }[r.decision] || r.decision;
+
+  var box = document.createElement('div');
+  box.className = 'dec ' + cls;
+  box.innerHTML = '<b>' + esc(cmd) + '</b><br>' + esc(txt)
+    + (r.reason ? '<br><span style="font-size:11px">' + esc(r.reason) + '</span>' : '');
+  var out = document.getElementById('out');
+  var old = document.getElementById('gatebox');
+  if (old) { old.remove(); }
+  box.id = 'gatebox';
+  out.appendChild(box);
+}
+</script>
+
+</body>
+</html>

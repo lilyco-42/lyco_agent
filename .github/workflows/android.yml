@@ -1,0 +1,77 @@
+name: Android APK
+
+# 手机端本地 agent —— 构建 liblycore.so (aarch64-linux-android) + 打包 APK。
+#
+# 为什么单独一个 workflow：Android 构建要 NDK + build-tools，与现有的
+# Linux x86/aarch64/musl 三件套差别大，混在一起会让 build.yml 的每个 job
+# 都背上 Android SDK 的安装时间。
+#
+# 需求背景：「说『关灯』→ App 接任务 → 读 `hw --help` → 找到 `hw led blue off` → 执行」
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  NDK_VERSION: 26.3.11579264
+  BUILD_TOOLS: "36.1.0"
+
+jobs:
+  apk:
+    name: Build APK (arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            lycore/target
+          key: android-${{ runner.os }}-${{ hashFiles('lycore/Cargo.lock') }}
+
+      - name: Install Rust + Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install Android SDK components
+        run: |
+          set -e
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-36" "build-tools;${BUILD_TOOLS}" "ndk;${NDK_VERSION}"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed | grep -E "build-tools|ndk|platforms"
+
+      - name: Build liblycore.so
+        working-directory: lycore
+        run: |
+          set -e
+          NDK="$ANDROID_HOME/ndk/${NDK_VERSION}"
+          export CC_aarch64_linux_android="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
+          export AR_aarch64_linux_android="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          cargo build --release --lib --target aarch64-linux-android
+          ls -la target/aarch64-linux-android/release/liblycore.so
+
+      - name: Stage .so + build APK
+        run: |
+          set -e
+          mkdir -p android/jniLibs/arm64-v8a
+          cp lycore/target/aarch64-linux-android/release/liblycore.so android/jniLibs/arm64-v8a/
+          bash android/build.sh
+
+      - name: Verify APK contains .so + dex
+        run: |
+          unzip -l android/build/lyco-agent-signed.apk | grep -E "classes.dex|lib/arm64-v8a|assets/index.html"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyco-agent-apk
+          path: android/build/lyco-agent-signed.apk
+          if-no-files-found: error

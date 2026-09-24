@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  lyco agent —— 本地（离线）CLI 助手。
+
+  借鉴 lilyco-42/radxa-monitor 的做法：**无 Android Studio**，
+  纯命令行 aapt2 + javac + d8 + zipalign + apksigner 构建（见 build.sh）。
+
+  权限说明：
+  - INTERNET / 网络状态：仅用于可选的 SSH 到板子执行命令（hw 在 A7A 上）。
+    **推理与解析全在本地**，断网也能用，联网不是依赖。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.lyco.agent"
+    android:versionCode="1"
+    android:versionName="0.1.0">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <application
+        android:label="lyco agent"
+        android:allowBackup="true"
+        android:theme="@android:style/Theme.Material.Light">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="lyco agent"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

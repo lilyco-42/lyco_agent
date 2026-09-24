@@ -34,12 +34,17 @@ fn to_jstring<'local>(env: &mut JNIEnv<'local>, s: String) -> jstring {
     }
 }
 
-/// `lyco.Lycore.parseHelp(cli, helpText) -> JSON`
+/// `lyco.Lycore.parseHelp(cli, helpText) -> JSON 中文动作表`
 ///
-/// 把 `cli --help` 的原文解析成动作表。**确定性，与 PC 端完全同一份代码**。
+/// 把 `cli --help` 的原文解析成动作表，**并顺手做本地中文翻译**
+/// （词典，零模型）—— 这样 UI 一次调用就能直接显示中文候选，不用再调 manual。
 ///
-/// 返回字段见 [`crate::help_parse::HelpAction`]：`full_cmd` / `desc` /
-/// `readonly` / `example`。解析不出任何动作时返回 `[]`（**绝不返回垃圾**）。
+/// 返回字段见 [`crate::cli_zh::ZhAction`]：
+/// `full_cmd` / `example` / `readonly` / `desc_en` / `desc_zh` / `coverage` / `unknown`。
+///
+/// `coverage` 是**翻译覆盖率**：UI 应当把低覆盖的条目标出来，
+/// 因为译文里混排的英文就是词典没翻的部分 —— 不许假装翻好了。
+/// 解析不出任何动作时返回 `[]`（**绝不返回垃圾**）。
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_lyco_Lycore_parseHelp<'local>(
@@ -55,7 +60,9 @@ pub extern "system" fn Java_lyco_Lycore_parseHelp<'local>(
         return std::ptr::null_mut();
     };
     let acts = crate::help_parse::parse_help(&c, &h);
-    let json = serde_json::to_string(&acts).unwrap_or_else(|_| "[]".to_string());
+    let zh: Vec<crate::cli_zh::ZhAction> =
+        acts.iter().map(crate::cli_zh::translate_action).collect();
+    let json = serde_json::to_string(&zh).unwrap_or_else(|_| "[]".to_string());
     to_jstring(&mut env, json)
 }
 

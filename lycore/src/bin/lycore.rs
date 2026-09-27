@@ -39,6 +39,7 @@ fn main() {
         "t1" => cmd_t1(&args[1..]),
         "mpkg-id" => cmd_mpkg_id(&args[1..]),
         "mpkg-verify" => cmd_mpkg_verify(&args[1..]),
+        "mpkg-pack" => cmd_mpkg_pack(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -63,7 +64,9 @@ fn main() {
                    ↑ mpkg 记忆包定身: 清单校验 + content-id (契约源 lystack proto/mpkg)\n  \
                  lycore mpkg-verify <包目录> [--json] [--timeout <秒>]\n    \
                    ↑ mpkg 回放: steps 逐条执行(expect.exit) + verify 命令 → attestation\n    \
-                    语义对齐 lystack proto/py/mpkg.py; ok=false 时退出码 2, 程序性错误 1"
+                    语义对齐 lystack proto/py/mpkg.py; ok=false 时退出码 2, 程序性错误 1\n  \
+                 lycore mpkg-pack --trace <ndjson> --out <dir> [--name <kebab>]\n    \
+                   ↑ trace-as-commits: agent 执行流一键变可回放记忆包 (tool(ok)=step)"
             );
             2
         }
@@ -884,6 +887,40 @@ fn cmd_mpkg_verify(args: &[String]) -> i32 {
         0
     } else {
         2
+    }
+}
+
+/// mpkg 打包：trace ndjson → 可回放记忆包（trace-as-commits，spec §6.5）。
+/// tool(ok=true, shell_exec) 事件 = step；试错/revert 留在包内 trace.ndjson 原始字节里。
+fn cmd_mpkg_pack(args: &[String]) -> i32 {
+    use lycore::mpkg;
+    let trace = flag(args, "--trace");
+    let out = flag(args, "--out");
+    let name = flag(args, "--name");
+    let (Some(trace), Some(out)) = (trace, out) else {
+        eprintln!("用法: lycore mpkg-pack --trace <ndjson> --out <dir> [--name <kebab>]");
+        return 2;
+    };
+    match mpkg::pack_trace(
+        std::path::Path::new(&trace),
+        std::path::Path::new(&out),
+        name.as_deref(),
+    ) {
+        Ok((manifest, id, n_files)) => {
+            println!(
+                "包已就位: {}\n  name: {}\n  steps: {}\n  files: {}\n  content-id: {id}",
+                out,
+                manifest["name"].as_str().unwrap_or("?"),
+                manifest["steps"].as_array().map(Vec::len).unwrap_or(0),
+                n_files
+            );
+            println!("回放: lycore mpkg-verify \"{out}\"");
+            0
+        }
+        Err(e) => {
+            eprintln!("mpkg-pack 失败: {e:#}");
+            1
+        }
     }
 }
 

@@ -474,6 +474,132 @@ pub fn verify_dir_with(dir: &Path, timeout: std::time::Duration) -> Result<Value
     }))
 }
 
+// ── pack：trace ndjson → mpkg 包目录（trace-as-commits 落地）──────────────────
+//
+// mpkg spec §6.5「一步 = 一条 trace = 一个 commit」的格式侧兑现：
+//   - `tool(ok=true, name=shell_exec)` 事件 → `steps[].run`（可回放的确定性脊）；
+//   - 试错（ok=false）与 revert 不进 steps —— 只记成功 = 成品，记下试错 = 编曲；
+//     编曲注记以 `provenance`（v0.1 可选字段，见 GOLDEN.md §1）随包带走；
+//   - 原始 trace.ndjson **逐字节**复制进包（files 表锁死，改一个字节就是另一个包）。
+// 回放语义注记：trace 里的命令原本跑在当时的 cwd，回放时跑在 {{work}} ——
+// 确定性脊保真的是「命令序列与退出码」，不是文件系统环境。
+
+/// trace ndjson → mpkg 包目录。返回 (清单, content-id, 文件数)。
+///
+/// `name` 缺省 `trace-<unix秒>`；`intent` 取首条 prompt 事件文本。
+pub fn pack_trace(
+    trace: &Path,
+    out_dir: &Path,
+    name: Option<&str>,
+) -> Result<(Value, String, usize)> {
+    let raw = fs::read_to_string(trace).with_context(|| format!("读不到 {}", trace.display()))?;
+    let events: Vec<Value> = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            serde_json::from_str::<Value>(l)
+                .map_err(|e| anyhow!("trace 第 {} 行不是合法 JSON: {e}", l))
+        })
+        .collect::<Result<_>>()?;
+    if events.is_empty() {
+        bail!("trace 是空的: {}", trace.display());
+    }
+
+    let mut intent = String::new();
+    let mut steps: Vec<Value> = Vec::new();
+    let mut prompts: Vec<(u64, String)> = Vec::new(); // (事件序号, 文本)
+    for ev in &events {
+        match ev.get("kind").and_then(Value::as_str).unwrap_or("") {
+            "prompt" => {
+                let n = ev
+                    .get("i")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(prompts.len() as u64 + 1);
+                let text = ev
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                if intent.is_empty() {
+                    intent = text.clone();
+                }
+                prompts.push((n, text));
+            }
+            // 只收成功的 shell_exec —— 其余工具的 arg 不是 shell 命令，回放不了；
+            // 失败的调用是试错，不进 steps（原始字节在包内 trace.ndjson 里，一个不少）。
+            "tool" => {
+                let ok = ev.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                let tool = ev.get("name").and_then(Value::as_str).unwrap_or("");
+                if ok && tool == "shell_exec" {
+                    let arg = ev.get("arg").and_then(Value::as_str).unwrap_or("");
+                    if !arg.is_empty() {
+                        steps.push(json!({ "run": arg }));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if steps.is_empty() {
+        bail!(
+            "trace 里没有可回放的 shell_exec 成功步骤（共 {} 个事件）",
+            events.len()
+        );
+    }
+
+    let name = match name {
+        Some(n) => n.trim().to_string(),
+        None => {
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("trace-{secs}")
+        }
+    };
+
+    let manifest = json!({
+        "mpkg": FORMAT,
+        "name": name,
+        "version": "0.1.0",
+        "intent": if intent.is_empty() { "lyco_agent trace 回放包".to_string() } else { intent },
+        "steps": steps,
+        // 回放 cwd 是 {{work}}（Python 原型语义），查包内文件必须显式 {{pkg}} 前缀
+        "verify": [
+            format!("test -f {{{{pkg}}}}/{MANIFEST}"),
+            "test -f {{pkg}}/trace.ndjson".to_string()
+        ],
+        "tags": [ "trace" ],
+        // provenance 形状由 schema $defs/provenance 封死（additionalProperties: false）：
+        // 只有 generator / prompts[{n,text,step_refs?}] / parent。prompt 原文落包内
+        // prompts/<n>.md，text 字段指向它（schema 描述：「指向包内 prompts/*.md 原文」）。
+        "provenance": {
+            "generator": "ai:lyco_agent",
+            "prompts": prompts
+                .iter()
+                .map(|(n, _)| json!({ "n": n, "text": format!("prompts/{n}.md") }))
+                .collect::<Vec<_>>(),
+        },
+    });
+    validate(&manifest)?;
+
+    fs::create_dir_all(out_dir).with_context(|| format!("建目录失败 {}", out_dir.display()))?;
+    fs::write(
+        out_dir.join(MANIFEST),
+        serde_json::to_string_pretty(&manifest).expect("manifest 序列化"),
+    )
+    .with_context(|| format!("写 {} 失败", out_dir.display()))?;
+    fs::copy(trace, out_dir.join("trace.ndjson")).with_context(|| "复制 trace.ndjson 进包失败")?;
+    for (n, text) in &prompts {
+        let p = out_dir.join("prompts").join(format!("{n}.md"));
+        fs::create_dir_all(p.parent().expect("prompts 有父目录"))?;
+        fs::write(p, text)?;
+    }
+
+    package_id_of_dir(out_dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -775,5 +901,105 @@ mod tests {
             "报错应点名缺的工具: {err}"
         );
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ── pack_trace（trace → 包，trace-as-commits）──────────────────────────
+
+    /// trace→打包→定身→回放 全闭环：Tracer 造 ndjson，pack_trace 出包，
+    /// manifest 语义逐项断言，最后 verify_dir 真回放里面的 steps。
+    #[test]
+    fn pack_trace_full_loop() {
+        use crate::trace::Tracer;
+
+        let tmp = std::env::temp_dir().join(format!("mpkg-pack-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let trace_path = tmp.join("s.trace.ndjson");
+        let mut tr = Tracer::new(&trace_path);
+        tr.prompt("帮我写贪吃蛇");
+        tr.tool("shell_exec", "echo step-one", true);
+        tr.tool("shell_exec", "cargo build 不存在", false); // 试错：不进 steps
+        tr.tool("read_file", "src/main.rs", true); // 非 shell 工具：不进 steps
+        tr.revert("编译失败: 缺 use");
+        tr.tool("shell_exec", "echo step-two", true);
+        tr.final_answer("完成");
+
+        let out = tmp.join("pkg");
+        let (manifest, id, n_files) =
+            pack_trace(&trace_path, &out, Some("trace-snake")).expect("打包应成功");
+
+        // manifest 语义
+        assert_eq!(manifest["name"], "trace-snake");
+        assert_eq!(manifest["intent"], "帮我写贪吃蛇");
+        let steps = manifest["steps"].as_array().unwrap();
+        assert_eq!(steps.len(), 2, "只收 ok=true 的 shell_exec");
+        assert_eq!(steps[0]["run"], "echo step-one");
+        assert_eq!(steps[1]["run"], "echo step-two");
+        // provenance 是 schema 封闭形状
+        let prov = &manifest["provenance"];
+        assert_eq!(prov["generator"], "ai:lyco_agent");
+        assert_eq!(prov["prompts"][0]["text"], "prompts/1.md");
+        // 包内容物
+        assert!(out.join("trace.ndjson").is_file(), "原始 trace 逐字节进包");
+        assert!(out.join("prompts/1.md").is_file());
+        assert!(n_files >= 3, "mpkg.json + trace.ndjson + prompts/*.md");
+        assert!(id.starts_with("sha256:"));
+
+        // 打出的包必须能回放：steps 是真命令，verify 查包内文件
+        let att = verify_dir(&out).expect("回放应成功执行");
+        assert_eq!(att["ok"], true, "attestation: {att}");
+        assert_eq!(att["mpkg_id"], id.as_str(), "定身两次同 id");
+        assert_eq!(att["steps"].as_array().unwrap().len(), 2);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn pack_trace_rejects_unreplayable() {
+        use crate::trace::Tracer;
+
+        let tmp = std::env::temp_dir().join(format!("mpkg-pack2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let trace_path = tmp.join("s.trace.ndjson");
+        let mut tr = Tracer::new(&trace_path);
+        tr.prompt("只问了不干");
+        tr.final_answer("答完了");
+
+        let out = tmp.join("pkg");
+        let err = pack_trace(&trace_path, &out, None).unwrap_err();
+        assert!(
+            err.to_string().contains("shell_exec"),
+            "应说明缺可回放步骤: {err}"
+        );
+
+        // 空文件同样拒
+        let empty = tmp.join("empty.ndjson");
+        std::fs::write(&empty, "").unwrap();
+        assert!(pack_trace(&empty, &out, None).is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn pack_trace_default_name_is_kebab() {
+        use crate::trace::Tracer;
+
+        let tmp = std::env::temp_dir().join(format!("mpkg-pack3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let trace_path = tmp.join("s.trace.ndjson");
+        let mut tr = Tracer::new(&trace_path);
+        tr.prompt("写贪吃蛇");
+        tr.tool("shell_exec", "echo hi", true);
+
+        let out = tmp.join("pkg");
+        let (manifest, _, _) = pack_trace(&trace_path, &out, None).expect("打包应成功");
+        let name = manifest["name"].as_str().unwrap();
+        assert!(
+            name.starts_with("trace-")
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+            "缺省名须过 validate 的 kebab-case: {name}"
+        );
+        assert!(validate(&manifest).is_ok());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

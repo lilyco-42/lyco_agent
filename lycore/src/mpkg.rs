@@ -239,6 +239,241 @@ pub fn package_id_of_dir(dir: &Path) -> Result<(Value, String, usize)> {
     Ok((manifest, id, files.len()))
 }
 
+// ── verify（回放执行，T3 动作）─────────────────────────────────────────────────
+//
+// 语义与契约参考实现 lystack proto/py/mpkg.py 的 cmd_verify 严格对齐：
+//   - steps 与 verify 都以 **work**（临时目录）为 cwd；`{{pkg}}` = 包目录本身
+//     （dir 形态文件已在位，无需解包）、`{{work}}` = 临时工作区；
+//   - POSIX shell（bash/sh 顺位）；`requirements.tools[].name` 逐个 which，缺即拒；
+//   - step 的 expect.exit 缺省 0（validate 不校验 expect 形状，漂移表 §5.6）；
+//   - 单命令超时：Python subprocess 有 timeout，cache-node 版只声明未实现 ——
+//     本实现用 try_wait 轮询真做（agent 运行时执行任意清单命令，无超时=自杀）。
+// attestation 与 Python 版同构（replayed_at 用 epoch 秒，cache-node 同款，零依赖）。
+
+/// 单条命令的回放超时（秒）。
+pub const STEP_TIMEOUT_SECS: u64 = 120;
+
+/// 沿 PATH 找可执行体（Windows 补 .exe/.cmd/.bat 后缀）。
+fn which(exe: &str) -> Option<String> {
+    let exts: &[&str] = if cfg!(windows) {
+        &["", ".exe", ".cmd", ".bat"]
+    } else {
+        &[""]
+    };
+    let paths = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&paths) {
+        for ext in exts {
+            let p = dir.join(format!("{exe}{ext}"));
+            if p.is_file() {
+                return Some(p.to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
+}
+
+fn find_shell() -> Result<String> {
+    ["bash", "sh"]
+        .iter()
+        .find_map(|sh| which(sh))
+        .map(|p| p.replace('\\', "/"))
+        .ok_or_else(|| {
+            anyhow!("回放需要 POSIX shell（bash/sh）；Windows 请装 Git Bash 或把它加进 PATH")
+        })
+}
+
+fn subst(cmd: &str, pkg: &str, work: &str) -> String {
+    cmd.replace("{{pkg}}", pkg).replace("{{work}}", work)
+}
+
+/// 尾部截断（字符级，不劈 UTF-8），与 Python 版 `[-400:]` 口径一致。
+fn tail400(s: &str) -> String {
+    let n = s.chars().count();
+    if n <= 400 {
+        s.to_string()
+    } else {
+        s.chars().skip(n - 400).collect()
+    }
+}
+
+/// 排空管道到字符串（读线程；不排空会在子进程写满管道时死锁）。
+fn drain_pipe<R: std::io::Read + Send + 'static>(mut pipe: Option<R>) -> String {
+    let mut buf = Vec::new();
+    if let Some(p) = pipe.as_mut() {
+        let _ = p.read_to_end(&mut buf);
+    }
+    String::from_utf8_lossy(&buf).trim_end().to_string()
+}
+
+/// 跑一条 shell 命令：stdout/stderr 各自读线程接走，主线程 try_wait 轮询 +
+/// 截止时间击杀。返回 (exit, stdout, stderr, 耗时ms)。
+fn run_timed(
+    shell: &str,
+    cmd: &str,
+    work: &Path,
+    timeout: std::time::Duration,
+) -> Result<(i32, String, String, u128)> {
+    use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::Instant;
+
+    let t0 = Instant::now();
+    let mut child = Command::new(shell)
+        .arg("-c")
+        .arg(cmd)
+        .current_dir(work)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("spawn 失败: {cmd}"))?;
+
+    let out_pipe = child.stdout.take();
+    let err_pipe = child.stderr.take();
+    let th_out = thread::spawn(move || drain_pipe(out_pipe));
+    let th_err = thread::spawn(move || drain_pipe(err_pipe));
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(anyhow!("执行超时（>{}s）: {cmd}", timeout.as_secs()));
+                }
+                thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(e) => return Err(anyhow!("wait 失败: {e}")),
+        }
+    };
+    let code = status.code().unwrap_or(-1);
+    let so = th_out.join().unwrap_or_default();
+    let se = th_err.join().unwrap_or_default();
+    Ok((code, so, se, t0.elapsed().as_millis()))
+}
+
+/// 回放包目录：清单校验 → content-id 复算 → 工具需求 → steps → verify → attestation。
+/// attestation 形状与 lystack proto/py/mpkg.py 同构；回放失败（ok=false）**不报 Err**
+/// —— 回放结论是正常产物，程序性错误（读不到包/缺工具/无 shell）才 Err，
+/// 退出码语义由 CLI 层决定。
+pub fn verify_dir(dir: &Path) -> Result<Value> {
+    verify_dir_with(dir, std::time::Duration::from_secs(STEP_TIMEOUT_SECS))
+}
+
+pub fn verify_dir_with(dir: &Path, timeout: std::time::Duration) -> Result<Value> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let (manifest, id, n_files) = package_id_of_dir(dir)?;
+    let pkg = dir
+        .canonicalize()
+        .with_context(|| format!("canonicalize 失败 {}", dir.display()))?
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    // 工具需求：缺一个就整个包拒绝回放（Python 原版同款，宁可不做不做半截）。
+    let mut missing: Vec<String> = Vec::new();
+    if let Some(tools) = manifest
+        .get("requirements")
+        .and_then(|r| r.get("tools"))
+        .and_then(Value::as_array)
+    {
+        for t in tools {
+            if let Some(name) = t.get("name").and_then(Value::as_str) {
+                if which(name).is_none() {
+                    missing.push(name.to_string());
+                }
+            }
+        }
+    }
+    if !missing.is_empty() {
+        bail!("工具需求不满足，PATH 上缺: {}", missing.join(", "));
+    }
+    let shell = find_shell()?;
+
+    let base = std::env::temp_dir().join(format!("mpkg-lyco-{}", &id[7..19]));
+    std::fs::create_dir_all(&base).with_context(|| format!("建目录失败 {}", base.display()))?;
+    let work = base.join("work").to_string_lossy().replace('\\', "/");
+    std::fs::create_dir_all(&work).with_context(|| format!("建目录失败 {work}"))?;
+
+    let replay = |steps_log: &mut Vec<Value>, verify_log: &mut Vec<Value>| -> Result<bool> {
+        let mut ok = true;
+        if let Some(steps) = manifest.get("steps").and_then(Value::as_array) {
+            for (i, step) in steps.iter().enumerate() {
+                let raw = step.get("run").and_then(Value::as_str).unwrap_or("");
+                let want = step
+                    .get("expect")
+                    .and_then(|e| e.get("exit"))
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0);
+                let (code, so, se, ms) =
+                    run_timed(&shell, &subst(raw, &pkg, &work), Path::new(&work), timeout)?;
+                let step_ok = i64::from(code) == want;
+                steps_log.push(json!({
+                    "n": i + 1, "cmd": raw, "exit": code, "ms": ms,
+                    "stdout_tail": tail400(&so), "stderr_tail": tail400(&se),
+                    "ok": step_ok,
+                }));
+                if !step_ok {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            if let Some(verifies) = manifest.get("verify").and_then(Value::as_array) {
+                for cmd in verifies {
+                    let raw = cmd.as_str().unwrap_or("");
+                    let (code, so, se, ms) =
+                        run_timed(&shell, &subst(raw, &pkg, &work), Path::new(&work), timeout)?;
+                    verify_log.push(json!({
+                        "cmd": raw, "exit": code, "ms": ms,
+                        "stdout_tail": tail400(&so), "stderr_tail": tail400(&se),
+                    }));
+                    if code != 0 {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(ok)
+    };
+
+    let mut steps_log = Vec::new();
+    let mut verify_log = Vec::new();
+    let replayed = replay(&mut steps_log, &mut verify_log);
+    let _ = std::fs::remove_dir_all(&base);
+
+    let (ok_flag, err_msg) = match &replayed {
+        Ok(true) => (true, None),
+        Ok(false) => (false, None),
+        Err(e) => (false, Some(format!("{e:#}"))),
+    };
+
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Ok(json!({
+        "mpkg_id": id,
+        "name": manifest.get("name"),
+        "files": n_files,
+        "ok": ok_flag,
+        "steps": steps_log,
+        "verify": verify_log,
+        "host": {
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "impl": concat!("lycore ", env!("CARGO_PKG_VERSION")),
+            "shell": shell,
+        },
+        "replayed_at": format!("{secs}s"),
+        "error": err_msg,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,5 +636,144 @@ mod tests {
         assert!(validate(&bad_verify).is_err());
 
         assert!(validate(&m).is_ok(), "基准包必须过");
+    }
+
+    // ── verify（回放）─────────────────────────────────────────────────────
+
+    /// 建一个临时包目录（mpkg.json + 可选附加文件），返回目录路径。
+    /// 测试结束由调用方清理（返回 base 以便 remove_dir_all）。
+    fn make_pkg(name: &str, manifest: Value, files: &[(&str, &str)]) -> std::path::PathBuf {
+        let base = std::env::temp_dir().join(format!("mpkg-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("建测试包目录");
+        std::fs::write(
+            base.join(MANIFEST),
+            serde_json::to_string_pretty(&manifest).expect("manifest 序列化"),
+        )
+        .expect("写 manifest");
+        for (rel, content) in files {
+            let p = base.join(rel);
+            std::fs::create_dir_all(p.parent().expect("有父目录")).expect("建子目录");
+            std::fs::write(p, content).expect("写附加文件");
+        }
+        base
+    }
+
+    fn test_manifest(steps: Value, verify: Value) -> Value {
+        json!({
+            "mpkg": "0.1",
+            "name": "verify-test-pkg",
+            "version": "0.1.0",
+            "intent": "verify 集成测试包",
+            "steps": steps,
+            "verify": verify
+        })
+    }
+
+    #[test]
+    fn verify_dir_happy_path() {
+        let base = make_pkg(
+            "happy",
+            test_manifest(
+                json!([{ "run": "echo hi from step" }]),
+                json!(["test -f {{pkg}}/mpkg.json"]),
+            ),
+            &[("artifacts/out.txt", "42\n")],
+        );
+        let att = verify_dir(&base).expect("回放应成功执行");
+        assert_eq!(att["ok"], true, "attestation: {att}");
+        assert_eq!(att["steps"][0]["exit"], 0);
+        assert_eq!(att["steps"][0]["ok"], true);
+        assert!(att["steps"][0]["stdout_tail"]
+            .as_str()
+            .unwrap()
+            .contains("hi from step"));
+        assert_eq!(att["verify"][0]["exit"], 0);
+        assert!(att["mpkg_id"].as_str().unwrap().starts_with("sha256:"));
+        // content-id 与 package_id_of_dir 复算一致（同一包两次定身同 id）
+        let (_, id2, _) = package_id_of_dir(&base).unwrap();
+        assert_eq!(att["mpkg_id"].as_str().unwrap(), id2);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn verify_dir_step_fail_stops_and_reports() {
+        let base = make_pkg(
+            "stepfail",
+            test_manifest(json!([{ "run": "exit 7" }]), json!(["true"])),
+            &[],
+        );
+        let att = verify_dir(&base).expect("回放失败也是正常结论，不应 Err");
+        assert_eq!(att["ok"], false);
+        assert_eq!(att["steps"][0]["exit"], 7);
+        assert_eq!(att["steps"][0]["ok"], false);
+        assert!(
+            att["verify"].as_array().unwrap().is_empty(),
+            "step 挂了就不再跑 verify"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn verify_dir_expect_exit_tolerates_nonzero() {
+        let base = make_pkg(
+            "expect3",
+            test_manifest(
+                json!([{ "run": "exit 3", "expect": { "exit": 3 } }]),
+                json!(["true"]),
+            ),
+            &[],
+        );
+        let att = verify_dir(&base).expect("回放应成功执行");
+        assert_eq!(att["ok"], true, "attestation: {att}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn verify_dir_verify_fail_is_ok_false() {
+        let base = make_pkg(
+            "vfail",
+            test_manifest(
+                json!([{ "run": "true" }]),
+                json!(["test -f {{pkg}}/不存在的文件"]),
+            ),
+            &[],
+        );
+        let att = verify_dir(&base).expect("回放失败也是正常结论");
+        assert_eq!(att["ok"], false);
+        assert_eq!(att["verify"][0]["exit"], 1);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn verify_dir_timeout_kills_runaway_step() {
+        let base = make_pkg(
+            "slow",
+            test_manifest(json!([{ "run": "sleep 30" }]), json!(["true"])),
+            &[],
+        );
+        // 超时是回放结论不是程序错误 → 进 attestation 的 error 字段，ok=false
+        let att = verify_dir_with(&base, std::time::Duration::from_secs(1))
+            .expect("超时也应有 attestation");
+        assert_eq!(att["ok"], false);
+        assert!(
+            att["error"].as_str().unwrap().contains("超时"),
+            "应报超时: {}",
+            att["error"]
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn verify_dir_missing_tool_refuses() {
+        let mut m = test_manifest(json!([{ "run": "true" }]), json!(["true"]));
+        m["requirements"] = json!({ "tools": [ { "name": "definitely-no-such-tool-xyz-42" } ] });
+        let base = make_pkg("notool", m, &[]);
+        let err = verify_dir(&base).unwrap_err();
+        assert!(
+            err.to_string().contains("definitely-no-such-tool-xyz-42"),
+            "报错应点名缺的工具: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

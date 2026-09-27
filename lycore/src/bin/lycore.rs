@@ -38,6 +38,7 @@ fn main() {
         "npu" => cmd_npu(&args[1..]),
         "t1" => cmd_t1(&args[1..]),
         "mpkg-id" => cmd_mpkg_id(&args[1..]),
+        "mpkg-verify" => cmd_mpkg_verify(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -59,7 +60,10 @@ fn main() {
                  lycore t1 check \"<cmd>\" [--json]\n    \
                    ↑ T1 执行门: 风险分级(read/write/danger) + 必需参数校验(缺参=静默失效)\n  \
                  lycore mpkg-id <包目录> [--json]\n    \
-                   ↑ mpkg 记忆包定身: 清单校验 + content-id (契约源 lystack proto/mpkg)"
+                   ↑ mpkg 记忆包定身: 清单校验 + content-id (契约源 lystack proto/mpkg)\n  \
+                 lycore mpkg-verify <包目录> [--json] [--timeout <秒>]\n    \
+                   ↑ mpkg 回放: steps 逐条执行(expect.exit) + verify 命令 → attestation\n    \
+                    语义对齐 lystack proto/py/mpkg.py; ok=false 时退出码 2, 程序性错误 1"
             );
             2
         }
@@ -813,6 +817,73 @@ fn cmd_mpkg_id(args: &[String]) -> i32 {
             eprintln!("mpkg-id 失败: {e:#}");
             1
         }
+    }
+}
+
+/// mpkg 回放：包目录 → steps 逐条执行 + verify 命令 → attestation。
+/// 退出码：ok=0 / ok=false=2 / 程序性错误（缺工具/无 shell/坏清单）=1 —— cache-node 同款。
+fn cmd_mpkg_verify(args: &[String]) -> i32 {
+    use lycore::mpkg;
+    let Some(dir) = args.iter().find(|a| !a.starts_with("--")) else {
+        eprintln!("用法: lycore mpkg-verify <包目录> [--json] [--timeout <秒>]");
+        return 2;
+    };
+    let timeout = flag(args, "--timeout")
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(std::time::Duration::from_secs)
+        .unwrap_or_else(|| std::time::Duration::from_secs(mpkg::STEP_TIMEOUT_SECS));
+
+    let att = match mpkg::verify_dir_with(std::path::Path::new(dir), timeout) {
+        Ok(att) => att,
+        Err(e) => {
+            eprintln!("mpkg-verify 失败: {e:#}");
+            return 1;
+        }
+    };
+
+    if args.iter().any(|a| a == "--json") {
+        println!("{}", serde_json::to_string_pretty(&att).unwrap_or_default());
+    } else {
+        let ok = att["ok"] == true;
+        println!(
+            "包:     {} ({})",
+            att["name"].as_str().unwrap_or("?"),
+            att["mpkg_id"].as_str().unwrap_or("?")
+        );
+        println!(
+            "结论:   {}",
+            if ok {
+                "✅ 回放通过"
+            } else {
+                "❌ 回放失败"
+            }
+        );
+        if let Some(err) = att["error"].as_str() {
+            println!("错误:   {err}");
+        }
+        for s in att["steps"].as_array().unwrap_or(&vec![]) {
+            println!(
+                "  step {}: exit {} ({} ms) {}  {}",
+                s["n"],
+                s["exit"],
+                s["ms"],
+                if s["ok"] == true { "✓" } else { "✗" },
+                s["cmd"].as_str().unwrap_or("")
+            );
+        }
+        for v in att["verify"].as_array().unwrap_or(&vec![]) {
+            println!(
+                "  verify: exit {} ({} ms) {}",
+                v["exit"],
+                v["ms"],
+                if v["exit"] == 0 { "✓" } else { "✗" }
+            );
+        }
+    }
+    if att["ok"] == true {
+        0
+    } else {
+        2
     }
 }
 

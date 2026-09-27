@@ -37,6 +37,7 @@ fn main() {
         "vision" => cmd_vision(&args[1..]),
         "npu" => cmd_npu(&args[1..]),
         "t1" => cmd_t1(&args[1..]),
+        "mpkg-id" => cmd_mpkg_id(&args[1..]),
         _ => {
             eprintln!(
                 "lycore — lyco agent runtime\n\n\
@@ -56,7 +57,9 @@ fn main() {
                  lycore npu status [--json]\n    \
                    ↑ NPU 设备探测: 报告 /dev/galcore 是否存在 (无板子时诚实返回 present=false)\n  \
                  lycore t1 check \"<cmd>\" [--json]\n    \
-                   ↑ T1 执行门: 风险分级(read/write/danger) + 必需参数校验(缺参=静默失效)"
+                   ↑ T1 执行门: 风险分级(read/write/danger) + 必需参数校验(缺参=静默失效)\n  \
+                 lycore mpkg-id <包目录> [--json]\n    \
+                   ↑ mpkg 记忆包定身: 清单校验 + content-id (契约源 lystack proto/mpkg)"
             );
             2
         }
@@ -767,6 +770,50 @@ fn cmd_backend(args: &[String]) -> i32 {
     }
     println!("\n普惠不变量: 上面必定有一行叫 cpu。加速是锦上添花, 不是能不能用的前提。");
     0
+}
+
+/// mpkg 记忆包定身：包目录 → 清单校验 + content-id + 文件数。
+/// 契约源 lystack proto/mpkg（GOLDEN.md）；golden 三例在 mpkg::tests 逐字节钉住。
+fn cmd_mpkg_id(args: &[String]) -> i32 {
+    use lycore::mpkg;
+    let Some(dir) = args.iter().find(|a| !a.starts_with("--")) else {
+        eprintln!("用法: lycore mpkg-id <包目录> [--json]");
+        return 2;
+    };
+    match mpkg::package_id_of_dir(std::path::Path::new(dir)) {
+        Ok((manifest, id, n_files)) => {
+            if args.iter().any(|a| a == "--json") {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "content_id": id,
+                        "files": n_files,
+                        "name": manifest.get("name"),
+                        "version": manifest.get("version"),
+                    })
+                );
+            } else {
+                println!(
+                    "name:     {}",
+                    manifest.get("name").and_then(|v| v.as_str()).unwrap_or("?")
+                );
+                println!(
+                    "version:  {}",
+                    manifest
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?")
+                );
+                println!("files:    {n_files}");
+                println!("content-id: {id}");
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("mpkg-id 失败: {e:#}");
+            1
+        }
+    }
 }
 
 /// 导出权威工具 schema (OpenAI tools 数组) — 单一真源, 下游 (lyco_chat

@@ -21,6 +21,7 @@ pub mod learn;
 pub mod learn_cli;
 pub mod lernen;
 pub mod llamacpp;
+pub mod mpkg; // mpkg 记忆包格式层: content-id / 清单校验 / 包目录胶水 (契约源 lystack proto/mpkg, golden 三例互证)
 pub mod npu_runtime; // P2: NPU 串行调度器 (租约+优先级队列+超时) — VIP9000 是它的一个后端实例, 见 backend
 pub mod pack;
 pub mod paramcheck; // T1 门第二道闸: 必需参数校验 (v18 F4 `npm install` 静默失效)

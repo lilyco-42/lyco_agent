@@ -388,6 +388,16 @@ fn tail_n(s: &str, n: usize) -> String {
         .join(" | ")
 }
 
+/// 子进程环境剥掉 `BASH_ENV`/`ENV`。
+///
+/// brush（Rust 版 POSIX shell，shell 链首选）遇到这两个变量直接报
+/// `not yet implemented: load config from $ENV/BASH_ENV` —— 而 CI/工具链宿主
+/// （如 WorkBuddy、GitHub Actions runner）经常注入。真 bash 非交互本来就会
+/// source 它们，剥掉只损失「预置别名/函数」这类非必需糖，换来全环境可用。
+fn strip_bash_env(c: &mut std::process::Command) {
+    c.env_remove("BASH_ENV").env_remove("ENV");
+}
+
 /// shell_exec: 执行一条命令 (brush/nu/平台默认), 返回 exit code + 输出摘要
 pub fn shell_exec(command: &str, cwd: Option<&Path>) -> RunOutcome {
     if command.trim().is_empty() {
@@ -399,6 +409,7 @@ pub fn shell_exec(command: &str, cwd: Option<&Path>) -> RunOutcome {
     }
     let (prog, dash_c) = pick_shell();
     let mut c = std::process::Command::new(&prog);
+    strip_bash_env(&mut c);
     if dash_c {
         c.args(["-c", command]);
     } else {
@@ -446,6 +457,7 @@ pub fn shell_exec_capture(
 ) -> std::io::Result<(Option<i32>, String, String)> {
     let (prog, dash_c) = pick_shell();
     let mut c = std::process::Command::new(&prog);
+    strip_bash_env(&mut c);
     if dash_c {
         c.args(["-c", command]);
     } else {
@@ -605,6 +617,20 @@ mod tests {
         let o = super::shell_exec("echo lyco_ok", None);
         assert!(o.ok, "shell_exec 失败: {}", o.summary);
         assert!(o.summary.contains("lyco_ok"), "summary={}", o.summary);
+    }
+
+    /// 回归：宿主注入 BASH_ENV（WorkBuddy/CI 常见）曾让 brush 直接
+    /// "not yet implemented" 全军覆没 —— 子进程环境剥离后必须照常工作。
+    /// （真 bash 本身容忍坏 BASH_ENV 路径，brush 才炸 —— 本测试在 brush
+    /// 在场时防回归，离场时也验证不影响正常路径。）
+    #[test]
+    fn shell_exec_survives_host_injected_bash_env() {
+        // 指向一个肯定不存在的配置文件：真 bash 静默跳过，brush 会炸
+        std::env::set_var("BASH_ENV", "Z:/definitely/not/a/bash/env/file-lyco-test.sh");
+        let o = super::shell_exec("echo lyco_env_ok", None);
+        std::env::remove_var("BASH_ENV");
+        assert!(o.ok, "BASH_ENV 在场时 shell_exec 失败: {}", o.summary);
+        assert!(o.summary.contains("lyco_env_ok"), "summary={}", o.summary);
     }
 
     #[test]

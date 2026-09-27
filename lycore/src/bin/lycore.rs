@@ -300,14 +300,17 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 /// run —— 执行一条本地 CLI（意图路由器的动作出口）
 ///
 /// 用法:
-///   lyco_agent run [--trace <file>] [--cwd <dir>] -- <command...>
+///   lyco_agent run [--trace <file>] [--pack-trace <dir>] [--cwd <dir>] -- <command...>
 ///   lyco_agent run echo hello
 ///
 /// 行为: 打印 `[run <cmd0>] <整条命令>` → 执行 → 摘要 → 以命令退出码退出。
-/// 配合 --trace 可把这次执行写进 trace（回放/出版用）。
+/// 配合 --trace 可把这次执行写进 trace（回放/出版用）；
+/// 配合 --pack-trace 在执行成功后自动打成 mpkg 记忆包（trace-as-commits）。
 fn cmd_run(args: &[String]) -> i32 {
     let mut trace: Option<String> = None;
     let mut cwd: Option<PathBuf> = None;
+    let mut pack_trace_dir: Option<String> = None;
+    let mut pack_name: Option<String> = None;
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
@@ -317,6 +320,14 @@ fn cmd_run(args: &[String]) -> i32 {
             }
             "--cwd" => {
                 cwd = args.get(i + 1).map(PathBuf::from);
+                i += 2;
+            }
+            "--pack-trace" => {
+                pack_trace_dir = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--pack-name" => {
+                pack_name = args.get(i + 1).cloned();
                 i += 2;
             }
             "--" => {
@@ -345,9 +356,27 @@ fn cmd_run(args: &[String]) -> i32 {
     if let Some(tp) = trace {
         let mut tr = lycore::trace::Tracer::new(std::path::Path::new(&tp));
         tr.prompt(&format!("run: {command}"));
-        tr.tool(&head, &command, out.ok);
+        // tool 名恒为 "shell_exec"（trace.rs 文档 schema；pack_trace 只认它，
+        // 命令头可从 arg 推导，不损失信息——用 head 会导致 run 的 trace 打不了包）
+        tr.tool("shell_exec", &command, out.ok);
         if !out.ok {
             tr.revert(out.summary.trim());
+        }
+        // --pack-trace <dir>: 执行成功即把 trace 打成 mpkg（失败调用出不了包，
+        // 这是有意的——记忆包只收确定性脊）
+        if let Some(pd) = pack_trace_dir {
+            if out.ok {
+                match lycore::mpkg::pack_trace(
+                    std::path::Path::new(&tp),
+                    std::path::Path::new(&pd),
+                    pack_name.as_deref(),
+                ) {
+                    Ok((_, id, n)) => eprintln!("[mpkg] 记忆包已就位: {pd} ({id}, {n} 文件)"),
+                    Err(e) => eprintln!("[mpkg] 打包失败(不影响执行结果): {e:#}"),
+                }
+            } else {
+                eprintln!("[mpkg] 执行失败，跳过打包（记忆包只收成功步骤）");
+            }
         }
     }
 
@@ -397,6 +426,18 @@ fn cmd_ask(args: &[String]) -> i32 {
         match agent.run(&mut backend, &question) {
             Ok(turn) => {
                 println!("{}", serde_json::to_string_pretty(&turn).unwrap());
+                // --pack-trace <dir>: 会话成功即把 --trace 的 ndjson 打成 mpkg
+                // （trace-as-commits 全自动闭环；打包失败不影响会话结果本身）
+                if let (Some(tp), Some(pd)) = (flag(args, "--trace"), flag(args, "--pack-trace")) {
+                    match lycore::mpkg::pack_trace(
+                        std::path::Path::new(&tp),
+                        std::path::Path::new(&pd),
+                        flag(args, "--pack-name").as_deref(),
+                    ) {
+                        Ok((_, id, n)) => eprintln!("[mpkg] 记忆包已就位: {pd} ({id}, {n} 文件)"),
+                        Err(e) => eprintln!("[mpkg] 打包失败(不影响会话结果): {e:#}"),
+                    }
+                }
                 0
             }
             Err(e) => {

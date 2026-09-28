@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lyco — 本地 Agent，零 token，零依赖</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; max-width: 720px;
+         margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.7; }
+  h1 { font-size: 1.6em; } code, pre { background: #f4f4f4; border-radius: 6px; }
+  code { padding: 2px 6px; } pre { padding: 12px; overflow-x: auto; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px 20px; margin: 16px 0; }
+  .big { font-size: 1.1em; font-weight: 600; }
+  a { color: #0b62c4; }
+</style>
+</head>
+<body>
+<h1>lyco — 本地 Agent（小白版）</h1>
+<p>像用 codex / claude code 一样，但模型与记忆全部在你自己机器上：
+<b>不需要 API token</b>，也<b>不需要先懂 python / node / uv</b>。</p>
+
+<div class="card">
+<span class="big">① 推荐方式：下载一个 zip，解压，双击 lytray.exe —— 完事</span>
+<p><a class="big" href="lyco-windows.zip">下载 lyco-windows.zip（约 4.5 MB）</a></p>
+<p>右键「全部解压」→ 打开解压出的文件夹 → 双击 <code>lytray.exe</code>。
+屏幕右下角出现 lyco 托盘图标，右键它：</p>
+<ul>
+  <li><b>一键机房自举（Python 环境）</b> —— 点一下，装 uv + 配镜像 + 建 PyQt6 工程，全自动</li>
+  <li><b>打开包目录</b> / <b>打开终端</b> / <b>退出</b></li>
+</ul>
+<p>没有任何命令行，没有 python，没有 node，没有安装过程。</p>
+</div>
+
+<div class="card">
+<b>② 命令行党：PowerShell 一行流</b>
+<pre>powershell -ExecutionPolicy ByPass -c "irm https://lain42.top/lyco-dl/bootstrap.ps1 | iex"</pre>
+下载 <code>lycore.exe</code> 并写入用户 PATH，展开记忆包，自动冒烟。
+</div>
+
+<div class="card">
+<b>③ 单独下载</b>
+<ul>
+  <li><a href="lycore.exe">lycore.exe</a> —— CLI 本体（Rust 单文件，零运行时依赖）</li>
+  <li><a href="packs.zip">packs.zip</a> —— mpkg 记忆包合集</li>
+</ul>
+</div>
+
+<p>mpkg 记忆包：每个包有唯一 content-id，可验证、可离线回放 ——
+「装环境」这类重复劳动固化成一个包，一条命令（或托盘点一下）跑完，退出码说话。</p>
+</body>
+</html>

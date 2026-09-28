@@ -213,7 +213,7 @@ jobs:
       - name: Build
         run: cargo build --release --target x86_64-pc-windows-msvc
       - name: Smoke (exe 能起、能报版本)
-        run: target/x86_64-pc-windows-msvc/release/lycore.exe mpkg-id packs/lab-python-env
+        run: target/x86_64-pc-windows-msvc/release/lycore.exe mpkg-id ../packs/lab-python-env
       - name: Upload
         uses: actions/upload-artifact@v4
         with:

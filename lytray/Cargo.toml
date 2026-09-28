@@ -1,0 +1,20 @@
+[package]
+name = "lytray"
+version = "0.1.0"
+edition = "2021"
+description = "lyco 托盘壳 —— 小白版 GUI：双击进托盘，右键菜单干活（仿 Catime 的轻量路线）"
+
+[dependencies]
+lycore = { path = "../lycore" }
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[[bin]]
+name = "lytray"
+path = "src/main.rs"

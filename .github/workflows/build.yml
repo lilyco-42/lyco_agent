@@ -221,6 +221,54 @@ jobs:
           path: lycore/target/x86_64-pc-windows-msvc/release/lycore.exe
           if-no-files-found: error
 
+  # lytray：小白 GUI 壳（仿 Catime：单文件托盘，无 webview 无 node）。
+  # 产出一体化分发 zip：lytray.exe + lycore.exe + packs/ —— 解压双击即用。
+  build-lytray:
+    name: Windows (lytray 托盘壳 + 分发 zip)
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-lytray-${{ hashFiles('lycore/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Fmt + Clippy (lytray)
+        working-directory: lytray
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+      - name: Build lycore.exe (release)
+        working-directory: lycore
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Build lytray.exe (release) + smoke
+        working-directory: lytray
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          target/x86_64-pc-windows-msvc/release/lytray.exe --smoke
+      - name: Assemble lyco-windows.zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path stage/packs | Out-Null
+          Copy-Item lytray/target/x86_64-pc-windows-msvc/release/lytray.exe stage/
+          Copy-Item lycore/target/x86_64-pc-windows-msvc/release/lycore.exe stage/
+          Copy-Item packs/lab-python-env stage/packs/lab-python-env -Recurse
+          Compress-Archive -Path stage/* -DestinationPath lyco-windows.zip
+          Get-Item lyco-windows.zip | Select-Object Name, Length
+      - name: Upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyco-windows-zip
+          path: lyco-windows.zip
+          if-no-files-found: error
+
   # 静态 musl 构建: 无 glibc 依赖 → 任意 aarch64 Linux 可跑。
   # 动机: gnu 二进制动态链 glibc≥2.39 (CI runner 24.04), 但 Radxa 主流镜像
   # (Ubuntu22.04=2.35 / Debian12=2.36) 更低 → 预编译跑不起来。musl 静态根治。

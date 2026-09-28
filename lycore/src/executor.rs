@@ -144,6 +144,43 @@ pub struct Executor {
     queue: LearningQueue,
 }
 
+/// mpkg 包目录解析：优先知识包下的 `packs/`，其次 exe 同级 `packs/`（分发 zip 布局）。
+fn resolve_packs_dir(pack_dir: &Path) -> Option<PathBuf> {
+    let mut cands = vec![pack_dir.join("packs")];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            cands.push(parent.join("packs"));
+        }
+    }
+    cands.into_iter().find(|c| c.is_dir())
+}
+
+/// 扫描包目录 → [{name, intent, version}]（坏包跳过 —— 宁少报不报垃圾）。
+fn list_packs(dir: &Path) -> anyhow::Result<Vec<serde_json::Value>> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let manifest_path = entry.path().join(crate::mpkg::MANIFEST);
+        if !manifest_path.is_file() {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&manifest_path)?;
+        let m: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => continue, // 坏清单跳过
+        };
+        out.push(serde_json::json!({
+            "name": m.get("name").cloned().unwrap_or_default(),
+            "intent": m.get("intent").cloned().unwrap_or_default(),
+            "version": m.get("version").cloned().unwrap_or_default(),
+        }));
+    }
+    Ok(out)
+}
+
 impl Executor {
     pub fn open(pack_dir: &Path) -> rusqlite::Result<Self> {
         Ok(Self {
@@ -230,6 +267,94 @@ impl Executor {
                     } else {
                         let _ = self.queue.push(input, "rembg_remove: 执行失败");
                         ToolResult::err(name, &o.summary)
+                    }
+                }
+            }
+            "mpkg_list" => {
+                // 记忆包清单: 让模型「看见」自己有哪些已固化的技能包 (trace→mpkg 闭环的
+                // 消费端)。没有包 = 诚实回答, 不编造。
+                match resolve_packs_dir(&self.pack_dir) {
+                    None => ToolResult::err(
+                        name,
+                        "NO_PACKS: 没有找到 packs 目录。请诚实告诉用户当前没有可用记忆包。",
+                    ),
+                    Some(dir) => match list_packs(&dir) {
+                        Ok(list) if list.is_empty() => {
+                            ToolResult::err(name, "NO_PACKS: packs 目录存在但没有可用记忆包。")
+                        }
+                        Ok(list) => {
+                            let json = serde_json::to_string(&list).unwrap_or_else(|_| "[]".into());
+                            ToolResult {
+                                ok: true,
+                                tool: name.to_string(),
+                                answer: Some(json),
+                                command: None,
+                                clip: None,
+                                keyframe: None,
+                                strong: None,
+                                error: None,
+                            }
+                        }
+                        Err(e) => ToolResult::err(name, &format!("mpkg_list error: {e}")),
+                    },
+                }
+            }
+            "mpkg_run" => {
+                // 记忆包回放: 模型按需求选中包 → 确定性执行 (verify_dir 语义:
+                // 清单校验 + content-id 复算 + steps 逐步执行)。结果原样回喂模型转述。
+                let pack = arguments
+                    .get("pack")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if pack.is_empty() {
+                    return ToolResult::err(name, "参数需 {\"pack\": \"包名(如 lab-python-env)\"}");
+                }
+                let dir = match resolve_packs_dir(&self.pack_dir) {
+                    Some(d) => d.join(&pack),
+                    None => {
+                        return ToolResult::err(name, "NO_PACKS: 没有找到 packs 目录。");
+                    }
+                };
+                if !dir.join("mpkg.json").is_file() {
+                    let avail = resolve_packs_dir(&self.pack_dir)
+                        .and_then(|d| list_packs(&d).ok())
+                        .map(|l| {
+                            l.iter()
+                                .filter_map(|p| p.get("name").and_then(|v| v.as_str()))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        })
+                        .unwrap_or_default();
+                    let _ = self.queue.push(&pack, "mpkg_run: 包不存在");
+                    return ToolResult::err(name, &format!("包不存在: {pack}。可用: [{avail}]"));
+                }
+                match crate::mpkg::verify_dir(&dir) {
+                    Ok(att) => {
+                        let ok = att["ok"] == true;
+                        if !ok {
+                            let _ = self.queue.push(&pack, "mpkg_run: 回放失败");
+                        }
+                        // 回放结论原样喂模型 (ok/steps/error) —— 模型负责转述, 不负责判定
+                        ToolResult {
+                            ok,
+                            tool: name.to_string(),
+                            answer: Some(att.to_string()),
+                            command: None,
+                            clip: None,
+                            keyframe: None,
+                            strong: None,
+                            error: if ok {
+                                None
+                            } else {
+                                att["error"].as_str().map(|e| e.to_string())
+                            },
+                        }
+                    }
+                    Err(e) => {
+                        let _ = self.queue.push(&pack, "mpkg_run: 回放无法开始");
+                        ToolResult::err(name, &format!("回放失败: {e:#}"))
                     }
                 }
             }
@@ -460,5 +585,81 @@ impl Executor {
     /// 只读检索 (serve 模式用): 直接拿 Evidence, 不走 tool_call 包装
     pub fn pack_lookup(&self, query: &str) -> Option<crate::Evidence> {
         self.pack.lookup(query).ok().flatten()
+    }
+}
+
+#[cfg(test)]
+mod mpkg_tools_tests {
+    use super::*;
+
+    /// 建临时布局: 复制 smoke/pack_final (只读 sqlite 必须随目录带过来),
+    /// 再塞一个真 mpkg 包 packs/echo-demo (echo 步骤)。
+    fn setup() -> PathBuf {
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../smoke/pack_final");
+        let root = std::env::temp_dir().join(format!("lyco-exe-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let pack = root.join("pack");
+        std::fs::create_dir_all(&pack).expect("建 pack 目录");
+        copy_dir(&src, &pack);
+        std::fs::create_dir_all(pack.join("packs/echo-demo")).expect("建 packs 目录");
+        std::fs::write(
+            pack.join("packs/echo-demo/mpkg.json"),
+            r#"{
+  "mpkg": "0.1",
+  "name": "echo-demo",
+  "version": "0.1.0",
+  "intent": "executor mpkg 工具测试包",
+  "steps": [ { "run": "echo lyco-mpkg-ok" } ],
+  "verify": [ "true" ]
+}"#,
+        )
+        .expect("写 manifest");
+        root.join("pack")
+    }
+
+    fn copy_dir(src: &Path, dst: &Path) {
+        std::fs::create_dir_all(dst).expect("copy_dir mkdir");
+        for entry in std::fs::read_dir(src).expect("copy_dir readdir") {
+            let entry = entry.expect("copy_dir entry");
+            let to = dst.join(entry.file_name());
+            if entry.file_type().expect("ft").is_dir() {
+                copy_dir(&entry.path(), &to);
+            } else {
+                std::fs::copy(entry.path(), &to).expect("copy_dir file");
+            }
+        }
+    }
+
+    #[test]
+    fn executor_mpkg_list_and_run() {
+        let pack = setup();
+        let ex = Executor::open(&pack).expect("Executor::open");
+
+        // list: 模型能「看见」包
+        let r = ex.execute("mpkg_list", &serde_json::json!({}));
+        assert!(r.ok, "mpkg_list 应成功: {:?}", r.error);
+        let answer = r.answer.as_deref().unwrap_or("");
+        assert!(answer.contains("echo-demo"), "清单应含包名: {answer}");
+        assert!(
+            answer.contains("executor mpkg 工具测试包"),
+            "清单应含 intent"
+        );
+
+        // run: 真回放 (echo 步骤真执行)
+        let r = ex.execute("mpkg_run", &serde_json::json!({ "pack": "echo-demo" }));
+        assert!(r.ok, "mpkg_run 应成功: {:?}", r.error);
+        let answer = r.answer.as_deref().unwrap_or("");
+        assert!(answer.contains("\"ok\":true"), "回放结论 ok=true: {answer}");
+
+        // run 不存在的包: 诚实报错并列出可用项 (不编造)
+        let r = ex.execute("mpkg_run", &serde_json::json!({ "pack": "no-such-pack" }));
+        assert!(!r.ok, "不存在的包必须失败");
+        let err = r.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("包不存在") && err.contains("echo-demo"),
+            "报错应点名可用包: {err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&pack);
     }
 }

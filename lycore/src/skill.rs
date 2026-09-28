@@ -151,6 +151,23 @@ pub const ALL_SKILLS: &[Skill] = &[
         executor: "schedule",
         desc: "定时任务 定时启动 每天几点 定时执行 cron 计划任务 schedule timer daily 到点自动运行",
     },
+    // --- mpkg 记忆包 (trace→mpkg 闭环的消费端: 模型看见并复用已固化的经验) ---
+    Skill {
+        name: "mpkg_list",
+        capabilities: &[Capability::FileRead],
+        risk: RiskLevel::Low,
+        verifier: VerifierId::None,
+        executor: "mpkg_list",
+        desc: "查看可用记忆包 有哪些技能包 mpkg 包列表 能做什么任务 list packs memory packages 记忆包清单",
+    },
+    Skill {
+        name: "mpkg_run",
+        capabilities: &[Capability::Shell, Capability::FileWrite, Capability::Network],
+        risk: RiskLevel::High,
+        verifier: VerifierId::ExitCode,
+        executor: "mpkg_run",
+        desc: "执行记忆包 一键自举 环境配置 跑包 运行任务包 mpkg run replay 环境搭建 批量重复任务 经验复用",
+    },
 ];
 
 /// 技能注册表查询 / 按能力过滤 (模型-escalation 与 ToolRAG 裁剪前置)
@@ -224,6 +241,6 @@ mod tests {
             Capability::DeviceControl,
             Capability::GitHub,
         ];
-        assert_eq!(SkillRegistry::allowed_tool_names(&full).len(), 10);
+        assert_eq!(SkillRegistry::allowed_tool_names(&full).len(), 12);
     }
 }

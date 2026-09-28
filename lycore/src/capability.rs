@@ -62,6 +62,15 @@ pub const TOOL_CAPS: &[(&str, &[Capability])] = &[
     ("shell_exec", &[Capability::Shell]),
     ("file_write", &[Capability::FileWrite]),
     ("schedule", &[Capability::Shell, Capability::FileWrite]),
+    ("mpkg_list", &[Capability::FileRead]),
+    (
+        "mpkg_run",
+        &[
+            Capability::Shell,
+            Capability::FileWrite,
+            Capability::Network,
+        ],
+    ),
 ];
 
 /// 查询某工具声明的能力 (未登记返回空切片)

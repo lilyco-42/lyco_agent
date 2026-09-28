@@ -1,0 +1,12 @@
+# 机房自举：PyPI 镜像 + 拷贝链接模式
+# 由 lab-python-env 包安装到 %APPDATA%\uv\uv.toml（仅当该文件不存在时）。
+# 已有个人配置的机器不会覆盖 —— 手动合并请自行拷贝下面两段。
+
+# PyPI 走 aliyun 镜像（机房直连 pypi.org 的痛谁都懂）
+[[index]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
+# 机房盘符常禁 symlink/junction，uv 默认硬链接装包会炸 —— 强制 copy
+link-mode = "copy"

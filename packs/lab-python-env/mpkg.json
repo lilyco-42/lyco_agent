@@ -1,0 +1,32 @@
+{
+  "mpkg": "0.1",
+  "name": "lab-python-env",
+  "version": "0.1.0",
+  "intent": "机房/重置环境一键自举：装 uv + 配 aliyun PyPI 镜像 + 建 PyQt6 工程（全幂等，已有配置不覆盖）",
+  "author": "agent:lilyco",
+  "requirements": {
+    "os": ["windows"]
+  },
+  "steps": [
+    { "run": "command -v uv >/dev/null 2>&1 && echo '[skip] uv 已在 PATH' || { echo '[boot] 安装 uv ...'; powershell -NoProfile -ExecutionPolicy ByPass -c \"irm https://astral.sh/uv/install.ps1 | iex\"; }" },
+    { "run": "test -f \"$APPDATA/uv/uv.toml\" && echo '[skip] uv.toml 已存在，不覆盖个人配置' || { mkdir -p \"$APPDATA/uv\" && cp \"{{pkg}}/uv.toml\" \"$APPDATA/uv/uv.toml\" && echo '[cfg] aliyun 镜像 + copy 链接模式已写入'; }" },
+    { "run": "export PATH=\"$HOME/.local/bin:$PATH\" && mkdir -p \"{{work}}/pyqt6-app\" && cd \"{{work}}/pyqt6-app\" && uv init --bare . && echo '[init] pyproject.toml 就位'" },
+    { "run": "export PATH=\"$HOME/.local/bin:$PATH\" && cd \"{{work}}/pyqt6-app\" && uv add pyqt6 --link-mode=copy && echo '[add] pyqt6 依赖树就位'" }
+  ],
+  "verify": [
+    "test -f {{pkg}}/mpkg.json",
+    "test -f {{pkg}}/uv.toml",
+    "test -f \"$APPDATA/uv/uv.toml\"",
+    "test -f {{work}}/pyqt6-app/pyproject.toml",
+    "grep -q pyqt6 {{work}}/pyqt6-app/pyproject.toml",
+    "export PATH=\"$HOME/.local/bin:$PATH\" && uv --version"
+  ],
+  "tags": ["bootstrap", "python", "uv", "pyqt6", "lab"],
+  "license": "MIT",
+  "provenance": {
+    "generator": "human+ai:lilyco+workbuddy",
+    "prompts": [
+      { "n": 1, "text": "prompts/1.md" }
+    ]
+  }
+}

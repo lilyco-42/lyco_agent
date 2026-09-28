@@ -38,3 +38,4 @@ lycore/out/
 
 # 本地构建/临时二进制产物 (sync_build 等脚本的落点, 非源码)
 .bin/
+distribution/packs.zip

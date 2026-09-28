@@ -188,6 +188,39 @@ jobs:
             lycore/fixture-counts.txt
           if-no-files-found: error
 
+  # Windows x64: 小白主战场 —— lycore.exe 单文件零依赖（无需 python/node/uv），
+  # 分发到 lain42.top 供一键 bootstrap（lyco-ops 分发管线）。
+  build-windows:
+    name: Windows (x86_64-pc-windows-msvc)
+    runs-on: windows-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: lycore
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('lycore/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Smoke (exe 能起、能报版本)
+        run: target/x86_64-pc-windows-msvc/release/lycore.exe mpkg-id packs/lab-python-env
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: lycore-x86_64-pc-windows-msvc
+          path: lycore/target/x86_64-pc-windows-msvc/release/lycore.exe
+          if-no-files-found: error
+
   # 静态 musl 构建: 无 glibc 依赖 → 任意 aarch64 Linux 可跑。
   # 动机: gnu 二进制动态链 glibc≥2.39 (CI runner 24.04), 但 Radxa 主流镜像
   # (Ubuntu22.04=2.35 / Debian12=2.36) 更低 → 预编译跑不起来。musl 静态根治。
@@ -240,7 +273,7 @@ jobs:
     name: Attach to Release
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    needs: [build, build-musl]
+    needs: [build, build-musl, build-windows]
     permissions:
       contents: write
     steps:
@@ -255,6 +288,11 @@ jobs:
         with:
           name: lycore-aarch64-static
           path: dist_dl_static
+      - name: Download windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lycore-x86_64-pc-windows-msvc
+          path: dist_dl_win
       - name: Stage assets
         run: |
           mkdir -p out
@@ -262,6 +300,7 @@ jobs:
           chmod +x out/lycore-aarch64
           cp dist_dl_static/lycore out/lycore-aarch64-static
           chmod +x out/lycore-aarch64-static
+          cp dist_dl_win/lycore.exe out/lycore-x86_64.exe
           # 源码包: 已跟踪文件 (与 git archive HEAD 一致, 含演示知识包与训练脚本)
           git archive --format=tar.gz -o out/lyco_radxa_src.tar.gz HEAD
           ls -la out/
@@ -271,7 +310,7 @@ jobs:
         run: |
           # tag push 时 Release 尚不存在: 先 create (无资产, 直接发布), 已存在则跳过
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
-            --notes "自动构建: lycore-aarch64 (gnu) + lycore-aarch64-static (musl, 任意 aarch64 Linux 可跑) + 源码包。部署步骤详见 lyco-ops 仓 RADXA_SETUP.md (https://github.com/lilyco-42/lyco-ops)" \
+            --notes "自动构建: lycore-aarch64 (gnu) + lycore-aarch64-static (musl, 任意 aarch64 Linux 可跑) + lycore-x86_64.exe (Windows 单文件) + 源码包。部署步骤详见 lyco-ops 仓 RADXA_SETUP.md (https://github.com/lilyco-42/lyco-ops)" \
             2>/dev/null || echo "release 已存在, 直接上传"
           gh release upload "$GITHUB_REF_NAME" \
-            out/lycore-aarch64 out/lycore-aarch64-static out/lyco_radxa_src.tar.gz --clobber
+            out/lycore-aarch64 out/lycore-aarch64-static out/lycore-x86_64.exe out/lyco_radxa_src.tar.gz --clobber
